@@ -1,0 +1,101 @@
+{
+  "name": "obsidian-optimizer",
+  "productName": "Obsidian Optimizer",
+  "version": "4.3.0",
+  "description": "世界最高レベルのObsidian Vault最適化・知識管理アシスタント。孤立ノート検出、MOC自動生成、ナレッジグラフ分析、リアルタイム監視、構造テンプレート適用を統合したデスクトップアプリ。",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "COPYFILE_DISABLE=1 electron-builder --dir",
+    "dist": "COPYFILE_DISABLE=1 electron-builder",
+    "dist:mac": "COPYFILE_DISABLE=1 electron-builder --mac",
+    "dist:mac:pkg": "COPYFILE_DISABLE=1 electron-builder --mac pkg --arm64",
+    "dist:win": "COPYFILE_DISABLE=1 electron-builder --win --x64",
+    "dist:all": "COPYFILE_DISABLE=1 electron-builder --mac --win --x64",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "build": {
+    "appId": "com.aiterakoya-craftlab.obsidian-optimizer",
+    "productName": "Obsidian Optimizer",
+    "copyright": "Copyright © 2025 AI寺子屋 CraftLab",
+    "afterPack": "./scripts/fix-icon.js",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.icns",
+      "target": [
+        "zip"
+      ],
+      "identity": null,
+      "forceCodeSigning": false,
+      "darkModeSupport": true,
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
+    },
+    "pkg": {
+      "installLocation": "/Applications",
+      "allowAnywhere": true,
+      "allowCurrentUserHome": true,
+      "allowRootDirectory": true
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Obsidian Optimizer"
+    },
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "asar": false,
+    "files": [
+      "main.js",
+      "renderer.js",
+      "preload.js",
+      "index.html",
+      "styles.css",
+      "package.json",
+      "assets/**/*",
+      "!**/._*",
+      "!**/.DS_Store"
+    ]
+  },
+  "keywords": [
+    "obsidian",
+    "vault",
+    "optimizer",
+    "knowledge-management",
+    "moc",
+    "note-taking"
+  ],
+  "author": {
+    "name": "AI寺子屋 CraftLab",
+    "email": "contact@aiterakoya-craftlab.com"
+  },
+  "license": "MIT",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^40.8.0",
+    "electron-builder": "^25.1.8",
+    "electron-packager": "^17.1.2",
+    "playwright": "^1.58.2"
+  }
+}

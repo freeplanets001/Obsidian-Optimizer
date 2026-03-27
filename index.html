@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obsidian Optimizer</title>
+    <link rel="stylesheet" href="styles.css">
+    <svg width="0" height="0" style="position:absolute">
+        <defs>
+            <linearGradient id="healthGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#7c6cf8" />
+                <stop offset="100%" stop-color="#34d399" />
+            </linearGradient>
+        </defs>
+    </svg>
+</head>
+
+<body>
+    <div class="bg">
+        <div class="aurora aurora-1"></div>
+        <div class="aurora aurora-2"></div>
+        <div class="aurora aurora-3"></div>
+        <div class="grid-overlay"></div>
+    </div>
+
+    <div class="app">
+        <!-- ===== サイドバー ===== -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">⬡</span>
+                <div class="logo-text">
+                    <span class="logo-main">Obsidian</span>
+                    <span class="logo-sub">Optimizer</span>
+                </div>
+            </div>
+            <nav class="nav" role="tablist" aria-label="メインナビゲーション">
+                <button class="nav-item active" data-tab="dashboard" role="tab" aria-selected="true" aria-controls="tab-dashboard"><span
+                        class="nav-icon">🏠</span><span>ダッシュボード</span></button>
+                <button class="nav-item" data-tab="scan" role="tab" aria-selected="false" aria-controls="tab-scan"><span class="nav-icon">🔍</span><span>スキャン結果</span><span
+                        class="nav-badge" id="nav-badge-scan" style="display:none">0</span></button>
+                <button class="nav-item" data-tab="preview" role="tab" aria-selected="false" aria-controls="tab-preview"><span
+                        class="nav-icon">👁️</span><span>変更プレビュー</span></button>
+                <button class="nav-item" data-tab="optimize" role="tab" aria-selected="false" aria-controls="tab-optimize"><span class="nav-icon">✨</span><span>最適化</span></button>
+                <button class="nav-item" data-tab="moc-create" role="tab" aria-selected="false" aria-controls="tab-moc-create"><span class="nav-icon">🗺️</span><span>MOC作成</span></button>
+                <button class="nav-item" data-tab="stats" role="tab" aria-selected="false" aria-controls="tab-stats"><span class="nav-icon">📊</span><span>統計・分析</span></button>
+                <button class="nav-item" data-tab="knowledge-graph" role="tab" aria-selected="false" aria-controls="tab-knowledge-graph"><span class="nav-icon">🧠</span><span>ナレッジグラフ</span></button>
+                <button class="nav-item" data-tab="archive" role="tab" aria-selected="false" aria-controls="tab-archive"><span class="nav-icon">📦</span><span>アーカイブ提案</span></button>
+                <button class="nav-item" data-tab="merge" role="tab" aria-selected="false" aria-controls="tab-merge"><span class="nav-icon">🔀</span><span>ノート統合</span></button>
+                <button class="nav-item" data-tab="structure" role="tab" aria-selected="false" aria-controls="tab-structure"><span class="nav-icon">🏗️</span><span>構造テンプレート</span></button>
+                <button class="nav-item" data-tab="graph" role="tab" aria-selected="false" aria-controls="tab-graph"><span class="nav-icon">🕸️</span><span>グラフビュー</span></button>
+                <button class="nav-item" data-tab="organize" role="tab" aria-selected="false" aria-controls="tab-organize"><span class="nav-icon">🧹</span><span>整理ツール</span></button>
+                <button class="nav-item" data-tab="log" role="tab" aria-selected="false" aria-controls="tab-log"><span class="nav-icon">📋</span><span>操作ログ</span><span
+                        class="nav-badge" id="nav-badge-log" style="display:none">0</span></button>
+                <button class="nav-item" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings"><span class="nav-icon">⚙️</span><span>設定</span></button>
+                <button class="nav-item" data-tab="help" role="tab" aria-selected="false" aria-controls="tab-help"><span class="nav-icon">❓</span><span>ヘルプ</span></button>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="last-scan-info">
+                    <span class="last-scan-label">最終スキャン</span>
+                    <span id="last-scan-time" class="last-scan-time">未実行</span>
+                </div>
+                <p class="version">v4.3 Ultimate Edition</p>
+            </div>
+        </aside>
+
+        <!-- ===== メイン ===== -->
+        <main class="main">
+
+            <!-- ダッシュボード -->
+            <div class="tab-content active" id="tab-dashboard" role="tabpanel" aria-labelledby="tab-dashboard">
+                <div class="page-header">
+                    <div>
+                        <h1>ダッシュボード</h1>
+                        <p class="page-subtitle">Vault の健全性を一目で確認</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="ghost-btn small-btn" id="btn-widget-settings" title="表示ウィジェットを設定">🔧 ウィジェット設定</button>
+                        <button class="ghost-btn small-btn undo-btn" id="btn-undo" style="display:none" aria-label="最後の操作を元に戻す">↩ 元に戻す</button>
+                        <button class="ghost-btn" id="btn-health-report" aria-label="Vaultヘルスレポートを出力">📋 レポート出力</button>
+                        <button class="ghost-btn" id="btn-export" disabled aria-label="レポートをファイルに出力">📤 レポート出力</button>
+                        <select id="export-format" class="vault-select" style="margin-right:8px;" disabled>
+                            <option value="csv">CSV形式</option>
+                            <option value="json">JSON形式</option>
+                        </select>
+                        <button class="ghost-btn" id="btn-export-data" disabled>📊 データ書出</button>
+                    </div>
+                </div>
+                <div class="glass-card vault-card">
+                    <div class="vault-card-left">
+                        <span class="pill-label">Vault</span>
+                        <div style="display:flex;gap:8px;align-items:center;">
+                            <select id="vault-switcher" class="vault-select"></select>
+                            <button class="ghost-btn small-btn" id="btn-add-vault" title="Vaultを追加">➕ 追加</button>
+                            <button class="ghost-btn small-btn danger-btn" id="btn-remove-vault"
+                                title="このVaultをリストから外す">➖ 削除</button>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class="icon-btn" id="btn-open-vault" title="Finderで開く" aria-label="VaultをFinderで開く">📂</button>
+                    </div>
+                </div>
+                <p id="vault-status-text" class="vault-status-ok" style="margin:4px 0 0;font-size:0.78rem;"></p>
+
+                <!-- 🔥 ヒートマップ -->
+                <div class="glass-card widget-card" id="heatmap-card" data-widget="heatmap">
+                    <h3 class="card-title">🔥 更新ヒートマップ (過去1年)</h3>
+                    <div class="heatmap-wrapper" id="heatmap-container">
+                        <!-- SVG generated by JS -->
+                    </div>
+                </div>
+
+                <div class="health-section widget-card" data-widget="healthScore">
+                    <div class="health-ring-wrap">
+                        <svg viewBox="0 0 120 120" class="health-ring">
+                            <circle class="ring-track" cx="60" cy="60" r="50" />
+                            <circle class="ring-fill" id="health-ring-fg" cx="60" cy="60" r="50" />
+                        </svg>
+                        <div class="ring-center">
+                            <span id="health-score" class="ring-score">--</span>
+                            <span class="ring-label">健全度</span>
+                        </div>
+                    </div>
+                    <div class="kpi-grid">
+                        <div class="kpi-card"><span class="kpi-emoji">📝</span><span class="kpi-val"
+                                id="h-total">-</span><span class="kpi-name">総ノート数</span></div>
+                        <div class="kpi-card"><span class="kpi-emoji">🗺️</span><span class="kpi-val"
+                                id="h-mocs">-</span><span class="kpi-name">MOC 数</span></div>
+                        <div class="kpi-card kpi-warn"><span class="kpi-emoji">⚠️</span><span class="kpi-val"
+                                id="h-orphans">-</span><span class="kpi-name">孤立ノート</span></div>
+                        <div class="kpi-card kpi-danger"><span class="kpi-emoji">🗑️</span><span class="kpi-val"
+                                id="h-junk">-</span><span class="kpi-name">ゴミファイル</span></div>
+                        <div class="kpi-card kpi-stale"><span class="kpi-emoji">📅</span><span class="kpi-val"
+                                id="h-stale">-</span><span class="kpi-name">放置ノート</span></div>
+                        <div class="kpi-card"><span class="kpi-emoji">🔗</span><span class="kpi-val"
+                                id="h-links">-</span><span class="kpi-name">総リンク</span></div>
+                        <div class="kpi-card kpi-broken"><span class="kpi-emoji">💔</span><span class="kpi-val"
+                                id="h-broken">-</span><span class="kpi-name">壊れたリンク</span></div>
+                    </div>
+                </div>
+
+                <div class="glass-card widget-card" data-widget="folderDist">
+                    <div class="card-header-row">
+                        <h3 class="card-title">📁 フォルダ分布</h3>
+                        <span id="folder-chart-empty" class="muted-hint">スキャン後に表示</span>
+                    </div>
+                    <div id="folder-chart" class="folder-chart"></div>
+                </div>
+
+                <!-- Feature G: タイムマシン -->
+                <div class="glass-card widget-card" id="time-machine-card" data-widget="timeMachine" style="display:none">
+                    <h3 class="card-title">🕐 タイムマシン <span class="muted-hint" id="timeline-date-label"></span></h3>
+                    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+                        <input type="date" id="timeline-date-input" class="text-input">
+                        <button class="ghost-btn small-btn" id="btn-timeline-search">🔍 検索</button>
+                    </div>
+                    <div id="timeline-results"></div>
+                </div>
+
+                <!-- Feature D: リアルタイム監視 -->
+                <div class="glass-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <h3 class="card-title">👁️ リアルタイム監視</h3>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <span id="vault-watch-indicator" style="display:none;font-size:.72rem;color:var(--green);animation:vw-pulse 2s infinite">● 監視中</span>
+                            <button class="ghost-btn small-btn" id="btn-toggle-vault-watch">👁️ 監視開始</button>
+                        </div>
+                    </div>
+                    <div class="scrollable-list" id="vault-watch-feed" style="max-height:200px">
+                        <div class="list-empty">監視を開始するとファイル変更がリアルタイムで表示されます</div>
+                    </div>
+                </div>
+
+                <!-- Feature 5: 推移グラフ -->
+                <div class="glass-card widget-card" id="trends-card" data-widget="trends">
+                    <div class="card-header-row">
+                        <h3 class="card-title">📈 推移グラフ</h3>
+                        <span class="muted-hint" id="trends-empty">スキャン履歴が2回以上必要です</span>
+                    </div>
+                    <div id="trends-chart" style="margin-top:8px"></div>
+                    <div id="trends-comparison" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px"></div>
+                </div>
+
+                <!-- Feature 8: ゲーミフィケーション -->
+                <div class="glass-card widget-card" id="achievements-card" data-widget="achievements">
+                    <h3 class="card-title">🏅 実績バッジ</h3>
+                    <div id="achievements-grid" class="achievements-grid" style="margin-top:10px">
+                        <div class="list-empty">スキャン後に表示されます</div>
+                    </div>
+                </div>
+
+                <!-- Feature 4: 推奨アクション -->
+                <div class="glass-card" id="recommended-actions-card" style="display:none">
+                    <h3 class="card-title">💡 推奨アクション</h3>
+                    <div id="recommended-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
+                </div>
+
+                <div class="action-row">
+                    <button class="action-btn btn-scan" id="btn-quick-scan">
+                        <span class="btn-icon">🔍</span><span class="btn-label">Vault をスキャン</span><span
+                            class="btn-hint">全ファイルを解析</span>
+                    </button>
+                    <button class="action-btn btn-preview" id="btn-preview" disabled>
+                        <span class="btn-icon">👁️</span><span class="btn-label">変更をプレビュー</span><span
+                            class="btn-hint">実行前に影響を確認</span>
+                    </button>
+                    <button class="action-btn btn-optimize" id="btn-quick-optimize" disabled>
+                        <span class="btn-icon">✨</span><span class="btn-label">最適化を実行</span><span
+                            class="btn-hint">孤立・ゴミを自動修正</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- スキャン結果 -->
+            <div class="tab-content" id="tab-scan" role="tabpanel" aria-labelledby="tab-scan">
+                <div class="page-header">
+                    <div>
+                        <h1>スキャン結果</h1>
+                        <p class="page-subtitle">問題のあるノートの詳細一覧</p>
+                    </div>
+                    <button class="ghost-btn" id="btn-scan-now">🔍 再スキャン</button>
+                </div>
+
+                <!-- 孤立ノート -->
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3 class="card-title">⚠️ 孤立ノート <span class="count-badge" id="badge-orphan">0</span></h3>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <input class="search-input" id="search-orphan" placeholder="絞り込み..." type="text">
+                            <button class="ghost-btn small-btn" id="btn-select-all-orphan">全選択</button>
+                            <button class="ghost-btn small-btn danger-btn" id="btn-delete-selected-orphan"
+                                disabled>選択を削除</button>
+                        </div>
+                    </div>
+                    <div class="list-empty" id="orphan-empty">スキャンを実行すると一覧が表示されます</div>
+                    <div class="scrollable-list" id="orphan-list"></div>
+                </div>
+
+                <!-- 放置ノート -->
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3 class="card-title">📅 放置ノート (半年無更新) <span class="count-badge stale"
+                                id="badge-stale">0</span></h3>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <input class="search-input" id="search-stale" placeholder="絞り込み..." type="text">
+                            <button class="ghost-btn small-btn" id="btn-select-all-stale">全選択</button>
+                            <button class="ghost-btn small-btn" id="btn-preview-selected-stale" disabled>👁️ 選択を一括プレビュー</button>
+                            <button class="ghost-btn small-btn" id="btn-archive-stale" disabled>📦 一括アーカイブ</button>
+                        </div>
+                    </div>
+                    <div class="list-empty" id="stale-empty">最近更新されたノートばかりです</div>
+                    <div class="scrollable-list" id="stale-list"></div>
+                </div>
+
+                <!-- ゴミファイル -->
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3 class="card-title">🗑️ ゴミファイル <span class="count-badge danger" id="badge-junk">0</span></h3>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <input class="search-input" id="search-junk" placeholder="絞り込み..." type="text">
+                            <button class="ghost-btn small-btn" id="btn-select-all-junk">全選択</button>
+                            <button class="ghost-btn small-btn danger-btn" id="btn-delete-selected-junk"
+                                disabled>選択を削除</button>
+                        </div>
+                    </div>
+                    <div class="list-empty" id="junk-empty">スキャンを実行すると一覧が表示されます</div>
+                    <div class="scrollable-list" id="junk-list"></div>
+                </div>
+
+                <!-- 壊れたリンク -->
+                <div class="glass-card" id="broken-card" style="display:none">
+                    <div class="card-header-row">
+                        <h3 class="card-title">💔 壊れたリンク <span class="count-badge broken" id="badge-broken">0</span></h3>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <input class="search-input" id="search-broken" placeholder="壊れたリンクを絞り込み..." type="text">
+                            <button class="ghost-btn small-btn" id="btn-select-all-broken">全選択</button>
+                            <button class="ghost-btn small-btn" id="btn-fix-all-broken">候補ありを一括修復</button>
+                            <button class="ghost-btn small-btn" id="btn-fix-selected-broken" disabled>選択を修復</button>
+                        </div>
+                    </div>
+                    <div class="scrollable-list" id="broken-list"></div>
+                </div>
+
+                <!-- 重複ノート -->
+                <div class="glass-card" id="dup-card" style="display:none">
+                    <h3 class="card-title">📋 重複ノート候補 <span class="count-badge warn" id="badge-dup">0</span></h3>
+                    <div class="scrollable-list" id="dup-list"></div>
+                </div>
+
+                <!-- Feature 7: 孤立画像/添付ファイル -->
+                <div class="glass-card" id="orphan-image-card" style="display:none">
+                    <div class="card-header-row" style="display:flex;justify-content:space-between;align-items:center">
+                        <h3 class="card-title">🖼️ 孤立画像/添付ファイル <span class="count-badge warn" id="badge-orphan-image">0</span></h3>
+                        <div style="display:flex;gap:8px">
+                            <button class="ghost-btn small-btn" id="btn-select-all-orphan-image">全選択</button>
+                            <button class="ghost-btn small-btn danger-btn" id="btn-delete-orphan-images" disabled>選択を削除</button>
+                        </div>
+                    </div>
+                    <p id="orphan-image-summary" class="muted-hint" style="margin:4px 0 8px"></p>
+                    <div class="scrollable-list" id="orphan-image-list"></div>
+                </div>
+
+                <!-- AI機能 -->
+                <div class="glass-card" id="ai-features-card">
+                    <div class="card-header-row">
+                        <h3 class="card-title">🤖 AI分析</h3>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <button class="ghost-btn small-btn ai-btn" id="btn-ai-find-duplicates">🔍 AI重複検出</button>
+                        </div>
+                    </div>
+                    <p class="muted-hint" style="margin:4px 0 8px">AIが意味的に重複するノートを検出します（設定でAPIキーの登録が必要です）</p>
+                    <div id="ai-duplicates-result" class="scrollable-list" style="display:none"></div>
+                    <div id="ai-duplicates-empty" class="list-empty" style="display:none">AI重複検出の結果がここに表示されます</div>
+                </div>
+            </div>
+
+            <!-- 変更プレビュー -->
+            <div class="tab-content" id="tab-preview" role="tabpanel" aria-labelledby="tab-preview">
+                <div class="page-header">
+                    <div>
+                        <h1>変更プレビュー</h1>
+                        <p class="page-subtitle">実行前に影響範囲を確認・個別選択</p>
+                    </div>
+                    <button class="ghost-btn" id="btn-run-dryrun">👁️ プレビュー更新</button>
+                </div>
+                <div class="glass-card">
+                    <div class="card-header-row">
+                        <h3 class="card-title">🗑️ 削除予定のゴミファイル</h3>
+                        <div style="display:flex;gap:8px">
+                            <button class="ghost-btn small-btn" id="btn-select-all-preview-junk">全選択</button>
+                            <button class="ghost-btn small-btn danger-btn" id="btn-delete-preview-selected"
+                                disabled>選択した項目を今すぐ削除</button>
+                        </div>
+                    </div>
+                    <div class="list-empty" id="preview-junk-empty">「プレビュー更新」を押してください</div>
+                    <div class="scrollable-list" id="preview-junk-list"></div>
+                </div>
+                <div class="glass-card">
+                    <h3 class="card-title">🔗 MOC へ接続予定のノート</h3>
+                    <div class="list-empty" id="preview-orphan-empty">「プレビュー更新」を押してください</div>
+                    <div class="scrollable-list" id="preview-orphan-list"></div>
+                </div>
+            </div>
+
+            <!-- 最適化 -->
+            <div class="tab-content" id="tab-optimize" role="tabpanel" aria-labelledby="tab-optimize">
+                <div class="page-header">
+                    <div>
+                        <h1>Vault 最適化</h1>
+                        <p class="page-subtitle">Vault を自動整理します</p>
+                    </div>
+                </div>
+                <div class="glass-card">
+                    <h3 class="card-title">🛠️ 実行オプション</h3>
+                    <div class="option-list">
+                        <label class="option-item">
+                            <input type="checkbox" id="opt-junk" checked>
+                            <div class="option-body"><span class="option-title">🗑️ ゴミファイルを削除</span><span
+                                    class="option-desc">空・無題・コンテンツなしのファイルを削除します（バックアップあり）</span></div>
+                        </label>
+                        <label class="option-item">
+                            <input type="checkbox" id="opt-orphan" checked>
+                            <div class="option-body"><span class="option-title">🔗 孤立ノートを MOC へ接続</span><span
+                                    class="option-desc">キーワード解析で最適な MOC へ自動リンクします</span></div>
+                        </label>
+                    </div>
+                </div>
+                <div class="glass-card">
+                    <h3 class="card-title">📊 実行プログレス</h3>
+                    <div class="progress-wrap">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fg" id="progress-bar" style="width:0%"></div>
+                        </div>
+                        <p id="progress-msg" class="progress-msg">最適化ボタンを押すと開始します</p>
+                    </div>
+                    <div id="progress-result" class="progress-result" style="display:none"></div>
+                </div>
+
+                <div class="glass-card">
+                    <h3 class="card-title">🗺️ 指定フォルダの MOC を自動生成</h3>
+                    <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+                        <label style="font-size:0.8rem;color:var(--text-dim);white-space:nowrap">対象:</label>
+                        <select id="moc-folder-select" class="search-input" style="flex:1"></select>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+                        <label style="font-size:0.8rem;color:var(--text-dim);white-space:nowrap">保存先:</label>
+                        <select id="moc-dest-select" class="search-input" style="flex:1">
+                            <option value="">（対象フォルダと同じ場所）</option>
+                        </select>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px">
+                        <button class="ghost-btn" id="btn-gen-moc">MOC を作成</button>
+                    </div>
+                    <p id="moc-gen-result" class="vault-status-ok" style="margin-top:8px;font-size:0.8rem"></p>
+                </div>
+                <button class="action-btn btn-optimize run-btn" id="btn-run-optimize" disabled>
+                    <span class="btn-icon">✨</span><span class="btn-label">最適化を実行する</span><span class="btn-hint"
+                        id="run-btn-hint">先にスキャンを実行してください</span>
+                </button>
+            </div>
+
+            <!-- MOC作成 -->
+            <div class="tab-content" id="tab-moc-create" role="tabpanel" aria-labelledby="tab-moc-create">
+                <div class="page-header">
+                    <div>
+                        <h1>MOC 作成</h1>
+                        <p class="page-subtitle">テンプレートから柔軟にMOCファイルを作成</p>
+                    </div>
+                </div>
+
+                <!-- モードセレクター -->
+                <div class="glass-card">
+                    <h3 class="card-title">🎯 作成モードを選択</h3>
+                    <div class="moc-mode-grid">
+                        <button class="moc-mode-card selected" data-mode="wizard" onclick="window.setMocMode('wizard')" aria-label="ウィザードモードで作成">
+                            <span class="moc-mode-icon">🧙</span>
+                            <div class="moc-mode-info">
+                                <span class="moc-mode-name">ウィザード</span>
+                                <span class="moc-mode-desc">ステップバイステップで作成（初心者向け）</span>
+                            </div>
+                        </button>
+                        <button class="moc-mode-card" data-mode="normal" onclick="window.setMocMode('normal')" aria-label="通常モードで作成">
+                            <span class="moc-mode-icon">⚙️</span>
+                            <div class="moc-mode-info">
+                                <span class="moc-mode-name">通常モード</span>
+                                <span class="moc-mode-desc">全項目を自由に設定</span>
+                            </div>
+                        </button>
+                        <button class="moc-mode-card" data-mode="batch" onclick="window.setMocMode('batch')" aria-label="一括生成モード">
+                            <span class="moc-mode-icon">📦</span>
+                            <div class="moc-mode-info">
+                                <span class="moc-mode-name">一括生成</span>
+                                <span class="moc-mode-desc">複数フォルダのMOCをまとめて作成</span>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ====== ウィザードモード ====== -->
+                <div id="moc-mode-wizard">
+                    <!-- ステップインジケーター -->
+                    <div class="wizard-steps-bar">
+                        <div class="wizard-step-indicator active" data-step="1"><span class="wizard-step-num">1</span><span class="wizard-step-label">テンプレート</span></div>
+                        <div class="wizard-step-connector"></div>
+                        <div class="wizard-step-indicator" data-step="2"><span class="wizard-step-num">2</span><span class="wizard-step-label">基本情報</span></div>
+                        <div class="wizard-step-connector"></div>
+                        <div class="wizard-step-indicator" data-step="3"><span class="wizard-step-num">3</span><span class="wizard-step-label">タグ・フォルダ</span></div>
+                        <div class="wizard-step-connector"></div>
+                        <div class="wizard-step-indicator" data-step="4"><span class="wizard-step-num">4</span><span class="wizard-step-label">ノート候補</span></div>
+                        <div class="wizard-step-connector"></div>
+                        <div class="wizard-step-indicator" data-step="5"><span class="wizard-step-num">5</span><span class="wizard-step-label">確認・作成</span></div>
+                    </div>
+
+                    <!-- Step 1: テンプレート -->
+                    <div class="wizard-panel active" id="wizard-step-1">
+                        <div class="glass-card">
+                            <h3 class="card-title">📋 テンプレートを選んでください</h3>
+                            <p class="moc-hint" style="margin-bottom:12px">MOCの構造を決めるテンプレートを選択します。迷ったら「標準MOC」がおすすめです。</p>
+                            <div id="wizard-template-cards" class="moc-template-grid"></div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: 基本情報 -->
+                    <div class="wizard-panel" id="wizard-step-2">
+                        <div class="glass-card">
+                            <h3 class="card-title">✏️ MOCの基本情報を入力</h3>
+                            <div class="moc-form">
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">MOC名 <span class="moc-prefix-hint">MOC - </span> <span class="moc-tooltip" data-tip="作成されるMOCのファイル名になります。例: 「AI Tools」→「MOC - AI Tools.md」">?</span></label>
+                                    <input type="text" id="wizard-moc-name" class="moc-input" placeholder="例: AI Tools & Platforms">
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">保存先フォルダ <span class="moc-tooltip" data-tip="MOCファイルが保存されるVault内のフォルダです。通常は「10 Atlas」に保存します。">?</span></label>
+                                    <select id="wizard-dest-folder" class="moc-select"><option value="10 Atlas">10 Atlas</option></select>
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">説明文 <span class="moc-tooltip" data-tip="MOCの冒頭に表示される1行の説明文です。空欄の場合は自動生成されます。">?</span></label>
+                                    <input type="text" id="wizard-description" class="moc-input" placeholder="（空欄でもOK - 自動生成されます）">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: タグ・フォルダ -->
+                    <div class="wizard-panel" id="wizard-step-3">
+                        <div class="glass-card">
+                            <h3 class="card-title">🏷️ タグとフォルダを設定</h3>
+                            <p class="moc-hint" style="margin-bottom:12px">MOCに自動集約するタグやフォルダを設定します。スキップも可能です。</p>
+                            <div class="moc-form">
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">タグ <span class="moc-hint">カンマ区切り</span> <span class="moc-tooltip" data-tip="MOCのフロントマターに付与されるタグです。Dataviewクエリでの自動集約にも使われます。">?</span></label>
+                                    <input type="text" id="wizard-tags" class="moc-input" placeholder="例: topic/ai, topic/dify">
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">自動集約フォルダ <span class="moc-hint">複数選択可</span> <span class="moc-tooltip" data-tip="ここで選択したフォルダ内のノートが、DataviewクエリでMOCに自動表示されます。">?</span></label>
+                                    <select id="wizard-auto-folders" class="moc-select" multiple size="4"></select>
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">自動集約タグ <span class="moc-hint">カンマ区切り</span> <span class="moc-tooltip" data-tip="ここで指定したタグを持つノートが、DataviewクエリでMOCに自動表示されます。">?</span></label>
+                                    <input type="text" id="wizard-auto-tags" class="moc-input" placeholder="例: topic/ai">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: スマートノート候補 -->
+                    <div class="wizard-panel" id="wizard-step-4">
+                        <div class="glass-card">
+                            <h3 class="card-title">🤖 関連ノート候補</h3>
+                            <p class="moc-hint" style="margin-bottom:12px">Vault内を分析し、このMOCに関連しそうなノートを提案します。</p>
+                            <div id="wizard-smart-suggestions" class="smart-suggestions-list">
+                                <p class="muted-hint">分析中...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 5: 確認・作成 -->
+                    <div class="wizard-panel" id="wizard-step-5">
+                        <div class="glass-card">
+                            <h3 class="card-title">👁️ プレビュー</h3>
+                            <pre id="wizard-preview-content" class="moc-preview"><span class="muted-hint">読み込み中...</span></pre>
+                        </div>
+                    </div>
+
+                    <!-- ウィザードナビゲーション -->
+                    <div class="wizard-nav">
+                        <button class="ghost-btn" id="btn-wizard-prev" disabled>◀ 前へ</button>
+                        <span class="wizard-nav-info" id="wizard-nav-info">ステップ 1 / 5</span>
+                        <button class="ghost-btn" id="btn-wizard-next">次へ ▶</button>
+                        <button class="action-btn btn-optimize" id="btn-wizard-create" style="display:none">
+                            <span class="btn-icon">🗺️</span><span class="btn-label">MOC を作成</span>
+                        </button>
+                    </div>
+                    <p id="wizard-create-result" class="moc-result-msg"></p>
+                </div>
+
+                <!-- ====== 通常モード ====== -->
+                <div id="moc-mode-normal" style="display:none">
+                    <!-- おすすめプリセット -->
+                    <div class="glass-card">
+                        <h3 class="card-title">⚡ ワンクリック プリセット</h3>
+                        <p class="moc-hint" style="margin-bottom:10px">よく使うパターンをワンクリックでフォームに反映します。</p>
+                        <div class="preset-grid">
+                            <button class="preset-card" onclick="window.applyPreset('folder')">
+                                <span class="preset-icon">📁</span>
+                                <span class="preset-name">フォルダ別MOC</span>
+                                <span class="preset-desc">フォルダ内のノートを自動集約</span>
+                            </button>
+                            <button class="preset-card" onclick="window.applyPreset('tag')">
+                                <span class="preset-icon">🏷️</span>
+                                <span class="preset-name">タグ別MOC</span>
+                                <span class="preset-desc">タグでノートをグルーピング</span>
+                            </button>
+                            <button class="preset-card" onclick="window.applyPreset('project')">
+                                <span class="preset-icon">📝</span>
+                                <span class="preset-name">プロジェクトMOC</span>
+                                <span class="preset-desc">プロジェクト管理テンプレート</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- テンプレート選択 -->
+                    <div class="glass-card">
+                        <h3 class="card-title">📋 テンプレートを選択</h3>
+                        <div id="moc-template-cards" class="moc-template-grid">
+                            <p class="muted-hint">読み込み中...</p>
+                        </div>
+                    </div>
+
+                    <!-- 基本設定 -->
+                    <div class="glass-card">
+                        <h3 class="card-title">⚙️ 基本設定</h3>
+                        <div class="moc-form">
+                            <div class="moc-form-row">
+                                <label class="moc-form-label">MOC名 <span class="moc-prefix-hint">MOC - </span> <span class="moc-tooltip" data-tip="作成されるMOCのファイル名になります。例:「AI Tools」→「MOC - AI Tools.md」">?</span></label>
+                                <input type="text" id="moc-name" class="moc-input" placeholder="例: AI Tools & Platforms">
+                            </div>
+                            <div class="moc-form-row">
+                                <label class="moc-form-label">保存先フォルダ <span class="moc-tooltip" data-tip="MOCファイルが保存されるVault内のフォルダ。通常は「10 Atlas」。">?</span></label>
+                                <select id="moc-dest-folder" class="moc-select">
+                                    <option value="10 Atlas">10 Atlas</option>
+                                </select>
+                            </div>
+                            <div class="moc-form-row">
+                                <label class="moc-form-label">タグ <span class="moc-hint">カンマ区切り</span> <span class="moc-tooltip" data-tip="MOCのフロントマターに付与されるタグ。Dataviewでの自動集約にも使用。">?</span></label>
+                                <input type="text" id="moc-tags" class="moc-input" placeholder="例: topic/ai, topic/dify">
+                            </div>
+                            <div class="moc-form-row">
+                                <label class="moc-form-label">タイプ <span class="moc-tooltip" data-tip="MOCのフロントマターの「type」フィールドに設定される値。">?</span></label>
+                                <select id="moc-type" class="moc-select">
+                                    <option value="moc">moc (標準)</option>
+                                    <option value="project-moc">project-moc (プロジェクト用)</option>
+                                    <option value="index">index (インデックス)</option>
+                                    <option value="MOC">MOC (大文字)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- スマートノート候補 -->
+                    <div class="glass-card">
+                        <div class="card-header-row">
+                            <h3 class="card-title">🤖 関連ノート候補</h3>
+                            <button class="ghost-btn small-btn" id="btn-fetch-suggestions">🔍 分析</button>
+                        </div>
+                        <p class="moc-hint" style="margin-bottom:8px">MOC名を入力してから「分析」を押すと、関連するノートを自動提案します。</p>
+                        <div id="smart-suggestions-list" class="smart-suggestions-list">
+                            <p class="muted-hint">MOC名を入力してから「分析」ボタンを押してください</p>
+                        </div>
+                    </div>
+
+                    <!-- 詳細設定（折りたたみ） -->
+                    <div class="glass-card">
+                        <div class="card-header-row clickable" id="moc-advanced-toggle">
+                            <h3 class="card-title">🔧 詳細設定</h3>
+                            <span class="toggle-arrow" id="moc-advanced-arrow">▶</span>
+                        </div>
+                        <div id="moc-advanced-panel" class="moc-advanced-panel" style="display:none">
+                            <div class="moc-form">
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">説明文</label>
+                                    <textarea id="moc-description" class="moc-textarea" rows="2" placeholder="このMOCの1行説明"></textarea>
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">自動集約フォルダ <span class="moc-hint">複数選択可</span></label>
+                                    <select id="moc-auto-folders" class="moc-select" multiple size="4">
+                                    </select>
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">自動集約タグ <span class="moc-hint">カンマ区切り</span></label>
+                                    <input type="text" id="moc-auto-tags" class="moc-input" placeholder="例: topic/ai, topic/dify">
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">関連MOC <span class="moc-hint">複数選択可</span></label>
+                                    <select id="moc-related-mocs" class="moc-select" multiple size="4">
+                                    </select>
+                                </div>
+                                <div class="moc-form-row">
+                                    <label class="moc-form-label">CSSクラス <span class="moc-hint">カンマ区切り（任意）</span></label>
+                                    <input type="text" id="moc-css-classes" class="moc-input" placeholder="例: dashboard, wide">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- プレビュー -->
+                    <div class="glass-card">
+                        <div class="card-header-row">
+                            <h3 class="card-title">👁️ プレビュー</h3>
+                            <button class="ghost-btn small-btn" id="btn-refresh-preview">🔄 更新</button>
+                        </div>
+                        <pre id="moc-preview-content" class="moc-preview"><span class="muted-hint">テンプレートと名前を入力するとプレビューが表示されます</span></pre>
+                    </div>
+
+                    <!-- 作成ボタン -->
+                    <div class="moc-action-row">
+                        <button class="action-btn btn-optimize" id="btn-create-moc">
+                            <span class="btn-icon">🗺️</span>
+                            <span class="btn-label">MOC を作成</span>
+                            <span class="btn-hint" id="moc-create-hint">テンプレートと名前を設定してください</span>
+                        </button>
+                    </div>
+                    <p id="moc-create-result" class="moc-result-msg"></p>
+
+                    <!-- テンプレート管理 -->
+                    <div class="glass-card" style="margin-top:16px">
+                        <div class="card-header-row">
+                            <h3 class="card-title">💾 テンプレート管理</h3>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                <button class="ghost-btn small-btn" id="btn-save-as-template">現在の設定をテンプレートとして保存</button>
+                                <button class="ghost-btn small-btn" id="btn-import-moc-template">📥 テンプレートを読み込み</button>
+                            </div>
+                        </div>
+                        <div id="moc-custom-templates-list" class="moc-custom-templates">
+                            <p class="muted-hint">カスタムテンプレートはまだありません</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ====== 一括生成モード ====== -->
+                <div id="moc-mode-batch" style="display:none">
+                    <div class="glass-card">
+                        <h3 class="card-title">📦 一括MOC生成</h3>
+                        <p class="moc-hint" style="margin-bottom:12px">チェックを入れたフォルダごとにMOCファイルを自動作成します。</p>
+                        <div class="moc-form">
+                            <div class="moc-form-row">
+                                <label class="moc-form-label">保存先フォルダ <span class="moc-tooltip" data-tip="生成されるMOCの保存先。空欄の場合は各フォルダ直下に保存します。">?</span></label>
+                                <select id="batch-dest-folder" class="moc-select">
+                                    <option value="">（各フォルダ直下）</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="batch-folder-list" class="batch-folder-list" style="margin-top:12px">
+                            <p class="muted-hint">フォルダを読み込み中...</p>
+                        </div>
+                        <div style="display:flex;gap:8px;margin-top:12px">
+                            <button class="ghost-btn small-btn" id="btn-batch-select-all">全選択</button>
+                            <button class="action-btn btn-optimize" id="btn-batch-generate" style="flex:1;padding:12px">
+                                <span class="btn-label">一括生成を実行</span>
+                            </button>
+                        </div>
+                        <div id="batch-results" style="margin-top:12px"></div>
+                    </div>
+                </div>
+
+                <!-- ====== 共通セクション（全モード共通） ====== -->
+
+                <!-- 既存MOCの更新・リフレッシュ -->
+                <div class="glass-card" style="margin-top:16px">
+                    <div class="card-header-row clickable" id="moc-refresh-toggle">
+                        <h3 class="card-title">🔄 既存MOCの更新</h3>
+                        <span class="toggle-arrow" id="moc-refresh-arrow">▶</span>
+                    </div>
+                    <div id="moc-refresh-panel" style="display:none">
+                        <p class="moc-hint" style="margin-bottom:10px">既存のMOCに新しいノートを追加します。MOCのフロントマターに設定された auto_folders / auto_tags を元に検出します。</p>
+                        <div class="moc-form">
+                            <div class="moc-form-row">
+                                <label class="moc-form-label">更新するMOC</label>
+                                <select id="refresh-moc-select" class="moc-select"></select>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:8px;margin-top:10px">
+                            <button class="ghost-btn" id="btn-refresh-check">🔍 新規ノートを検出</button>
+                            <button class="ghost-btn" id="btn-refresh-apply" disabled>✅ 追加を反映</button>
+                        </div>
+                        <div id="refresh-preview-list" class="smart-suggestions-list" style="margin-top:10px">
+                            <p class="muted-hint">MOCを選択して「検出」を押してください</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- タグベース自動MOC候補 -->
+                <div class="glass-card">
+                    <div class="card-header-row clickable" id="moc-tag-suggest-toggle">
+                        <h3 class="card-title">🏷️ タグベースMOC候補</h3>
+                        <span class="toggle-arrow" id="moc-tag-suggest-arrow">▶</span>
+                    </div>
+                    <div id="moc-tag-suggest-panel" style="display:none">
+                        <p class="moc-hint" style="margin-bottom:10px">よく使われているタグを分析し、MOC化の候補を提案します。</p>
+                        <button class="ghost-btn small-btn" id="btn-load-tag-suggestions" style="margin-bottom:10px">🔍 タグを分析</button>
+                        <div id="tag-suggestions-list">
+                            <p class="muted-hint">「タグを分析」ボタンを押してください</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MOCマップ（関連性の可視化） -->
+                <div class="glass-card">
+                    <div class="card-header-row clickable" id="moc-map-toggle">
+                        <h3 class="card-title">🗺️ MOC関連性マップ</h3>
+                        <span class="toggle-arrow" id="moc-map-arrow">▶</span>
+                    </div>
+                    <div id="moc-map-panel" style="display:none">
+                        <p class="moc-hint" style="margin-bottom:10px">MOC同士のリンク関係を可視化します。</p>
+                        <button class="ghost-btn small-btn" id="btn-load-moc-map" style="margin-bottom:10px">🗺️ マップを生成</button>
+                        <div id="moc-map-container" class="moc-map-container">
+                            <p class="muted-hint">「マップを生成」ボタンを押してください</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 統計・分析 -->
+            <div class="tab-content" id="tab-stats">
+                <div class="page-header">
+                    <div>
+                        <h1>統計・分析</h1>
+                        <p class="page-subtitle">Vault の詳細な分析データ</p>
+                    </div>
+                </div>
+                <div class="stats-grid">
+                    <div class="glass-card">
+                        <h3 class="card-title">🏷️ よく使うタグ TOP 15</h3>
+                        <div class="list-empty" id="tags-empty">スキャン後に表示されます</div>
+                        <div id="tag-chart" class="tag-chart"></div>
+                    </div>
+                    <div class="glass-card">
+                        <h3 class="card-title">📈 Vault 概要</h3>
+                        <div class="summary-list" id="summary-list">
+                            <div class="list-empty">スキャン後に表示されます</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- レアタグ -->
+                <div class="glass-card" style="margin-top:16px">
+                    <h3 class="card-title">📋 1回しか使われていないレアタグ <span class="count-badge" id="badge-rare-tags">0</span>
+                    </h3>
+                    <div class="list-empty" id="rare-tags-empty">スキャン後に表示されます</div>
+                    <div class="rare-tags-container" id="rare-tags-list"></div>
+                </div>
+
+                <!-- Feature 4: ノートスコア -->
+                <div class="glass-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <h3 class="card-title">📊 ノートスコア</h3>
+                        <button class="ghost-btn small-btn" id="btn-load-note-scores">📊 スコアを計算</button>
+                    </div>
+                    <div id="note-scores-content"><div class="list-empty">「スコアを計算」でノートの価値スコアを算出</div></div>
+                </div>
+
+                <!-- Feature B: ライティング分析 -->
+                <div class="glass-card">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <h3 class="card-title">✍️ ライティング分析</h3>
+                        <button class="ghost-btn small-btn" id="btn-load-analytics">📊 分析を実行</button>
+                    </div>
+                    <div id="writing-analytics-content"><div class="list-empty">「分析を実行」で執筆傾向を分析</div></div>
+                </div>
+
+                <!-- Feature 5: タグ管理 -->
+                <div class="glass-card">
+                    <h3 class="card-title">✏️ タグ名変更/マージ</h3>
+                    <p class="muted-hint" style="margin-bottom:8px">タグ名を一括で変更します（全ノートのインラインタグ＋フロントマターが対象）</p>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                        <span style="font-size:.82rem;opacity:.7">変更元:</span>
+                        <input type="text" id="tag-rename-old" class="text-input" placeholder="#old-tag" style="width:160px">
+                        <span style="font-size:.82rem;opacity:.7">→</span>
+                        <input type="text" id="tag-rename-new" class="text-input" placeholder="#new-tag" style="width:160px">
+                        <button class="ghost-btn small-btn" id="btn-rename-tag">変更実行</button>
+                    </div>
+                    <p id="tag-rename-result" class="moc-result-msg" style="margin-top:8px"></p>
+                </div>
+            </div>
+
+            <!-- Feature A: ナレッジグラフ分析 -->
+            <div class="tab-content" id="tab-knowledge-graph">
+                <div class="page-header">
+                    <div><h1>ナレッジグラフ分析</h1><p class="page-subtitle">ノート間の関係性を可視化し、隠れたつながりを発見</p></div>
+                    <button class="ghost-btn" id="btn-analyze-kg">🧠 分析を実行</button>
+                </div>
+                <div id="kg-result-area" style="display:none">
+                    <div class="glass-card">
+                        <h3 class="card-title">🏘️ 検出クラスター</h3>
+                        <div class="scrollable-list" id="kg-cluster-list" style="max-height:400px"></div>
+                    </div>
+                    <div class="glass-card">
+                        <h3 class="card-title">🔗 弱接続ノート <span class="count-badge warn" id="badge-weak-notes">0</span></h3>
+                        <div class="scrollable-list" id="kg-weak-list" style="max-height:300px"></div>
+                    </div>
+                    <div class="glass-card">
+                        <h3 class="card-title">💡 リンク提案 <span class="count-badge" id="badge-suggestions">0</span></h3>
+                        <div class="scrollable-list" id="kg-suggestion-list" style="max-height:400px"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Feature E: アーカイブ提案 -->
+            <div class="tab-content" id="tab-archive">
+                <div class="page-header">
+                    <div><h1>スマートアーカイブ提案</h1><p class="page-subtitle">更新頻度・リンク数に基づきアーカイブ候補を提案</p></div>
+                    <button class="ghost-btn" id="btn-suggest-archives">📦 候補を分析</button>
+                </div>
+                <div class="glass-card">
+                    <h3 class="card-title">📋 アーカイブ候補 <span class="count-badge" id="badge-archive">0</span></h3>
+                    <div class="list-empty" id="archive-suggestion-empty">「候補を分析」を押すと表示されます</div>
+                    <div class="scrollable-list" id="archive-suggestion-list" style="max-height:500px"></div>
+                </div>
+            </div>
+
+            <!-- Feature F: ノート統合 -->
+            <div class="tab-content" id="tab-merge">
+                <div class="page-header">
+                    <div><h1>ノート統合</h1><p class="page-subtitle">重複ノートを安全にマージし、リンクを自動更新</p></div>
+                </div>
+                <div class="glass-card">
+                    <h3 class="card-title">📝 統合するノートを指定</h3>
+                    <div style="display:flex;flex-direction:column;gap:8px;margin:12px 0">
+                        <div style="display:flex;gap:8px;align-items:center"><span style="min-width:100px;font-size:.82rem">統合先（残す）</span><input type="text" id="merge-file-a" class="text-input" style="flex:1" placeholder="/path/to/note-a.md"></div>
+                        <div style="display:flex;gap:8px;align-items:center"><span style="min-width:100px;font-size:.82rem">統合元（削除）</span><input type="text" id="merge-file-b" class="text-input" style="flex:1" placeholder="/path/to/note-b.md"></div>
+                    </div>
+                    <div style="display:flex;gap:8px"><button class="ghost-btn" id="btn-preview-merge">👁️ プレビュー</button><button class="ghost-btn danger-btn" id="btn-execute-merge" disabled>🔀 実行</button></div>
+                    <p id="merge-result-msg" class="moc-result-msg" style="margin-top:8px"></p>
+                </div>
+                <div id="merge-preview-area" style="display:none">
+                    <div class="glass-card"><h3 class="card-title">マージ後プレビュー</h3><pre class="note-preview" id="merge-preview-content" style="max-height:400px"></pre></div>
+                    <div class="glass-card"><h3 class="card-title">🔗 更新されるリンク</h3><div id="merge-incoming-links"></div></div>
+                </div>
+            </div>
+
+            <!-- 操作ログ -->
+            <div class="tab-content" id="tab-log">
+                <div class="page-header">
+                    <div>
+                        <h1>操作ログ</h1>
+                        <p class="page-subtitle">実行した操作の詳細記録</p>
+                    </div>
+                    <button class="ghost-btn" id="btn-clear-log">🗑️ ログをクリア</button>
+                </div>
+                <div class="glass-card log-full">
+                    <div id="full-log" class="log-content" aria-live="polite" aria-label="操作ログ">操作を実行するとログが表示されます。</div>
+                </div>
+            </div>
+
+            <!-- 設定 -->
+            <div class="tab-content" id="tab-settings">
+                <div class="page-header">
+                    <div>
+                        <h1>設定</h1>
+                        <p class="page-subtitle">アプリの構成を編集</p>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <h3 class="card-title">📂 Vault の場所</h3>
+                    <p class="vault-path-mono" style="margin-top:8px;">ダッシュボードの上部からVaultの追加・切り替えが可能です。</p>
+                </div>
+
+                <!-- ゴミ判定ルール -->
+                <div class="glass-card">
+                    <h3 class="card-title">🗑️ ゴミ判定ルール（カスタマイズ可能）</h3>
+                    <div class="junk-rules-form">
+                        <div class="rule-row">
+                            <label class="rule-label">最小コンテンツ文字数<span class="rule-val"
+                                    id="junk-char-display">20</span>文字</label>
+                            <input type="range" id="junk-min-chars" min="0" max="200" value="20" step="5"
+                                class="rule-slider">
+                        </div>
+                        <div class="rule-row">
+                            <label class="rule-label">最小ファイルサイズ</label>
+                            <div style="display:flex;align-items:center;gap:8px">
+                                <input type="number" id="junk-min-bytes" value="5" min="0" max="1000"
+                                    class="rule-number"> <span class="rule-unit">バイト</span>
+                            </div>
+                        </div>
+                        <div class="rule-row">
+                            <label class="rule-label">ゴミとみなすキーワード（1行に1つ）</label>
+                            <textarea id="junk-keywords" class="rule-textarea" rows="3"
+                                placeholder="untitled&#10;無題"></textarea>
+                        </div>
+                        <button class="ghost-btn" id="btn-save-junk-rules" style="margin-top:8px">💾 ルールを保存</button>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <h3 class="card-title">⚙️ 機能の有効/無効化</h3>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="opt-enable-junk" checked>
+                        <div class="toggle-body">
+                            <span class="toggle-title">不要ファイルの処理</span>
+                            <span class="toggle-desc">最適化時にゴミファイルを処理します</span>
+                        </div>
+                    </label>
+                    <div style="margin-left: 32px; margin-bottom: 24px;" id="junk-action-container">
+                        <label style="font-size: 13px; color: var(--text-color);">処理方法: 
+                            <select id="junk-action" class="rule-slider" style="width: auto; padding: 4px; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; background: rgba(0,0,0,0.2); color: #fff;">
+                                <option value="delete">完全に削除する</option>
+                                <option value="archive">Archiveフォルダに移動する</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <label class="toggle-row">
+                        <input type="checkbox" id="opt-enable-moc" checked>
+                        <div class="toggle-body">
+                            <span class="toggle-title">孤立ノートのMOC接続</span>
+                            <span class="toggle-desc">孤立ノートを適切なカテゴリMOCに自動的に接続します</span>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="glass-card">
+                    <h3 class="card-title">🛡️ 安全設定</h3>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="opt-backup" checked>
+                        <div class="toggle-body">
+                            <span class="toggle-title">削除前にバックアップを作成</span>
+                            <span class="toggle-desc">削除実行前に ~/.obsidian-optimizer-backups/ へ全ノートをコピーします</span>
+                        </div>
+                    </label>
+                    <!-- Feature 10: 自動スキャンスケジュール -->
+                    <div class="toggle-row" style="margin-top:10px">
+                        <div class="toggle-body" style="display:flex;align-items:center;gap:12px">
+                            <span class="toggle-title">⏰ 自動スキャン</span>
+                            <select id="auto-scan-schedule" class="vault-select" style="width:140px">
+                                <option value="off">オフ</option>
+                                <option value="daily">毎日</option>
+                                <option value="weekly">毎週</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Feature 6: 自動レポート -->
+                    <label class="toggle-row" style="margin-top:10px">
+                        <input type="checkbox" id="opt-auto-report">
+                        <div class="toggle-body">
+                            <span class="toggle-title">自動スキャン時にレポートを保存</span>
+                            <span class="toggle-desc">Vault内の .optimizer-reports/ フォルダに日次レポートを自動保存します</span>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Feature 9: ノートインポーター -->
+                <div class="glass-card">
+                    <h3 class="card-title">📥 ノートインポーター</h3>
+                    <p class="muted-hint" style="margin-bottom:12px">他のノートアプリからノートをインポートします（Vault の "00 Inbox" フォルダに保存）</p>
+                    <div class="moc-form">
+                        <div class="moc-form-row">
+                            <label class="moc-form-label">インポート元</label>
+                            <select id="import-source" class="moc-select" style="max-width:250px">
+                                <option value="notion">Notion（Markdownエクスポート）</option>
+                                <option value="evernote">Evernote（.enex ファイル）</option>
+                                <option value="bear">Bear（Markdownエクスポート）</option>
+                            </select>
+                        </div>
+                        <div class="moc-form-row">
+                            <label class="moc-form-label">ファイル/フォルダ</label>
+                            <div style="display:flex;gap:8px;align-items:center;flex:1">
+                                <input type="text" id="import-path" class="moc-input" placeholder="パスを入力、または右のボタンで選択" readonly style="flex:1">
+                                <button class="ghost-btn small-btn" id="btn-import-select-folder">📂 フォルダを選択</button>
+                                <button class="ghost-btn small-btn" id="btn-import-select-file">📄 ファイルを選択</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+                        <button class="ghost-btn" id="btn-import-execute" disabled>📥 インポート実行</button>
+                    </div>
+                    <div id="import-result" class="moc-result-msg" style="margin-top:8px"></div>
+                </div>
+
+                <!-- Feature 1: バックアップ管理 -->
+                <div class="glass-card">
+                    <h3 class="card-title">🔄 バックアップ管理</h3>
+                    <p class="muted-hint" style="margin-bottom:8px">過去のバックアップを復元または削除できます</p>
+                    <button class="ghost-btn small-btn" id="btn-load-backups">バックアップ一覧を読み込み</button>
+                    <div class="scrollable-list" id="backup-list" style="margin-top:8px;max-height:280px"></div>
+                </div>
+
+                <div class="glass-card">
+                    <h3 class="card-title">🌐 言語 / Language</h3>
+                    <select id="language-select" class="vault-select" style="width:200px;margin-top:8px"><option value="ja">日本語</option><option value="en">English</option><option value="zh">中文</option></select>
+                </div>
+                <div class="glass-card">
+                    <h3 class="card-title">📊 Dataview レポートノート</h3>
+                    <p class="muted-hint" style="margin-bottom:8px">Vault内にDataviewクエリ付きの自動更新レポートノートを生成します</p>
+                    <button class="ghost-btn" id="btn-generate-report-note">📊 レポートノートを生成</button>
+                </div>
+
+                <!-- Obsidianダッシュボード生成 -->
+                <div class="glass-card">
+                    <h3 class="card-title">📊 Obsidianダッシュボード生成</h3>
+                    <p class="muted-hint" style="margin-bottom:12px">Dataview / Tasks プラグイン対応のライブダッシュボードノートをVault内に生成します。Obsidianで開くと自動更新されます。</p>
+                    <div class="dashboard-gen-grid">
+                        <button class="dashboard-gen-card" id="btn-gen-dash-full">
+                            <span class="dashboard-gen-icon">🖥️</span>
+                            <span class="dashboard-gen-title">フルダッシュボード</span>
+                            <span class="dashboard-gen-desc">タスク・タグ・フォルダ・リンク分析を一覧</span>
+                        </button>
+                        <button class="dashboard-gen-card" id="btn-gen-dash-tasks">
+                            <span class="dashboard-gen-icon">✅</span>
+                            <span class="dashboard-gen-title">タスクボード</span>
+                            <span class="dashboard-gen-desc">期限別・優先度別のタスク管理</span>
+                        </button>
+                        <button class="dashboard-gen-card" id="btn-gen-dash-weekly">
+                            <span class="dashboard-gen-icon">📅</span>
+                            <span class="dashboard-gen-title">週次レビュー</span>
+                            <span class="dashboard-gen-desc">今週の振り返りと来週の目標</span>
+                        </button>
+                        <button class="dashboard-gen-card" id="btn-gen-dash-projects">
+                            <span class="dashboard-gen-icon">📋</span>
+                            <span class="dashboard-gen-title">プロジェクトボード</span>
+                            <span class="dashboard-gen-desc">プロジェクト進捗・期限の追跡</span>
+                        </button>
+                    </div>
+                    <div id="dashboard-gen-result" class="moc-result-msg" style="margin-top:8px"></div>
+                </div>
+
+                <!-- AI設定 -->
+                <div class="glass-card" id="ai-settings-card">
+                    <h3 class="card-title">🤖 AI設定</h3>
+                    <p class="muted-hint" style="margin-bottom:12px">LLMプロバイダーを選択してAPIキーを設定すると、AIによるノート要約・タグ提案・重複検出が利用できます</p>
+                    <div class="ai-settings-form">
+                        <div class="rule-row">
+                            <label class="rule-label">プロバイダー</label>
+                            <select id="ai-provider" class="vault-select" style="width:200px">
+                                <option value="claude">Claude (Anthropic)</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="gemini">Gemini (Google)</option>
+                            </select>
+                        </div>
+                        <div class="rule-row">
+                            <label class="rule-label">APIキー</label>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <input type="password" id="ai-api-key" class="rule-textarea" style="height:auto;padding:6px 10px;font-family:monospace;font-size:0.82rem" placeholder="sk-... / AIza...">
+                                <button class="ghost-btn small-btn" id="btn-toggle-api-key" type="button" title="表示/非表示を切替">👁️</button>
+                            </div>
+                        </div>
+                        <div class="rule-row">
+                            <label class="rule-label">モデル</label>
+                            <select id="ai-model" class="vault-select" style="width:280px">
+                                <option value="claude-opus-4-6">claude-opus-4-6</option>
+                                <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                                <option value="claude-haiku-4-5-20251001">claude-haiku-4-5-20251001</option>
+                            </select>
+                        </div>
+                        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                            <button class="ghost-btn" id="btn-save-ai-config">💾 AI設定を保存</button>
+                            <button class="ghost-btn" id="btn-test-ai">🔗 接続テスト</button>
+                            <span id="ai-status" class="ai-status-indicator"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-card">
+                    <h3 class="card-title">ℹ️ アプリ情報</h3>
+                    <p class="app-info-text">
+                        <strong>Obsidian Optimizer</strong> v4.3 Ultimate Edition<br>
+                        Vault の自動整理・ナレッジグラフ分析・MOC生成・リアルタイム監視を統合したデスクトップツール。<br>
+                        Developed by <strong>AI寺子屋 CraftLab</strong><br>
+                        Built with Electron · オープンソース · 無料で配布可能
+                    </p>
+                </div>
+            </div>
+
+            <!-- Feature C: 構造テンプレート -->
+            <div class="tab-content" id="tab-structure">
+                <div class="page-header">
+                    <div><h1>🏗️ Vault 構造テンプレート</h1><p class="page-subtitle">PARA・Zettelkasten・Johnny.Decimal でVault構造を最適化</p></div>
+                    <button class="ghost-btn" id="btn-analyze-structure">🔍 Vault構造を分析</button>
+                </div>
+                <div id="structure-analysis-result"></div>
+                <div id="structure-template-list"></div>
+                <div class="glass-card" id="structure-preview-result" style="display:none;margin-top:16px"></div>
+            </div>
+
+            <!-- Feature H: グラフビュー -->
+            <div class="tab-content" id="tab-graph">
+                <div class="page-header">
+                    <div><h1>🕸️ Vault グラフビュー</h1><p class="page-subtitle">ノート間のリンク関係を力学モデルで可視化（ドラッグ・ダブルクリックでObsidian起動）</p></div>
+                    <div class="graph-header-actions">
+                        <button class="ghost-btn" id="btn-graph-fit">📐 フィット</button>
+                        <button class="ghost-btn" id="btn-graph-labels">🏷️ ラベル切替</button>
+                        <button class="ghost-btn" id="btn-graph-export">📸 PNG出力</button>
+                        <button class="ghost-btn" id="btn-load-graph">🔄 再生成</button>
+                    </div>
+                </div>
+                <!-- 統計バー -->
+                <div id="graph-stats-bar" class="graph-stats-bar" style="display:none;"></div>
+                <!-- ツールバー: 検索 + フォルダフィルター -->
+                <div class="graph-toolbar">
+                    <div class="graph-search-wrap">
+                        <input type="text" id="graph-search-input" class="graph-search-input" placeholder="🔍 ノード検索…" />
+                    </div>
+                    <button class="ghost-btn graph-folder-toggle-btn" id="btn-graph-folder-toggle">📂 フォルダフィルター ▶</button>
+                    <button class="ghost-btn" id="btn-graph-ego" style="display:none;">🎯 Ego グラフ (2ホップ)</button>
+                    <button class="ghost-btn" id="btn-graph-ego-reset" style="display:none;">✖ Ego解除</button>
+                </div>
+                <!-- フォルダフィルター折りたたみパネル -->
+                <div id="graph-folder-panel" class="graph-folder-panel" style="display:none;"></div>
+                <div class="graph-main-area">
+                    <div class="glass-card graph-card-wrap"><div id="graph-container" style="min-height:600px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:12px"><p class="muted-hint">タブを開くとグラフが自動生成されます</p></div></div>
+                    <!-- サイドパネル: ノード情報 -->
+                    <div id="graph-info-panel" class="graph-info-panel" style="display:none;">
+                        <div class="graph-info-header">
+                            <h3 id="graph-info-name">ノード情報</h3>
+                            <button class="ghost-btn graph-info-close" id="btn-graph-info-close">✕</button>
+                        </div>
+                        <div id="graph-info-body" class="graph-info-body"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ヘルプ -->
+            <div class="tab-content" id="tab-help">
+                <div class="page-header">
+                    <div>
+                        <h1>ヘルプ・マニュアル</h1>
+                        <p class="page-subtitle">Obsidian Optimizer の使い方ガイド</p>
+                    </div>
+                </div>
+
+                <!-- はじめに -->
+                <div class="glass-card help-card">
+                    <div class="help-section-header" data-help="intro">
+                        <h3 class="card-title">📖 はじめに ─ Obsidian Optimizer とは？</h3>
+                        <span class="help-toggle-arrow">▼</span>
+                    </div>
+                    <div class="help-section-body" id="help-intro">
+                        <p>Obsidian Optimizer は、<strong>Obsidian Vault（ノートの保管庫）を自動で整理・分析してくれるデスクトップアプリ</strong>です。</p>
+                        <div class="help-box help-box-info">
+                            <strong>こんな悩みを解決します</strong>
+                            <ul>
+                                <li>ノートが増えすぎて整理できない</li>
+                                <li>どのノートがどこにリンクされているか分からない</li>
+                                <li>空っぽのノートやゴミファイルが溜まっている</li>
+                                <li>MOC（目次ノート）を手動で作るのが面倒</li>
+                            </ul>
+                        </div>
+                        <p>難しい操作は一切不要。<strong>ボタンを押すだけ</strong>で Vault を健全に保てます。</p>
+                    </div>
+                </div>
+
+                <!-- クイックスタート -->
+                <div class="glass-card help-card">
+                    <div class="help-section-header" data-help="quickstart">
+                        <h3 class="card-title">🚀 クイックスタート ─ 3ステップで始める</h3>
+                        <span class="help-toggle-arrow">▼</span>
+                    </div>
+                    <div class="help-section-body" id="help-quickstart">
+                        <div class="help-steps">
+                            <div class="help-step">
+                                <span class="help-step-num">1</span>
+                                <div>
+                                    <strong>Vault を確認する</strong>
+                                    <p>アプリを起動すると、自動で Obsidian の Vault フォルダを探します。<br>
+                                    見つからない場合は、ダッシュボード上部の「➕ 追加」ボタンから Vault フォルダを手動で選んでください。</p>
+                                </div>
+                            </div>
+                            <div class="help-step">
+                                <span class="help-step-num">2</span>
+                                <div>
+                                    <strong>スキャンする</strong>
+                                    <p>ダッシュボードの「🔍 Vault をスキャン」ボタンを押します。<br>
+                                    Vault 内の全ファイルを解析し、孤立ノート・ゴミファイル・壊れたリンクなどを検出します。<br>
+                                    <em>※ この操作ではファイルは一切変更されません。安心して実行できます。</em></p>
+                                </div>
+                            </div>
+                            <div class="help-step">
+                                <span class="help-step-num">3</span>
+                                <div>
+                                    <strong>結果を確認して対処する</strong>
+                                    <p>スキャン完了後、ダッシュボードに健全度スコアと問題の数が表示されます。<br>
+                                    「スキャン結果」タブで詳細を確認し、必要に応じて個別に削除・移動できます。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 各画面の説明 -->
+                <div class="glass-card help-card">
+                    <div class="help-section-header" data-help="screens">
+                        <h3 class="card-title">🖥️ 各画面の使い方</h3>
+                        <span class="help-toggle-arrow">▼</span>
+                    </div>
+                    <div class="help-section-body" id="help-screens">
+
+                        <h4 class="help-subtitle">🏠 ダッシュボード</h4>
+                        <p>アプリのメイン画面です。Vault の全体像をひと目で確認できます。</p>
+                        <table class="help-table">
+                            <tr><th>表示項目</th><th>意味</th></tr>
+                            <tr><td>健全度スコア</td><td>Vault の整理状態を 0〜100 のスコアで表示します。高いほど良好です。</td></tr>
+                            <tr><td>総ノート数</td><td>Vault 内の Markdown ファイルの総数です。</td></tr>
+                            <tr><td>MOC 数</td><td>MOC（Map of Content＝目次ノート）の数です。</td></tr>
+                            <tr><td>孤立ノート</td><td>他のノートからリンクされておらず、リンクも出していないノートの数です。</td></tr>
+                            <tr><td>ゴミファイル</td><td>空や無題など、不要と判定されたファイルの数です。</td></tr>
+                            <tr><td>放置ノート</td><td>半年以上更新されていないノートの数です。</td></tr>
+                            <tr><td>壊れたリンク</td><td>リンク先のファイルが存在しないリンクの数です。</td></tr>
+                            <tr><td>ヒートマップ</td><td>過去1年間のノート更新頻度を色の濃さで表示。<strong>日付をクリック</strong>するとその日の変更ノート一覧が表示されます（タイムマシン機能）。</td></tr>
+                            <tr><td>推奨アクション</td><td>スキャン後に問題に応じた対処ボタンが表示されます。クリックすると該当タブに移動します。</td></tr>
+                            <tr><td>リアルタイム監視</td><td>「👁️ 監視開始」でVaultのファイル変更をリアルタイムで検出。リンク切れやゴミファイルを即時通知します。</td></tr>
+                            <tr><td>前回比バッジ</td><td>スキャン結果の各数値に前回との差分（+3/-2 等）が色付きバッジで表示されます。</td></tr>
+                        </table>
+
+                        <h4 class="help-subtitle">🔍 スキャン結果</h4>
+                        <p>スキャンで見つかった問題ノートの詳細一覧です。</p>
+                        <ul class="help-list">
+                            <li><strong>孤立ノート</strong> ─ チェックを入れて「選択を削除」で個別に削除できます。「🔗 開く」で Obsidian 上で確認もできます。</li>
+                            <li><strong>放置ノート</strong> ─ 長期間未更新のノート。「📦 一括アーカイブ」で 99 Archive フォルダに移動できます。</li>
+                            <li><strong>ゴミファイル</strong> ─ 空ファイルや無題ファイルなど。個別に選択して削除できます。</li>
+                            <li><strong>壊れたリンク</strong> ─ リンク先が見つからないもの。候補が表示された場合「✨ 修復」で自動修正できます。</li>
+                            <li><strong>重複ノート</strong> ─ 同じ内容や似た名前のノートが表示されます。</li>
+                            <li><strong>🖼️ 孤立画像/添付ファイル</strong> ─ どのノートからも参照されていない画像・PDF・動画ファイル。削除するとVaultの容量を節約できます。</li>
+                        </ul>
+                        <div class="help-box help-box-tip">
+                            <strong>ヒント</strong>：各ノートの「👁️」ボタンを押すと、ファイルの先頭25行をインラインでプレビューできます。削除前の内容確認に便利です。
+                        </div>
+                        <div class="help-box help-box-tip">
+                            <strong>ヒント</strong>：絞り込み検索ボックスを使うと、大量のノートから目的のものを素早く見つけられます。
+                        </div>
+
+                        <h4 class="help-subtitle">👁️ 変更プレビュー</h4>
+                        <p>「最適化」を実行する前に、<strong>何が削除され、何がリンクされるかを事前確認</strong>できる画面です。</p>
+                        <ul class="help-list">
+                            <li>削除予定のゴミファイル一覧 ─ 不要なものだけチェックして個別に削除も可能</li>
+                            <li>MOC接続予定のノート一覧 ─ どのノートがどの MOC に接続されるかを確認</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">✨ 最適化</h4>
+                        <p>Vault を一括で自動整理する画面です。</p>
+                        <div class="help-box help-box-warn">
+                            <strong>注意</strong>：最適化を実行する前に、必ず「変更プレビュー」で影響範囲を確認してください。
+                        </div>
+                        <ul class="help-list">
+                            <li><strong>ゴミファイルを削除</strong> ─ 空・無題・コンテンツなしのファイルを削除します（バックアップ機能あり）</li>
+                            <li><strong>孤立ノートを MOC へ接続</strong> ─ キーワードを自動解析し、適切な MOC にリンクを追加します</li>
+                            <li><strong>フォルダ MOC 自動生成</strong> ─ 指定したフォルダ内の全ノートをまとめた MOC を自動作成します</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">🗺️ MOC 作成</h4>
+                        <p>テンプレートを使って、自由にカスタマイズした MOC ファイルを作成できる画面です。</p>
+                        <div class="help-box help-box-info">
+                            <strong>MOC とは？</strong>
+                            <p style="margin:4px 0 0">MOC（Map of Content）は、関連するノートへのリンクをまとめた「目次ノート」です。<br>
+                            ノート同士のつながりを可視化し、情報を探しやすくする重要な仕組みです。</p>
+                        </div>
+                        <p><strong>使い方：</strong></p>
+                        <ol class="help-list-ordered">
+                            <li><strong>テンプレートを選ぶ</strong> ─ 「標準MOC」「シンプルMOC」「フォルダMOC」の3種類から選択</li>
+                            <li><strong>基本設定を入力</strong> ─ MOCの名前・保存先フォルダ・タグ・タイプを設定</li>
+                            <li><strong>詳細設定（任意）</strong> ─ 「🔧 詳細設定」を開くと、自動集約フォルダ・タグ・関連MOCなどを設定可能</li>
+                            <li><strong>プレビューで確認</strong> ─ 完成イメージがリアルタイムで表示されます</li>
+                            <li><strong>「MOC を作成」を押す</strong> ─ 指定フォルダにファイルが生成されます</li>
+                        </ol>
+                        <p>よく使う設定は「💾 テンプレート管理」から保存しておくと、次回から素早く作成できます。</p>
+
+                        <h4 class="help-subtitle">📊 統計・分析</h4>
+                        <p>Vault の全体的な統計データを確認できる画面です。</p>
+                        <ul class="help-list">
+                            <li><strong>よく使うタグ TOP 15</strong> ─ 使用頻度の高いタグをランキング表示</li>
+                            <li><strong>Vault 概要</strong> ─ ノート数・リンク数・単語数などの全体サマリー</li>
+                            <li><strong>レアタグ</strong> ─ 1回しか使われていないタグの一覧（タグの整理に活用）</li>
+                            <li><strong>✍️ ライティング分析</strong> ─ 週次/月次の執筆量トレンド、連続執筆日数（ストリーク）、書きかけノート検出、アクティブなトピック分析</li>
+                            <li><strong>✏️ タグ名変更/マージ</strong> ─ タグ名を一括で変更。インラインタグ（#tag）とフロントマター内の両方が対象。変更前にバックアップが自動作成されます</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">🧠 ナレッジグラフ分析</h4>
+                        <p>ノート間の「隠れたつながり」を発見する画面です。「🧠 分析を実行」ボタンで開始します。</p>
+                        <ul class="help-list">
+                            <li><strong>検出クラスター</strong> ─ タグの共起パターンで自動グループ化されたノート群。「意識していなかったテーマの塊」を発見できます</li>
+                            <li><strong>弱接続ノート</strong> ─ リンクが1つ以下しかないノート。孤立予備軍として早めの対処が推奨されます</li>
+                            <li><strong>リンク提案</strong> ─ 2つ以上のタグを共有しているにもかかわらず、まだリンクされていないノートペア。スコアが高いほど関連性が強いです</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">📦 スマートアーカイブ提案</h4>
+                        <p>更新頻度・リンク数を総合して「アーカイブ推奨スコア」を算出します。スコアの高いノートほどアーカイブに適しています。</p>
+                        <div class="help-box help-box-info">
+                            <strong>スコアの算出方法</strong>
+                            <ul>
+                                <li>最終更新からの日数（40%）─ 長期間放置されているほどスコア上昇</li>
+                                <li>被リンク数（30%）─ 他のノートから参照されていないほどスコア上昇</li>
+                                <li>発リンク数（30%）─ リンクを出していないほどスコア上昇</li>
+                            </ul>
+                        </div>
+
+                        <h4 class="help-subtitle">🔀 ノート統合（マージ）</h4>
+                        <p>重複ノートを1つに統合する機能です。統合先（残すファイル）と統合元（削除されるファイル）のフルパスを入力し、プレビュー → 実行の2段階で安全に操作します。</p>
+                        <ul class="help-list">
+                            <li>統合元の内容は統合先の末尾に追加されます</li>
+                            <li>統合元への被リンクは自動的に統合先へリダイレクトされます</li>
+                            <li>バックアップが自動作成されるため、失敗しても復元可能です</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">🏗️ 構造テンプレート</h4>
+                        <p>ワンクリックでVaultのフォルダ構造を最適化する機能です。3つのメソッドから選べます。</p>
+                        <ul class="help-list">
+                            <li><strong>PARA メソッド</strong> ─ Projects / Areas / Resources / Archives の4分類</li>
+                            <li><strong>Zettelkasten</strong> ─ Inbox / Fleeting / Literature / Permanent の成熟度分類</li>
+                            <li><strong>Johnny.Decimal</strong> ─ 数字ベースの体系的分類</li>
+                        </ul>
+                        <p>「🔍 Vault構造を分析」で現在のVaultとの適合度（フィットスコア）を確認し、「👁️ プレビュー」で変更内容を事前確認してから「✨ 適用」で実行します。</p>
+
+                        <h4 class="help-subtitle">🕸️ グラフビュー</h4>
+                        <p>Vault内の全ノートのリンク関係を力学シミュレーション（フォースレイアウト）で可視化します。</p>
+                        <ul class="help-list">
+                            <li>ノードの大きさ ＝ リンク数の多さ</li>
+                            <li>ノードの色 ＝ フォルダ別（凡例で確認）</li>
+                            <li>白い枠線付き ＝ MOC ノート</li>
+                            <li>ドラッグでノードを移動可能</li>
+                            <li>ダブルクリックで Obsidian で開く</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">📋 操作ログ</h4>
+                        <p>アプリ内で実行した操作の履歴が時系列で表示されます。「いつ・何をしたか」の確認に使います。</p>
+
+                        <h4 class="help-subtitle">⚙️ 設定</h4>
+                        <p>アプリの動作をカスタマイズできる画面です。</p>
+                        <ul class="help-list">
+                            <li><strong>ゴミ判定ルール</strong> ─ 「ゴミ」と判定する文字数・ファイルサイズ・キーワードを変更できます</li>
+                            <li><strong>機能の有効/無効</strong> ─ ゴミ削除や MOC 接続を個別にオン・オフできます</li>
+                            <li><strong>安全設定</strong> ─ 削除前のバックアップ作成を有効にすると、万一の復元が可能です</li>
+                            <li><strong>自動レポート保存</strong> ─ 自動スキャン時にVault内の <code>.optimizer-reports/</code> フォルダにレポートを日次保存します</li>
+                            <li><strong>バックアップ管理</strong> ─ 過去のバックアップ一覧を確認し、復元や削除ができます</li>
+                            <li><strong>言語設定</strong> ─ 日本語/英語/中国語を切り替えられます</li>
+                            <li><strong>Dataview レポートノート</strong> ─ Vault内にDataviewクエリ付きのレポートノートを生成。Obsidianで開くと自動更新されます</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- よくある質問 -->
+                <div class="glass-card help-card">
+                    <div class="help-section-header" data-help="faq">
+                        <h3 class="card-title">💬 よくある質問（FAQ）</h3>
+                        <span class="help-toggle-arrow">▼</span>
+                    </div>
+                    <div class="help-section-body" id="help-faq">
+                        <div class="help-faq-item">
+                            <strong>Q. スキャンするとファイルが変わったり消えたりしますか？</strong>
+                            <p>いいえ。スキャンは読み取り専用の操作です。ファイルを変更・削除するのは「最適化」や手動の削除操作だけです。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. 削除したファイルは元に戻せますか？</strong>
+                            <p>「設定」→「削除前にバックアップを作成」がオン（初期設定でオン）であれば、ホームフォルダの <code>~/.obsidian-optimizer-backups/</code> にバックアップが保存されます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. 複数の Vault を使っていますが対応していますか？</strong>
+                            <p>はい。ダッシュボード上部のプルダウンから Vault を切り替えられます。「➕ 追加」で新しい Vault を登録できます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. MOC とは何ですか？</strong>
+                            <p>MOC（Map of Content）は「ノートの目次」のようなものです。あるテーマに関連するノートへのリンクを集めたファイルで、情報の地図として機能します。<br>
+                            例えば「MOC - AI Tools」には AI ツールに関するすべてのノートへのリンクがまとまっています。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. 孤立ノートは全部削除した方がいいですか？</strong>
+                            <p>いいえ。孤立ノートは「他のノートとつながっていないだけ」です。内容が有用なら削除ではなく MOC への接続がおすすめです。<br>
+                            「✨ 最適化」の「孤立ノートを MOC へ接続」機能で自動的にリンクできます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. 健全度スコアはどう計算されていますか？</strong>
+                            <p>孤立ノート・ゴミファイル・壊れたリンク・重複ノートの数に応じて、100点満点から減点して算出しています。問題が少ないほどスコアが高くなります。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. macOS で「開発元が未確認」と表示されます。</strong>
+                            <p>コード署名なしで配布しているため表示されます。<br>
+                            「システム設定」→「プライバシーとセキュリティ」→「このまま開く」をクリックすれば起動できます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. ナレッジグラフの「リンク提案」はどう使えばいいですか？</strong>
+                            <p>提案されたノートペアをObsidianで開き、一方のノートに <code>[[もう一方のノート名]]</code> を追記するだけです。スコアが高いペアから優先的に対応すると効率的です。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. 構造テンプレートを適用するとノートが消えますか？</strong>
+                            <p>いいえ。フォルダの作成とノートの移動のみ行います。削除は行いません。適用前に「👁️ プレビュー」で影響範囲を必ず確認してください。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. グラフビューが重いです。</strong>
+                            <p>ノード数は最大500件に制限されていますが、大規模Vaultではシミュレーションに数秒かかることがあります。ドラッグ操作で安定後は快適に使えます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. リアルタイム監視はバッテリーに影響しますか？</strong>
+                            <p>ファイル変更イベントベースの軽量な仕組みのため、通常使用ではほとんど影響しません。不要な場合は「⏹️ 監視停止」で停止できます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. Dataviewレポートノートとは何ですか？</strong>
+                            <p>Obsidian の Dataview プラグインと連携するノートです。Vault内に生成されると、Obsidianで開くだけで最新の孤立ノート一覧・放置ノート一覧・タグ統計がリアルタイム表示されます。</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 用語集 -->
+                <div class="glass-card help-card">
+                    <div class="help-section-header" data-help="glossary">
+                        <h3 class="card-title">📚 用語集</h3>
+                        <span class="help-toggle-arrow">▼</span>
+                    </div>
+                    <div class="help-section-body" id="help-glossary">
+                        <table class="help-table">
+                            <tr><th>用語</th><th>意味</th></tr>
+                            <tr><td>Vault</td><td>Obsidian で管理するノートフォルダ全体のこと。1つの Vault が1つの知識ベースです。</td></tr>
+                            <tr><td>MOC</td><td>Map of Content の略。関連ノートへのリンクをまとめた「目次ノート」です。</td></tr>
+                            <tr><td>孤立ノート</td><td>他のどのノートからもリンクされておらず、自分もリンクを持たないノートのこと。</td></tr>
+                            <tr><td>ゴミファイル</td><td>空ファイル・無題ファイル・コンテンツが極端に少ないファイルの総称。</td></tr>
+                            <tr><td>壊れたリンク</td><td>[[ノート名]] と書かれているが、そのファイルが存在しない状態のリンク。</td></tr>
+                            <tr><td>放置ノート</td><td>最後の更新から一定期間（初期設定180日）が経過したノート。</td></tr>
+                            <tr><td>タグ</td><td>#タグ名 の形式でノートにつけるラベル。分類や検索に使います。</td></tr>
+                            <tr><td>フロントマター</td><td>ノートの先頭にある --- で囲まれた設定領域。タグやタイプなどを記述します。</td></tr>
+                            <tr><td>Dataview</td><td>Obsidian プラグインの1つ。条件に合うノートを自動的に表形式で表示する機能。</td></tr>
+                            <tr><td>Templater</td><td>Obsidian プラグインの1つ。テンプレートに日付やファイル名を自動挿入する機能。</td></tr>
+                            <tr><td>PARA</td><td>Tiago Forte のメソッド。Projects / Areas / Resources / Archives の4分類でノートを整理する手法。</td></tr>
+                            <tr><td>Zettelkasten</td><td>Niklas Luhmann の手法。ノートの成熟度（メモ→文献→恒久）で分類するシステム。</td></tr>
+                            <tr><td>弱接続ノート</td><td>リンクが1つ以下しかないノート。孤立ノートになる前の「予備軍」。</td></tr>
+                            <tr><td>アーカイブスコア</td><td>ノートの更新頻度・リンク数から算出した「アーカイブ推奨度」。60点以上で候補に表示。</td></tr>
+                            <tr><td>ストリーク</td><td>連続してノートを書いた日数。ゲーミフィケーション要素として執筆習慣の維持に役立ちます。</td></tr>
+                            <tr><td>フォースレイアウト</td><td>ノードに斥力（反発力）とエッジにバネ力を与え、自然に配置させる物理シミュレーション。</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- キーボードショートカット -->
+                <div class="glass-card help-card">
+                    <div class="help-section-header" data-help="shortcuts">
+                        <h3 class="card-title">⌨️ キーボードショートカット</h3>
+                        <span class="help-toggle-arrow">▼</span>
+                    </div>
+                    <div class="help-section-body" id="help-shortcuts">
+                        <table class="help-table">
+                            <tr><th>キー</th><th>機能</th></tr>
+                            <tr><td><kbd>⌘</kbd> + <kbd>R</kbd></td><td>Vault をスキャン</td></tr>
+                            <tr><td><kbd>⌘</kbd> + <kbd>E</kbd></td><td>レポートを出力</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- おすすめワークフロー -->
+                <div class="glass-card help-card">
+                    <div class="help-section-header" data-help="workflow">
+                        <h3 class="card-title">💡 おすすめ運用フロー</h3>
+                        <span class="help-toggle-arrow">▼</span>
+                    </div>
+                    <div class="help-section-body" id="help-workflow">
+                        <div class="help-box help-box-info">
+                            <strong>週1回・5分でできる Vault メンテナンス</strong>
+                        </div>
+                        <div class="help-steps">
+                            <div class="help-step">
+                                <span class="help-step-num">1</span>
+                                <div>
+                                    <strong>スキャンする</strong>
+                                    <p>「🔍 Vault をスキャン」を実行。健全度スコアを確認します。</p>
+                                </div>
+                            </div>
+                            <div class="help-step">
+                                <span class="help-step-num">2</span>
+                                <div>
+                                    <strong>ゴミを確認・削除</strong>
+                                    <p>「スキャン結果」タブでゴミファイルを確認。不要なものにチェックを入れて削除します。</p>
+                                </div>
+                            </div>
+                            <div class="help-step">
+                                <span class="help-step-num">3</span>
+                                <div>
+                                    <strong>壊れたリンクを修復</strong>
+                                    <p>壊れたリンクがあれば「✨ 修復」ボタンで候補に自動修正します。</p>
+                                </div>
+                            </div>
+                            <div class="help-step">
+                                <span class="help-step-num">4</span>
+                                <div>
+                                    <strong>孤立ノートを MOC に接続</strong>
+                                    <p>「✨ 最適化」→「孤立ノートを MOC へ接続」にチェックを入れて実行。<br>
+                                    自動でキーワード分析し、適切な MOC にリンクしてくれます。</p>
+                                </div>
+                            </div>
+                            <div class="help-step">
+                                <span class="help-step-num">5</span>
+                                <div>
+                                    <strong>必要に応じて MOC を作成</strong>
+                                    <p>新しいテーマのノートが5つ以上溜まったら「🗺️ MOC 作成」タブで新しい MOC を作りましょう。</p>
+                                </div>
+                            </div>
+                            <div class="help-step">
+                                <span class="help-step-num">6</span>
+                                <div>
+                                    <strong>月1回：ナレッジグラフで健康診断</strong>
+                                    <p>「🧠 ナレッジグラフ」タブで分析を実行。リンク提案を参考にノート間のつながりを強化しましょう。</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="help-box help-box-tip">
+                            <strong>上級者向けヒント</strong>
+                            <ul>
+                                <li>「👁️ リアルタイム監視」を常時ONにすると、問題の早期発見が可能です</li>
+                                <li>「📊 Dataview レポートノート」を生成すると、Obsidian内からも統計を確認できます</li>
+                                <li>「🏗️ 構造テンプレート」で PARA や Zettelkasten への移行をワンクリックで検討できます</li>
+                                <li>「🕸️ グラフビュー」で全体の鳥瞰図を見ながら、構造的な改善点を発見できます</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 整理ツール -->
+            <div class="tab-content" id="tab-organize" role="tabpanel" aria-labelledby="tab-organize">
+                <div class="page-header">
+                    <div>
+                        <h1>整理ツール</h1>
+                        <p class="page-subtitle">ノートの整理・整頓を支援する8つのツール</p>
+                    </div>
+                </div>
+
+                <div class="organize-grid">
+                    <!-- Feature 1: タイトル自動リネーム -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <span class="organize-icon">✏️</span>
+                            <h3>タイトル変更</h3>
+                            <p class="muted-hint">ファイル名と見出しが一致しないノートを検出</p>
+                        </div>
+                        <div id="org-title-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-org-scan-titles">スキャン実行</button>
+                            <div id="org-title-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>検出中...</span></div>
+                            <div id="org-title-results" class="org-results" style="display:none">
+                                <p id="org-title-summary" class="org-summary"></p>
+                                <div id="org-title-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature 2: Frontmatter標準化 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <span class="organize-icon">📝</span>
+                            <h3>Frontmatter標準化</h3>
+                            <p class="muted-hint">Frontmatterの欠落・不足フィールドを検出・補完</p>
+                        </div>
+                        <div id="org-fm-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-org-scan-frontmatter">スキャン実行</button>
+                            <div id="org-fm-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>検出中...</span></div>
+                            <div id="org-fm-results" class="org-results" style="display:none">
+                                <p id="org-fm-summary" class="org-summary"></p>
+                                <div id="org-fm-list" class="org-list"></div>
+                                <button class="primary-btn small-btn" id="btn-org-fix-frontmatter-all" style="display:none;margin-top:8px">一括補完</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature 3: Inbox整理 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <span class="organize-icon">📂</span>
+                            <h3>Inbox整理</h3>
+                            <p class="muted-hint">Inboxのノートを適切なフォルダに振り分け提案</p>
+                        </div>
+                        <div id="org-inbox-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-org-scan-inbox">スキャン実行</button>
+                            <div id="org-inbox-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>分析中...</span></div>
+                            <div id="org-inbox-results" class="org-results" style="display:none">
+                                <p id="org-inbox-summary" class="org-summary"></p>
+                                <div id="org-inbox-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature 4: 長文ノート分割提案 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <span class="organize-icon">✂️</span>
+                            <h3>長文ノート分割提案</h3>
+                            <p class="muted-hint">3000文字以上の長いノートを検出し分割候補を提示</p>
+                        </div>
+                        <div id="org-split-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-org-scan-split">スキャン実行</button>
+                            <div id="org-split-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>検出中...</span></div>
+                            <div id="org-split-results" class="org-results" style="display:none">
+                                <p id="org-split-summary" class="org-summary"></p>
+                                <div id="org-split-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature 5: 空フォルダ検出 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <span class="organize-icon">🗑️</span>
+                            <h3>空フォルダ検出</h3>
+                            <p class="muted-hint">.mdファイルのない空フォルダを検出・削除</p>
+                        </div>
+                        <div id="org-empty-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-org-scan-empty">スキャン実行</button>
+                            <div id="org-empty-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>検出中...</span></div>
+                            <div id="org-empty-results" class="org-results" style="display:none">
+                                <p id="org-empty-summary" class="org-summary"></p>
+                                <div id="org-empty-list" class="org-list"></div>
+                                <button class="primary-btn small-btn danger-btn" id="btn-org-delete-empty" style="display:none;margin-top:8px">一括削除</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature 7: Daily Note TODO抽出 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <span class="organize-icon">☑️</span>
+                            <h3>Daily Note TODO抽出</h3>
+                            <p class="muted-hint">デイリーノートから未完了TODOを一覧表示</p>
+                        </div>
+                        <div id="org-todo-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-org-scan-todos">スキャン実行</button>
+                            <div id="org-todo-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>抽出中...</span></div>
+                            <div id="org-todo-results" class="org-results" style="display:none">
+                                <p id="org-todo-summary" class="org-summary"></p>
+                                <div id="org-todo-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature 8: リンク正規化 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <span class="organize-icon">🔗</span>
+                            <h3>リンク正規化</h3>
+                            <p class="muted-hint">大小文字不一致・壊れたエイリアスリンクを検出・修正</p>
+                        </div>
+                        <div id="org-links-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-org-scan-links">スキャン実行</button>
+                            <div id="org-links-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>検出中...</span></div>
+                            <div id="org-links-results" class="org-results" style="display:none">
+                                <p id="org-links-summary" class="org-summary"></p>
+                                <div id="org-links-list" class="org-list"></div>
+                                <button class="primary-btn small-btn" id="btn-org-normalize-links" style="display:none;margin-top:8px">一括修正</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Feature 12: ウィジェット設定モーダル -->
+    <div id="widget-settings-modal" class="widget-modal-overlay" style="display:none">
+        <div class="widget-modal">
+            <h3 style="margin-bottom:12px">🔧 ウィジェット設定</h3>
+            <p class="muted-hint" style="margin-bottom:12px">ダッシュボードに表示するウィジェットを選択してください</p>
+            <div class="widget-settings-list">
+                <label class="toggle-row"><input type="checkbox" data-widget-key="healthScore" checked><div class="toggle-body"><span class="toggle-title">🎯 健全度スコア</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="heatmap" checked><div class="toggle-body"><span class="toggle-title">🔥 ヒートマップ</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="folderDist" checked><div class="toggle-body"><span class="toggle-title">📁 フォルダ分布</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="timeMachine" checked><div class="toggle-body"><span class="toggle-title">🕐 タイムマシン</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="achievements" checked><div class="toggle-body"><span class="toggle-title">🏅 実績バッジ</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="trends" checked><div class="toggle-body"><span class="toggle-title">📈 推移グラフ</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="noteScore" checked><div class="toggle-body"><span class="toggle-title">📊 ノートスコア</span></div></label>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                <button class="ghost-btn" id="btn-widget-settings-close">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay" style="display:none">
+        <div class="loading-inner">
+            <div class="spinner"></div>
+            <p id="loading-msg" class="loading-msg">処理中...</p>
+            <p id="loading-sub" class="loading-sub"></p>
+            <button class="ghost-btn small-btn" id="btn-cancel-scan" style="display:none;margin-top:12px">キャンセル</button>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+
+</html>
