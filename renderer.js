@@ -7,6 +7,8 @@ let scanData = null;
 let logCount = 0;
 let isScanning = false;
 let isOptimizing = false;
+let isTrialMode = false;
+let isLicensed = false;
 
 const $ = id => document.getElementById(id);
 
@@ -14,6 +16,65 @@ const $ = id => document.getElementById(id);
 function esc(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ============================================================
+// 統一プレビューモーダル API
+// ============================================================
+function showPreviewModal(options) {
+    // options: { title, subtitle, content (HTML), rawText, actions: [{label, onClick, className}], footer: HTML }
+    const overlay = $('preview-modal');
+    const titleEl = $('preview-modal-title');
+    const subtitleEl = $('preview-modal-subtitle');
+    const bodyEl = $('preview-modal-body');
+    const footerEl = $('preview-modal-footer');
+    const actionsEl = $('preview-modal-actions');
+    const closeBtn = $('preview-modal-close');
+
+    if (!overlay) return;
+
+    titleEl.textContent = options.title || 'プレビュー';
+    subtitleEl.textContent = options.subtitle || '';
+
+    if (options.content) {
+        bodyEl.innerHTML = options.content;
+    } else if (options.rawText) {
+        bodyEl.innerHTML = '<pre>' + esc(options.rawText) + '</pre>';
+    }
+
+    // Actions (ヘッダーのボタン)
+    actionsEl.innerHTML = '';
+    if (options.actions) {
+        options.actions.forEach(function(a) {
+            const btn = document.createElement('button');
+            btn.className = a.className || 'ghost-btn small-btn';
+            btn.textContent = a.label;
+            btn.addEventListener('click', a.onClick);
+            actionsEl.appendChild(btn);
+        });
+    }
+
+    // Footer
+    footerEl.innerHTML = options.footer || '';
+    footerEl.style.display = options.footer ? '' : 'none';
+
+    overlay.style.display = 'flex';
+
+    // 閉じるハンドラ
+    const close = function() { overlay.style.display = 'none'; };
+    closeBtn.onclick = close;
+    overlay.onclick = function(e) { if (e.target === overlay) close(); };
+
+    // Escapeキーで閉じる
+    const escHandler = function(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
+
+    return { close: close, bodyEl: bodyEl, footerEl: footerEl, actionsEl: actionsEl };
+}
+
+function closePreviewModal() {
+    const overlay = $('preview-modal');
+    if (overlay) overlay.style.display = 'none';
 }
 
 // ============================================================
@@ -42,6 +103,27 @@ function bindAllButtons() {
     safe('btn-export', runExport);
     safe('btn-export-data', runExportData);
     safe('btn-clear-log', clearLog);
+
+    // Feature 1: ライセンス認証ボタン
+    safe('btn-verify-license', () => verifyLicenseFromInput('license-key-input', 'license-error'));
+    safe('btn-skip-license', () => {
+        const modal = $('license-modal');
+        if (modal) modal.style.display = 'none';
+        isTrialMode = true;
+        applyTrialRestrictions();
+        showToast('トライアルモードで起動しました。スキャン機能のみ使用できます。', 'warn', 5000);
+    });
+    safe('btn-settings-verify-license', () => verifyLicenseFromInput('settings-license-key', 'settings-license-error'));
+
+    // Feature 2: 更新チェック
+    safe('btn-check-updates', () => checkForUpdates(false));
+
+    // Feature 4: テーマ切り替え
+    safe('btn-theme-toggle', toggleTheme);
+
+    // ライセンスキー入力のオートフォーマット
+    formatLicenseKeyInput($('license-key-input'));
+    formatLicenseKeyInput($('settings-license-key'));
 
     // Vault スイッチャー / 追加 / 削除
     const vs = $('vault-switcher');
@@ -113,7 +195,7 @@ function bindAllButtons() {
 
     // MOC作成タブ（通常モード）
     safe('btn-create-moc', createMocFromUI);
-    safe('btn-refresh-preview', updateMocPreview);
+    safe('btn-refresh-preview', async function() { await updateMocPreview(); showMocPreviewModal(); });
     safe('btn-save-as-template', saveCurrentAsTemplate);
     const advToggle = $('moc-advanced-toggle');
     if (advToggle) advToggle.addEventListener('click', toggleAdvancedSettings);
@@ -199,6 +281,9 @@ function bindAllButtons() {
         const el = $(id);
         if (el) el.addEventListener('input', debouncedPreview);
     });
+    // MOC名の入力で作成ボタンの有効状態を更新
+    const mocNameEl = $('moc-name');
+    if (mocNameEl) mocNameEl.addEventListener('input', updateMocCreateBtnState);
     ['moc-auto-folders', 'moc-related-mocs'].forEach(id => {
         const el = $(id);
         if (el) el.addEventListener('change', debouncedPreview);
@@ -216,12 +301,44 @@ function bindAllButtons() {
     const ss = $('search-stale'); if (ss) ss.addEventListener('input', e => filterList('stale-list', e.target.value));
     const sb = $('search-broken'); if (sb) sb.addEventListener('input', e => filterList('broken-list', e.target.value));
 
-    // キーボードショートカット
+    // キーボードショートカット（拡張版）
     document.addEventListener('keydown', e => {
-        if (!(e.metaKey || e.ctrlKey)) return;
-        if (e.key === 'r') { e.preventDefault(); runScan(); }
-        if (e.key === 'e') { e.preventDefault(); runExport(); }
+        // オンボーディング中はショートカット無効
+        const onb = $('onboarding-overlay');
+        if (onb && onb.style.display !== 'none') return;
+
+        if (e.metaKey || e.ctrlKey) {
+            switch (e.key) {
+                case 's': e.preventDefault(); runScan(); break;
+                case '1': e.preventDefault(); activateTab('dashboard'); break;
+                case '2': e.preventDefault(); activateTab('scan-optimize'); break;
+                case '3': e.preventDefault(); activateTab('moc-create'); break;
+                case '4': e.preventDefault(); activateTab('analytics'); break;
+                case '5': e.preventDefault(); activateTab('tools'); break;
+                case '6': e.preventDefault(); activateTab('tasks'); break;
+                case ',': e.preventDefault(); activateTab('settings'); break;
+                case 'o': e.preventDefault(); activateTab('scan-optimize'); break;
+                case 't': e.preventDefault(); activateTab('tasks'); break;
+                case 'r': e.preventDefault(); runScan(); break;
+                case 'e': e.preventDefault(); runExport(); break;
+            }
+        }
+        // Escapeで全モーダルを閉じる
+        if (e.key === 'Escape') {
+            const widgetModal = $('widget-settings-modal');
+            if (widgetModal && widgetModal.style.display !== 'none') {
+                widgetModal.style.display = 'none';
+            }
+        }
     });
+
+    // オンボーディングウィザード
+    safe('onboarding-next-1', () => goOnboardingStep(2));
+    safe('onboarding-select-vault', onboardingSelectVault);
+    safe('onboarding-next-2', () => goOnboardingStep(3));
+    safe('onboarding-run-scan', onboardingRunScan);
+    safe('onboarding-next-3', () => goOnboardingStep(4));
+    safe('onboarding-finish', finishOnboarding);
 
     // 整理ツール ボタンバインド
     safe('btn-org-scan-titles', orgScanTitles);
@@ -234,12 +351,21 @@ function bindAllButtons() {
     safe('btn-org-scan-todos', orgScanTodos);
     safe('btn-org-scan-links', orgScanLinks);
     safe('btn-org-normalize-links', orgNormalizeLinks);
+    safe('btn-org-scan-all', orgScanAll);
 }
 
 function bindTabNav() {
     document.querySelectorAll('.nav-item').forEach(btn =>
         btn.addEventListener('click', () => activateTab(btn.dataset.tab))
     );
+    // サブタブのクリックイベント
+    document.querySelectorAll('.sub-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const parentTab = btn.dataset.parent;
+            const subTabId = btn.dataset.subtab;
+            switchSubTab(parentTab, subTabId);
+        });
+    });
 }
 
 function bindProgressListeners() {
@@ -276,6 +402,26 @@ async function initAsync() {
 
     if (logCount === 0) addLog('アプリを起動しました (v4.3 — AI寺子屋 CraftLab)', 'info');
     checkUndoAvailability();
+
+    // Feature 4: テーマ復元
+    try {
+        const cfg2 = await window.api.getConfig();
+        if (cfg2.appTheme) applyTheme(cfg2.appTheme);
+    } catch (_) { /* ignore */ }
+
+    // Feature 1: ライセンス確認
+    await checkLicenseStatus();
+
+    // Feature 2: 起動5秒後にサイレント更新チェック
+    setTimeout(() => { checkForUpdates(true); }, 5000);
+
+    // オンボーディング: 初回起動チェック
+    try {
+        const cfg = await window.api.getConfig();
+        if (!cfg.onboardingCompleted) {
+            showOnboarding();
+        }
+    } catch (e) { /* ignore */ }
 }
 
 // ============================================================
@@ -283,7 +429,48 @@ async function initAsync() {
 // ============================================================
 let mocTabInitialized = false;
 
+// 旧タブID → 新タブIDへのマッピング（タブ統合の後方互換性）
+const TAB_MIGRATION_MAP = {
+    'scan': 'scan-optimize',
+    'preview': 'scan-optimize',
+    'optimize': 'scan-optimize',
+    'stats': 'analytics',
+    'knowledge-graph': 'analytics',
+    'graph': 'analytics',
+    'archive': 'tools',
+    'merge': 'tools',
+    'structure': 'tools',
+    'organize': 'tools',
+    'log': 'settings'
+};
+
+// 旧タブID → 対応するサブタブID
+const SUBTAB_MAP = {
+    'scan': 'scan-results',
+    'preview': 'preview',
+    'optimize': 'optimize',
+    'stats': 'stats',
+    'knowledge-graph': 'knowledge-graph',
+    'graph': 'graph-view',
+    'archive': 'archive',
+    'merge': 'merge',
+    'structure': 'structure',
+    'organize': 'organize-main',
+    'log': null
+};
+
 function activateTab(tab) {
+    // 旧タブIDを新タブIDにマッピング
+    const originalTab = tab;
+    if (TAB_MIGRATION_MAP[tab]) {
+        const subTabId = SUBTAB_MAP[tab];
+        tab = TAB_MIGRATION_MAP[tab];
+        // サブタブも切り替え
+        if (subTabId) {
+            setTimeout(() => switchSubTab(tab, subTabId), 0);
+        }
+    }
+
     document.querySelectorAll('.nav-item').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     const btn = document.querySelector(`.nav-item[data-tab="${tab}"]`);
@@ -295,6 +482,14 @@ function activateTab(tab) {
         mocTabInitialized = true;
         initMocTab();
     }
+}
+
+// サブタブ切り替え
+function switchSubTab(parentTab, subTabId) {
+    const parent = $(`tab-${parentTab}`);
+    if (!parent) return;
+    parent.querySelectorAll('.sub-tab').forEach(t => t.classList.toggle('active', t.dataset.subtab === subTabId));
+    parent.querySelectorAll('.sub-tab-content').forEach(c => c.classList.toggle('active', c.id === 'subtab-' + subTabId));
 }
 
 function showLoading(msg, sub = '') {
@@ -384,6 +579,8 @@ function resetDashboard() {
     const fc = $('folder-chart'); if (fc) fc.innerHTML = '';
     const hm = $('heatmap-container'); if (hm) hm.innerHTML = '';
     ['btn-quick-optimize', 'btn-run-optimize', 'btn-preview', 'btn-export', 'btn-export-data', 'export-format'].forEach(id => { const el = $(id); if (el) el.disabled = true; });
+    // お気に入りを再読み込み
+    if (typeof loadFavorites === 'function') loadFavorites();
 }
 
 function showScanError(errorMsg) {
@@ -447,8 +644,8 @@ async function checkUndoAvailability() {
 }
 
 async function runUndo() {
-    if (!confirm('最後の操作を元に戻しますか？削除されたファイルがバックアップから復元されます。')) return;
-    showLoading('操作を元に戻しています...');
+    if (!await showConfirmModal('確認', '最後の操作を元に戻しますか？\n削除されたファイルがバックアップから復元されます。', '元に戻す')) return;
+    showLoading('操作を元に戻しています...', 'バックアップからファイルを復元しています');
     try {
         const res = await window.api.undoLastOperation();
         hideLoading();
@@ -584,6 +781,7 @@ async function runScan() {
 
     ['btn-quick-optimize', 'btn-run-optimize', 'btn-preview', 'btn-export', 'btn-export-data', 'export-format'].forEach(id => { const el = $(id); if (el) el.disabled = false; });
     const rh = $('run-btn-hint'); if (rh) rh.textContent = `孤立:${scanData.orphanNotes}件 / ゴミ:${scanData.junkFiles}件`;
+    const optHint = $('btn-run-optimize-hint'); if (optHint) optHint.style.display = 'none';
 
     addLog(`✅ スキャン完了 — ノート:${scanData.totalMDFiles} / 孤立:${scanData.orphanNotes} / 放置:${scanData.staleList ? scanData.staleList.length : 0}`, 'success', 'SCAN');
 }
@@ -759,9 +957,9 @@ async function deleteSelectedFromList(listId) {
     const paths = checked.map(cb => cb.closest('.list-item-check')?.getAttribute('data-path')).filter(Boolean);
     if (paths.length === 0) return;
 
-    if (!confirm(`ファイル ${paths.length}件 を削除しますか？この操作は取り消せません。`)) return;
+    if (!await showConfirmModal('削除の確認', `ファイル ${paths.length}件 を削除します。\n\n⚡ バックアップについて\n設定で『削除前にバックアップを作成』がオンの場合、自動的にバックアップが保存されます。`, '削除する')) return;
 
-    showLoading(`${paths.length} 件を削除中...`);
+    showLoading(`${paths.length} 件を削除中...`, 'ファイルを安全に削除しています');
     let res;
     try { res = await window.api.deleteSelected(paths); }
     catch (e) { res = { success: false, error: e.message }; }
@@ -780,9 +978,9 @@ async function moveSelectedToArchive(listId) {
     const filePaths = checked.map(cb => cb.closest('.list-item-check')?.getAttribute('data-path')).filter(Boolean);
     if (filePaths.length === 0) return;
 
-    if (!confirm(`ファイル ${filePaths.length}件 をアーカイブに移動しますか？`)) return;
+    if (!await showConfirmModal('アーカイブの確認', `ファイル ${filePaths.length}件 をアーカイブに移動します。\n\n⚡ バックアップについて\n設定で『削除前にバックアップを作成』がオンの場合、自動的にバックアップが保存されます。`, '移動する')) return;
 
-    showLoading(`${filePaths.length} 件をアーカイブに移動中...`);
+    showLoading(`${filePaths.length} 件をアーカイブに移動中...`, 'ファイルをアーカイブフォルダへ移動しています');
     try {
         const res = await window.api.moveSelected({ filePaths, targetFolder: '99 Archive' });
         hideLoading();
@@ -811,23 +1009,15 @@ async function previewSelectedNotes(listId, label = 'ノート') {
         addLog(`⚠️ ${label}を選択してください`, 'warn');
         return;
     }
-    const limit = 20;
-    const rows = checked.map(cb => cb.closest('.list-item-check')).filter(Boolean).slice(0, limit);
-    showLoading(`${label}を一括プレビュー中...`);
-    let shown = 0;
-    for (const row of rows) {
-        const fp = row.getAttribute('data-path');
-        if (!fp) continue;
-        if (!row.querySelector('.note-preview')) {
-            await toggleNotePreview(row, fp);
-            shown++;
+    // 最初の選択ノートをモーダルでプレビュー
+    const firstRow = checked[0].closest('.list-item-check');
+    if (firstRow) {
+        const fp = firstRow.getAttribute('data-path');
+        if (fp) {
+            await toggleNotePreview(firstRow, fp);
+            addLog(`👁️ ${label}のプレビューを表示 (選択: ${checked.length}件)`, 'success');
         }
     }
-    hideLoading();
-    if (checked.length > limit) {
-        addLog(`ℹ️ 一括プレビューは負荷軽減のため先頭${limit}件まで表示しました`, 'info');
-    }
-    addLog(`👁️ ${label}の一括プレビューを表示: ${shown}件`, 'success');
 }
 
 // ============================================================
@@ -907,7 +1097,7 @@ async function fixSelectedBrokenLinks() {
         addLog('⚠️ 修復候補のある壊れたリンクを選択してください', 'warn');
         return;
     }
-    showLoading(`壊れたリンクを修復中... (${rows.length}件)`);
+    showLoading(`壊れたリンクを修復中... (${rows.length}件)`, 'リンク先を候補に置換しています');
     const result = await runBatchBrokenFix(rows);
     hideLoading();
     addLog(`🛠️ 一括修復結果: 成功${result.fixed}件 / 失敗${result.failed}件`, result.failed ? 'warn' : 'success');
@@ -920,7 +1110,7 @@ async function fixAllSuggestedBrokenLinks() {
         addLog('ℹ️ 自動修復候補のある壊れたリンクはありません', 'info');
         return;
     }
-    showLoading(`壊れたリンクを一括修復中... (${rows.length}件)`);
+    showLoading(`壊れたリンクを一括修復中... (${rows.length}件)`, 'リンク先を候補に置換しています');
     const result = await runBatchBrokenFix(rows);
     hideLoading();
     addLog(`🛠️ 一括修復結果: 成功${result.fixed}件 / 失敗${result.failed}件`, result.failed ? 'warn' : 'success');
@@ -1153,7 +1343,7 @@ async function runGenMoc() {
     if (!folder) return;
     const destFolder = $('moc-dest-select')?.value || '';
     try {
-        showLoading(`MOCを生成中... (${folder})`);
+        showLoading(`MOCを生成中... (${folder})`, 'フォルダ内のノートを集約しています');
         const res = await window.api.generateFolderMoc({ folderName: folder, destFolder: destFolder || undefined });
         hideLoading();
         const lbl = $('moc-gen-result');
@@ -1175,7 +1365,8 @@ async function runGenMoc() {
 // ドライラン（プレビュー）
 // ============================================================
 async function runPreview() {
-    showLoading('プレビューを生成中...');
+    if (!scanData) { addLog('⚠️ 先にスキャンを実行してください', 'warn'); showToast('先にスキャンを実行してください', 'warn'); return; }
+    showLoading('プレビューを生成中...', '変更内容をシミュレーションしています');
     let res;
     try { res = await window.api.dryRun(); }
     catch (e) { res = { success: false, error: e.message }; }
@@ -1277,11 +1468,11 @@ async function runOptimize() {
     if (deleteJunk && scanData.junkFiles > 0) confirmParts.push(`ゴミファイル ${scanData.junkFiles}件 を削除`);
     if (linkOrphans && scanData.orphanNotes > 0) confirmParts.push(`孤立ノート ${scanData.orphanNotes}件 をMOC接続`);
     if (confirmParts.length > 0) {
-        if (!confirm(`以下の最適化を実行しますか？\n\n${confirmParts.join('\n')}\n\nこの操作は取り消せません（バックアップは作成されます）。`)) return;
+        if (!await showConfirmModal('最適化の確認', `以下の最適化を実行しますか？\n\n${confirmParts.join('\n')}\n\n⚡ バックアップについて\n設定で『削除前にバックアップを作成』がオンの場合、自動的にバックアップが保存されます。`, '最適化を実行する')) return;
     }
 
     isOptimizing = true;
-    showLoading('Vault を最適化中...');
+    showLoading('Vault を最適化中...', '最適化処理を実行しています');
     addLog('✨ 最適化開始', 'info', 'OPT');
     const rb = $('btn-run-optimize'); if (rb) rb.disabled = true;
     const pr = $('progress-result'); if (pr) pr.style.display = 'none';
@@ -1356,7 +1547,27 @@ async function runExportData() {
 // ============================================================
 // Notification Helpers
 // ============================================================
+// トースト通知システム
+function showToast(message, type = 'info', duration = 4000) {
+    const container = $('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    const icons = { success: '✅', error: '❌', warn: '⚠️', info: 'ℹ️' };
+    toast.innerHTML = `<span class="toast-icon">${icons[type] || 'ℹ️'}</span><span class="toast-msg">${esc(message)}</span>`;
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
 function addLog(msg, type = 'info', category = '') {
+    // トースト通知（成功・エラー時に自動表示）
+    if (type === 'success' || type === 'error') {
+        showToast(msg, type === 'success' ? 'success' : 'error');
+    }
     logCount++;
     const badge = $('nav-badge-log');
     if (badge) { badge.style.display = 'inline'; badge.textContent = logCount; }
@@ -1456,6 +1667,12 @@ function renderTemplateCards(templates) {
     });
 }
 
+function updateMocCreateBtnState() {
+    const name = ($('moc-name') || {}).value?.trim();
+    const btn = $('btn-create-moc');
+    if (btn) btn.disabled = !name || !selectedTemplateId;
+}
+
 function selectTemplate(id) {
     selectedTemplateId = id;
 
@@ -1463,6 +1680,9 @@ function selectTemplate(id) {
     document.querySelectorAll('.moc-template-card').forEach(card => {
         card.classList.toggle('selected', card.getAttribute('data-tpl-id') === id);
     });
+
+    // MOC作成ボタンの有効状態を更新
+    updateMocCreateBtnState();
 
     // プレビュー自動更新
     updateMocPreview();
@@ -1545,6 +1765,8 @@ function getMocFormParams() {
     };
 }
 
+let lastMocPreviewContent = '';
+
 async function updateMocPreview() {
     const preview = $('moc-preview-content');
     if (!preview) return;
@@ -1553,10 +1775,12 @@ async function updateMocPreview() {
 
     if (!params.templateId) {
         preview.innerHTML = '<span class="muted-hint">テンプレートを選択してください</span>';
+        lastMocPreviewContent = '';
         return;
     }
     if (!params.name) {
         preview.innerHTML = '<span class="muted-hint">MOC名を入力してください</span>';
+        lastMocPreviewContent = '';
         return;
     }
 
@@ -1564,12 +1788,28 @@ async function updateMocPreview() {
         const res = await window.api.previewMoc(params);
         if (res.success) {
             preview.innerHTML = renderMocPreviewWithFrontmatter(res.content);
+            lastMocPreviewContent = res.content;
         } else {
             preview.innerHTML = `<span style="color:var(--danger)">${esc(res.error)}</span>`;
+            lastMocPreviewContent = '';
         }
     } catch (e) {
         preview.innerHTML = `<span style="color:var(--danger)">プレビューエラー: ${esc(e.message)}</span>`;
+        lastMocPreviewContent = '';
     }
+}
+
+function showMocPreviewModal() {
+    if (!lastMocPreviewContent) {
+        showToast('プレビューするMOCがありません。テンプレートと名前を入力してください。', 'warn');
+        return;
+    }
+    var params = getMocFormParams();
+    showPreviewModal({
+        title: (params.name || 'MOC') + ' プレビュー',
+        subtitle: 'MOCテンプレートプレビュー',
+        content: '<pre>' + esc(lastMocPreviewContent) + '</pre>'
+    });
 }
 
 // MOCプレビュー: フロントマターをハイライト表示
@@ -1597,7 +1837,7 @@ async function createMocFromUI() {
         return;
     }
 
-    showLoading('MOCを作成中...');
+    showLoading('MOCを作成中...', 'テンプレートを適用しています');
     try {
         const res = await window.api.createMocFromTemplate(params);
         hideLoading();
@@ -1634,10 +1874,12 @@ async function createMocFromUI() {
 function toggleAdvancedSettings() {
     const panel = $('moc-advanced-panel');
     const arrow = $('moc-advanced-arrow');
+    const toggle = $('moc-advanced-toggle');
     if (!panel) return;
     const isOpen = panel.style.display !== 'none';
     panel.style.display = isOpen ? 'none' : 'block';
     if (arrow) arrow.classList.toggle('open', !isOpen);
+    if (toggle) toggle.setAttribute('aria-expanded', String(!isOpen));
 }
 
 // Electronではprompt()が動作しないため、カスタムモーダルを使用
@@ -1668,6 +1910,32 @@ function showInputModal(title, defaultValue) {
             if (e.key === 'Escape') cleanup(null);
         });
         overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(null); });
+    });
+}
+
+// カスタム確認モーダル（confirm()の代替）
+function showConfirmModal(title, message, confirmLabel = '実行', cancelLabel = 'キャンセル') {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+        const modal = document.createElement('div');
+        modal.style.cssText = 'background:var(--card);border:1px solid rgba(124,108,248,.3);border-radius:16px;padding:28px;width:440px;max-width:90vw';
+        modal.innerHTML = `
+            <h3 style="margin:0 0 12px;font-size:1rem;color:#fff">${title}</h3>
+            <p style="margin:0 0 20px;font-size:.88rem;color:rgba(255,255,255,.7);line-height:1.6;white-space:pre-line">${message}</p>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button class="ghost-btn" id="_confirm_cancel">${cancelLabel}</button>
+                <button class="danger-btn" id="_confirm_ok">${confirmLabel}</button>
+            </div>
+        `;
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        const handleKey = (e) => { if (e.key === 'Escape') cleanup(false); if (e.key === 'Enter') cleanup(true); };
+        document.addEventListener('keydown', handleKey);
+        function cleanup(val) { document.removeEventListener('keydown', handleKey); document.body.removeChild(overlay); resolve(val); }
+        modal.querySelector('#_confirm_cancel').addEventListener('click', () => cleanup(false));
+        modal.querySelector('#_confirm_ok').addEventListener('click', () => cleanup(true));
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
     });
 }
 
@@ -1723,7 +1991,7 @@ async function saveCurrentAsTemplate() {
 }
 
 async function deleteCustomTemplate(id) {
-    if (!confirm('このテンプレートを削除しますか?')) return;
+    if (!await showConfirmModal('テンプレート削除の確認', 'このテンプレートを削除しますか？', '削除する')) return;
     try {
         const res = await window.api.deleteMocTemplate(id);
         if (res.success) {
@@ -1821,6 +2089,11 @@ function toggleCollapsible(panelId, arrowId) {
     const isOpen = panel.style.display !== 'none';
     panel.style.display = isOpen ? 'none' : 'block';
     if (arrow) arrow.classList.toggle('open', !isOpen);
+    // aria-expanded更新（トグルボタンの親要素）
+    if (arrow) {
+        const toggleBtn = arrow.closest('button[aria-expanded]');
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', String(!isOpen));
+    }
 }
 
 // ── モード切替 ──
@@ -1967,7 +2240,7 @@ async function createMocFromWizard() {
         if (resultEl) { resultEl.className = 'moc-result-msg error'; resultEl.textContent = 'テンプレートとMOC名を入力してください'; }
         return;
     }
-    showLoading('MOCを作成中...');
+    showLoading('MOCを作成中...', 'テンプレートを適用しています');
     try {
         const res = await window.api.createMocFromTemplate(params);
         hideLoading();
@@ -2120,7 +2393,7 @@ async function applyMocRefresh() {
     const applyBtn = $('btn-refresh-apply');
     if (!sel || !sel.value) return;
 
-    showLoading('MOCを更新中...');
+    showLoading('MOCを更新中...', '新しいノートをMOCに追加しています');
     try {
         const res = await window.api.refreshMoc({ mocPath: sel.value, strategy: 'append' });
         hideLoading();
@@ -2174,7 +2447,7 @@ async function runBatchGenerate() {
     const folders = checked.map(cb => cb.getAttribute('data-folder')).filter(Boolean);
     const destFolder = $('batch-dest-folder')?.value || '';
 
-    showLoading(`${folders.length}フォルダのMOCを一括生成中...`);
+    showLoading(`${folders.length}フォルダのMOCを一括生成中...`, 'テンプレートを適用しています');
     try {
         const res = await window.api.batchGenerateMocs({ folders, destFolder });
         hideLoading();
@@ -2575,7 +2848,7 @@ async function loadBackupList() {
             deleteBtn.className = 'ghost-btn small-btn danger-btn';
             deleteBtn.textContent = '🗑️';
             deleteBtn.addEventListener('click', async () => {
-                if (!confirm(`バックアップ「${bk.dateStr}」を削除しますか？`)) return;
+                if (!await showConfirmModal('バックアップ削除の確認', `バックアップ「${bk.dateStr}」を削除しますか？`, '削除する')) return;
                 const res = await window.api.deleteBackup(bk.name);
                 if (res.success) {
                     addLog('バックアップを削除しました', 'success');
@@ -2633,7 +2906,7 @@ async function runRenameTag() {
 // Feature A: ナレッジグラフ分析
 // ============================================================
 async function runKnowledgeGraphAnalysis() {
-    showLoading('ナレッジグラフを分析中...');
+    showLoading('ナレッジグラフを分析中...', 'ノート間のリンク関係を分析しています');
     try {
         const res = await window.api.analyzeKnowledgeGraph();
         hideLoading();
@@ -2666,7 +2939,7 @@ async function runKnowledgeGraphAnalysis() {
 // Feature E: スマートアーカイブ提案
 // ============================================================
 async function runArchiveSuggestions() {
-    showLoading('アーカイブ候補を分析中...');
+    showLoading('アーカイブ候補を分析中...', 'アーカイブすべきノートを検出しています');
     try {
         const res = await window.api.suggestArchives();
         hideLoading();
@@ -2687,7 +2960,8 @@ async function runArchiveSuggestions() {
 
         list.innerHTML = res.suggestions.map(s => {
             const cls = s.archiveScore >= 80 ? 'color:#f87171' : s.archiveScore >= 70 ? 'color:#fbbf24' : 'color:#6ee7b7';
-            return `<div class="list-item-check" style="justify-content:space-between"><div><span class="item-name">${esc(s.name)}</span><div style="margin-top:2px">${s.reasons.map(r => `<span style="font-size:.68rem;background:rgba(251,191,36,.15);color:#fbbf24;padding:1px 6px;border-radius:8px;margin-right:4px">${esc(r)}</span>`).join('')}</div></div><span style="font-weight:700;font-size:.88rem;${cls}">${s.archiveScore}</span></div>`;
+            const previewBtn = s.path ? `<button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(s.path)}')" title="プレビュー" style="margin-right:6px">👁️</button>` : '';
+            return `<div class="list-item-check" style="justify-content:space-between"><div><span class="item-name">${esc(s.name)}</span><div style="margin-top:2px">${s.reasons.map(r => `<span style="font-size:.68rem;background:rgba(251,191,36,.15);color:#fbbf24;padding:1px 6px;border-radius:8px;margin-right:4px">${esc(r)}</span>`).join('')}</div></div><div style="display:flex;align-items:center">${previewBtn}<span style="font-weight:700;font-size:.88rem;${cls}">${s.archiveScore}</span></div></div>`;
         }).join('');
         addLog(`アーカイブ提案: ${res.suggestions.length}件`, 'success');
     } catch (e) { hideLoading(); addLog(`エラー: ${e.message}`, 'error'); }
@@ -2703,26 +2977,43 @@ async function runMergePreview() {
     const fileB = $('merge-file-b')?.value?.trim();
     if (!fileA || !fileB) { addLog('両方のファイルパスを入力してください', 'warn'); return; }
 
-    showLoading('マージプレビュー生成中...');
+    showLoading('マージプレビュー生成中...', 'ノートの統合プレビューを作成しています');
     try {
         const res = await window.api.previewMerge({ fileA, fileB });
         hideLoading();
         if (!res.success) { addLog(`エラー: ${res.error}`, 'error'); return; }
 
         mergePreviewData = { fileA, fileB, mergedContent: res.mergedContent };
+
+        // インラインエリアも更新（実行ボタン用）
         const area = $('merge-preview-area'); if (area) area.style.display = 'block';
-        const preview = $('merge-preview-content'); if (preview) preview.textContent = res.mergedContent.split('\n').slice(0, 200).join('\n');
+        const inlinePreview = $('merge-preview-content'); if (inlinePreview) inlinePreview.textContent = res.mergedContent.split('\n').slice(0, 200).join('\n');
         const links = $('merge-incoming-links');
         if (links) links.innerHTML = res.incomingLinks.length === 0 ? '<p class="muted-hint">被リンクなし</p>' :
             res.incomingLinks.map(l => `<div class="list-item-check"><span class="item-name">${esc(l.file)}</span></div>`).join('');
         const btn = $('btn-execute-merge'); if (btn) btn.disabled = false;
+
+        // モーダルでプレビュー表示
+        var linksHtml = res.incomingLinks.length === 0 ? '<p class="muted-hint">被リンクなし</p>' :
+            '<h4 style="margin:12px 0 6px;font-size:.85rem">被リンク (' + res.incomingLinks.length + '件)</h4>' +
+            res.incomingLinks.map(function(l) { return '<div style="font-size:.82rem;padding:2px 0">' + esc(l.file) + '</div>'; }).join('');
+
+        showPreviewModal({
+            title: 'マージプレビュー',
+            subtitle: esc(res.nameB) + ' → ' + esc(res.nameA),
+            content: '<pre>' + esc(res.mergedContent) + '</pre>' + linksHtml,
+            actions: [
+                { label: '🔀 マージ実行', className: 'ghost-btn small-btn danger-btn', onClick: function() { closePreviewModal(); executeMerge(); } }
+            ]
+        });
+
         addLog(`マージプレビュー: ${esc(res.nameB)} → ${esc(res.nameA)} (被リンク${res.incomingLinks.length}件)`, 'info');
     } catch (e) { hideLoading(); addLog(`エラー: ${e.message}`, 'error'); }
 }
 
 async function executeMerge() {
     if (!mergePreviewData) return;
-    showLoading('マージ実行中...');
+    showLoading('マージ実行中...', 'ノートを統合しています');
     try {
         const res = await window.api.executeMerge(mergePreviewData);
         hideLoading();
@@ -2921,20 +3212,28 @@ async function analyzeVaultStructure() {
                 actEl.innerHTML = '';
                 const prevBtn = document.createElement('button'); prevBtn.className = 'ghost-btn small-btn'; prevBtn.textContent = '👁️ プレビュー';
                 prevBtn.addEventListener('click', async () => {
-                    showLoading('プレビュー中...');
+                    showLoading('プレビュー中...', '構造テンプレートの変更点をプレビューしています');
                     try {
                         const pr = await window.api.applyStructureTemplate({ templateId: r.templateId, preview: true });
                         hideLoading();
                         if (!pr.success) { addLog(`エラー: ${pr.error}`, 'error'); return; }
-                        const preEl = $('structure-preview-result'); if (!preEl) return; preEl.style.display = 'block';
-                        preEl.innerHTML = `<h4>${esc(pr.template.name)} プレビュー</h4>` + (pr.foldersToCreate.length > 0 ? `<p><strong>📁 作成フォルダ (${pr.foldersToCreate.length}):</strong> ${pr.foldersToCreate.map(f => esc(f)).join(', ')}</p>` : '<p style="color:#34d399">全フォルダ存在</p>') + (pr.moveSuggestions.length > 0 ? `<p><strong>📝 移動候補 (${pr.moveSuggestions.length}):</strong></p><div class="scrollable-list" style="max-height:250px">${pr.moveSuggestions.slice(0, 50).map(s => `<div class="list-item-check"><span class="item-name">${esc(s.name)}</span><span class="item-meta">${esc(s.from)} → ${esc(s.to)}</span></div>`).join('')}</div>` : '<p class="muted-hint">移動候補なし</p>');
+                        // インライン表示も維持
+                        const preEl = $('structure-preview-result'); if (preEl) { preEl.style.display = 'block';
+                        preEl.innerHTML = `<h4>${esc(pr.template.name)} プレビュー</h4>` + (pr.foldersToCreate.length > 0 ? `<p><strong>📁 作成フォルダ (${pr.foldersToCreate.length}):</strong> ${pr.foldersToCreate.map(f => esc(f)).join(', ')}</p>` : '<p style="color:#34d399">全フォルダ存在</p>') + (pr.moveSuggestions.length > 0 ? `<p><strong>📝 移動候補 (${pr.moveSuggestions.length}):</strong></p><div class="scrollable-list" style="max-height:250px">${pr.moveSuggestions.slice(0, 50).map(s => `<div class="list-item-check"><span class="item-name">${esc(s.name)}</span><span class="item-meta">${esc(s.from)} → ${esc(s.to)}</span></div>`).join('')}</div>` : '<p class="muted-hint">移動候補なし</p>'); }
+                        // モーダルでもプレビュー表示
+                        var modalContent = (pr.foldersToCreate.length > 0 ? '<p><strong>📁 作成フォルダ (' + pr.foldersToCreate.length + '):</strong> ' + pr.foldersToCreate.map(function(f) { return esc(f); }).join(', ') + '</p>' : '<p style="color:#34d399">全フォルダ存在</p>') + (pr.moveSuggestions.length > 0 ? '<p style="margin-top:10px"><strong>📝 移動候補 (' + pr.moveSuggestions.length + '):</strong></p><div style="max-height:350px;overflow-y:auto">' + pr.moveSuggestions.slice(0, 50).map(function(s) { return '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.82rem"><span style="color:var(--green)">' + esc(s.name) + '</span> <span style="opacity:.5">' + esc(s.from) + ' → ' + esc(s.to) + '</span></div>'; }).join('') + '</div>' : '<p class="muted-hint">移動候補なし</p>');
+                        showPreviewModal({
+                            title: esc(pr.template.name) + ' プレビュー',
+                            subtitle: 'フォルダ' + pr.foldersToCreate.length + '件, 移動' + pr.moveSuggestions.length + '件',
+                            content: modalContent
+                        });
                         addLog(`構造プレビュー: フォルダ${pr.foldersToCreate.length}件, 移動${pr.moveSuggestions.length}件`, 'info');
                     } catch (e) { hideLoading(); addLog(`エラー: ${e.message}`, 'error'); }
                 });
                 const applyBtn = document.createElement('button'); applyBtn.className = 'ghost-btn small-btn'; applyBtn.textContent = '✨ 適用'; applyBtn.style.marginLeft = '8px';
                 applyBtn.addEventListener('click', async () => {
-                    if (!confirm('構造テンプレートを適用しますか？')) return;
-                    showLoading('適用中...');
+                    if (!await showConfirmModal('構造テンプレート適用の確認', '構造テンプレートを適用しますか？\nフォルダの作成やノートの移動が実行されます。', '適用する')) return;
+                    showLoading('適用中...', '構造テンプレートを適用しています');
                     try {
                         const ar = await window.api.applyStructureTemplate({ templateId: r.templateId, preview: false });
                         hideLoading();
@@ -3718,7 +4017,7 @@ function renderForceGraph(container, nodes, edges) {
 
 // Feature J: レポートノート生成
 async function generateReportNote() {
-    showLoading('レポートノート生成中...');
+    showLoading('レポートノート生成中...', 'Dataviewクエリ付きレポートを作成しています');
     try {
         const res = await window.api.generateOptimizerReportNote();
         hideLoading();
@@ -3727,41 +4026,144 @@ async function generateReportNote() {
     } catch (e) { hideLoading(); addLog(`エラー: ${e.message}`, 'error'); }
 }
 
-// activateTabをオーバーライドして構造/グラフタブの遅延初期化
+// activateTabをオーバーライドして構造/グラフ/タスクタブの遅延初期化
+let taskTabInitialized = false;
 const _origActivateTab = activateTab;
 window.activateTab = function(tab) {
     _origActivateTab(tab);
-    if (tab === 'structure' && !structureTabInitialized) { structureTabInitialized = true; loadStructureTemplates(); }
-    if (tab === 'graph' && !graphTabInitialized) { graphTabInitialized = true; loadFullGraph(); }
+    // タブ統合対応: tools タブにはstructureサブタブが含まれる
+    if ((tab === 'structure' || tab === 'tools') && !structureTabInitialized) { structureTabInitialized = true; loadStructureTemplates(); }
+    // analytics タブにはgraphサブタブが含まれる
+    if ((tab === 'graph' || tab === 'analytics') && !graphTabInitialized) { graphTabInitialized = true; loadFullGraph(); }
+    if (tab === 'tasks' && !taskTabInitialized) { taskTabInitialized = true; loadTaskTab(); }
 };
 
 // ============================================================
-// Obsidianダッシュボード生成
+// Obsidianダッシュボード生成（ウィザード形式）
 // ============================================================
-const DASHBOARD_TYPE_LABELS = {
-    full: '🖥️ フルダッシュボード',
-    tasks: '✅ タスクボード',
-    weekly: '📅 週次レビュー',
-    projects: '📋 プロジェクトボード',
+const DASHBOARD_TYPE_INFO = {
+    full: {
+        label: '🖥️ フルダッシュボード',
+        fileName: '🖥️ Dashboard.md',
+        sections: [
+            '📊 Vault概要（総ノート数・タスク数）',
+            '✅ 今日のタスク / 今週の期限 / 期限切れ',
+            '📝 最近更新したノート TOP15',
+            '🏷️ タグ別ノート数 TOP20',
+            '📂 フォルダ別ノート数',
+            '🔗 被リンク数TOP10',
+            '🗓️ 今月作成したノート',
+            '🌱 孤立ノート一覧',
+        ],
+        plugins: ['Dataview（必須）', 'Tasks（タスク表示に必要）'],
+    },
+    tasks: {
+        label: '✅ タスクボード',
+        fileName: '✅ Task Board.md',
+        sections: [
+            '🔴 期限切れタスク',
+            '🟡 今日のタスク',
+            '🔵 今週のタスク',
+            '🟢 来週以降のタスク',
+            '✅ 最近完了したタスク',
+            '📊 プロジェクト別タスク集計',
+            '📌 優先度高タスク',
+        ],
+        plugins: ['Dataview（必須）', 'Tasks（必須）'],
+    },
+    weekly: {
+        label: '📅 週次レビュー',
+        fileName: '📅 Weekly Review [日付].md',
+        sections: [
+            '📝 今週書いたノート一覧',
+            '✅ 今週完了したタスク',
+            '⏳ 持ち越しタスク',
+            '📊 振り返りセクション（手動記入）',
+            '🔗 今週リンクしたノート',
+        ],
+        plugins: ['Dataview（必須）', 'Tasks（タスク表示に必要）'],
+    },
+    projects: {
+        label: '📋 プロジェクトボード',
+        fileName: '📋 Projects.md',
+        sections: [
+            '🔥 アクティブプロジェクト（進捗率付き）',
+            '📅 期限が近いプロジェクト',
+            '✅ 完了プロジェクト',
+            '📊 プロジェクト概要',
+        ],
+        plugins: ['Dataview（必須）'],
+    },
 };
 
-async function generateDashboard(type) {
-    const label = DASHBOARD_TYPE_LABELS[type] || type;
+let selectedDashType = null;
+
+function selectDashboardType(type) {
+    selectedDashType = type;
+    const info = DASHBOARD_TYPE_INFO[type];
+    if (!info) return;
+
+    // カードのハイライト
+    document.querySelectorAll('.dashboard-gen-card').forEach(card => {
+        card.classList.toggle('selected', card.dataset.dashType === type);
+    });
+
+    // プレビュー表示
+    const area = $('dash-preview-area');
+    if (area) area.style.display = 'block';
+
+    const titleEl = $('dash-preview-title');
+    if (titleEl) titleEl.textContent = `${info.label} のプレビュー`;
+
+    const locEl = $('dash-preview-location');
+    if (locEl) locEl.textContent = `📄 ${info.fileName}`;
+
+    const sectionsEl = $('dash-preview-sections');
+    if (sectionsEl) {
+        let html = '<div style="margin-bottom:10px"><strong style="font-size:.82rem">含まれるセクション:</strong></div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
+        info.sections.forEach(s => {
+            html += `<span style="padding:4px 10px;background:rgba(124,108,248,.1);border:1px solid rgba(124,108,248,.2);border-radius:6px;font-size:.78rem">${s}</span>`;
+        });
+        html += '</div>';
+        html += '<div style="font-size:.78rem;opacity:.6"><strong>必要プラグイン:</strong> ' + info.plugins.join('、') + '</div>';
+        sectionsEl.innerHTML = html;
+    }
+}
+
+function cancelDashboardSelection() {
+    selectedDashType = null;
+    document.querySelectorAll('.dashboard-gen-card').forEach(card => card.classList.remove('selected'));
+    const area = $('dash-preview-area');
+    if (area) area.style.display = 'none';
+}
+
+async function confirmGenerateDashboard() {
+    if (!selectedDashType) return;
+    const info = DASHBOARD_TYPE_INFO[selectedDashType];
     const resultEl = $('dashboard-gen-result');
-    if (resultEl) { resultEl.textContent = `${label} を生成中...`; resultEl.className = 'moc-result-msg info'; }
-    addLog(`📊 ${label} を生成中...`, 'info');
+
+    if (resultEl) { resultEl.innerHTML = `<span style="color:var(--cyan)">⏳ ${info.label} を生成中...</span>`; resultEl.className = 'moc-result-msg info'; }
+
     try {
-        const res = await window.api.generateObsidianDashboard({ type });
+        const res = await window.api.generateObsidianDashboard({ type: selectedDashType });
         if (res.success) {
-            addLog(`✅ ${label} を生成しました: ${res.name}`, 'success');
-            if (resultEl) { resultEl.textContent = `✅ ${res.name} を生成しました`; resultEl.className = 'moc-result-msg success'; }
+            addLog(`✅ ${info.label} を生成しました: ${res.name}`, 'success');
+            if (resultEl) {
+                resultEl.innerHTML = `<div style="display:flex;align-items:center;gap:10px">` +
+                    `<span style="color:var(--green);font-size:1.2rem">✅</span>` +
+                    `<div><strong>${res.name}</strong> を生成しました！<br>` +
+                    `<span style="font-size:.78rem;opacity:.6">Obsidianで自動的に開きます。開かない場合はサイドバーからノートを探してください。</span></div></div>`;
+                resultEl.className = 'moc-result-msg success';
+            }
             if (res.path) window.api.openInObsidian(res.path);
+            cancelDashboardSelection();
         } else {
-            addLog(`❌ ${label} 生成エラー: ${res.error}`, 'error');
+            addLog(`❌ ${info.label} 生成エラー: ${res.error}`, 'error');
             if (resultEl) { resultEl.textContent = `❌ エラー: ${res.error}`; resultEl.className = 'moc-result-msg error'; }
         }
     } catch (e) {
-        addLog(`❌ ${label} 生成エラー: ${e.message}`, 'error');
+        addLog(`❌ ${info.label} 生成エラー: ${e.message}`, 'error');
         if (resultEl) { resultEl.textContent = `❌ エラー: ${e.message}`; resultEl.className = 'moc-result-msg error'; }
     }
 }
@@ -3772,11 +4174,13 @@ async function generateDashboard(type) {
     safe('btn-analyze-structure', analyzeVaultStructure);
     safe('btn-load-graph', loadFullGraph);
     safe('btn-generate-report-note', generateReportNote);
-    // ダッシュボード生成ボタン
-    safe('btn-gen-dash-full', () => generateDashboard('full'));
-    safe('btn-gen-dash-tasks', () => generateDashboard('tasks'));
-    safe('btn-gen-dash-weekly', () => generateDashboard('weekly'));
-    safe('btn-gen-dash-projects', () => generateDashboard('projects'));
+    // ダッシュボード生成ボタン（ウィザード形式: 選択→プレビュー→確認）
+    safe('btn-gen-dash-full', () => selectDashboardType('full'));
+    safe('btn-gen-dash-tasks', () => selectDashboardType('tasks'));
+    safe('btn-gen-dash-weekly', () => selectDashboardType('weekly'));
+    safe('btn-gen-dash-projects', () => selectDashboardType('projects'));
+    safe('btn-dash-confirm', confirmGenerateDashboard);
+    safe('btn-dash-cancel', cancelDashboardSelection);
     const langSel = $('language-select');
     if (langSel) langSel.addEventListener('change', e => {
         window.api.setAppLanguage(e.target.value).then(r => { if (r.success) { currentLang = r.language; addLog(`🌐 言語変更: ${r.language}`, 'info'); } });
@@ -4192,6 +4596,28 @@ async function loadAiConfig() {
     safe('btn-test-ai', testAiConnection);
     safe('btn-ai-find-duplicates', aiFindDuplicates);
 
+    // Feature 1: Vault Q&A
+    safe('btn-ai-ask', aiAskVault);
+    var chatInput = $('ai-chat-input');
+    if (chatInput) {
+        chatInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.isComposing) { aiAskVault(); }
+        });
+    }
+
+    // Feature 2: 週次インサイト
+    safe('btn-ai-weekly-insight', aiWeeklyInsight);
+
+    // Feature 3: AI MOC構成
+    safe('btn-ai-compose-moc', aiComposeMoc);
+
+    // Feature 7: 知識ギャップ検出
+    safe('btn-ai-detect-gaps', aiDetectGaps);
+
+    // Feature 8: AI利用状況
+    safe('btn-reset-ai-usage', resetAiUsage);
+    loadAiUsage();
+
     loadAiConfig();
 })();
 
@@ -4200,6 +4626,966 @@ window.toggleNotePreviewWithAI = toggleNotePreviewWithAI;
 window.aiSummarizeNote = aiSummarizeNote;
 window.aiSuggestTags = aiSuggestTags;
 window.aiSuggestLinks = aiSuggestLinks;
+
+// ======================================================
+// AI拡張機能 (Feature 1-8 新規)
+// ======================================================
+
+// Feature 1: Ask Your Vault
+async function aiAskVault() {
+    const input = $('ai-chat-input');
+    const messagesEl = $('ai-chat-messages');
+    if (!input || !messagesEl) return;
+    const question = input.value.trim();
+    if (!question) return;
+
+    // ユーザーメッセージを表示
+    const userMsg = document.createElement('div');
+    userMsg.style.cssText = 'margin-bottom:8px;padding:8px 12px;border-radius:8px;background:rgba(99,102,241,.2);text-align:right';
+    userMsg.textContent = question;
+    messagesEl.appendChild(userMsg);
+
+    // ローディング表示
+    const loadingMsg = document.createElement('div');
+    loadingMsg.style.cssText = 'margin-bottom:8px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.06)';
+    loadingMsg.innerHTML = '<span class="ai-loading">⏳ AIが回答を生成中...</span>';
+    messagesEl.appendChild(loadingMsg);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    input.value = '';
+
+    try {
+        const res = await window.api.aiAskVault({ question: question });
+        if (res.success) {
+            var html = '<div style="white-space:pre-wrap">' + esc(res.answer) + '</div>';
+            if (res.sources && res.sources.length > 0) {
+                html += '<div style="margin-top:8px;font-size:.78rem;opacity:.7">参照ノート: ';
+                html += res.sources.map(function(s) {
+                    return '<a href="#" class="ai-source-link" data-path="' + esc(s.path) + '" style="color:var(--accent);text-decoration:underline;cursor:pointer">' + esc(s.name) + '</a>';
+                }).join(', ');
+                html += '</div>';
+            }
+            loadingMsg.innerHTML = html;
+            loadingMsg.querySelectorAll('.ai-source-link').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var p = this.getAttribute('data-path');
+                    if (p && window.api.openPath) window.api.openPath(p);
+                });
+            });
+        } else {
+            loadingMsg.innerHTML = '<div class="ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        loadingMsg.innerHTML = '<div class="ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// Feature 2: Weekly AI Insight
+async function aiWeeklyInsight() {
+    var resultEl = $('ai-weekly-insight-result');
+    if (!resultEl) return;
+    resultEl.innerHTML = '<span class="ai-loading">⏳ AI週次インサイトを生成中...</span>';
+    showLoading('AI週次インサイト生成中...', 'LLMにデータを送信しています');
+
+    try {
+        var res = await window.api.aiWeeklyInsight();
+        hideLoading();
+        if (res.success) {
+            resultEl.innerHTML = '<div class="ai-result-box"><strong>📊 週次インサイト</strong> (' + (res.notesAnalyzed || 0) + '件のノートを分析)<div style="white-space:pre-wrap;margin-top:8px">' + esc(res.insight) + '</div></div>';
+            addLog('📊 AI週次インサイト生成完了 (' + (res.notesAnalyzed || 0) + '件分析)', 'success');
+        } else {
+            resultEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        hideLoading();
+        resultEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// Feature 3: AI MOC Auto-composition
+async function aiComposeMoc() {
+    var resultEl = $('ai-moc-compose-result');
+    if (!resultEl) return;
+
+    var topicInput = $('wizard-moc-name');
+    var topic = topicInput ? topicInput.value.trim() : '';
+    if (!topic) {
+        showToast('先にMOC名（トピック）を入力してください', 'warn');
+        return;
+    }
+
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '<span class="ai-loading">⏳ AIがMOC構成を生成中...</span>';
+    showLoading('AI MOC構成を生成中...', '「' + topic + '」に関連するノートを分析しています');
+
+    try {
+        var res = await window.api.aiComposeMoc({ topic: topic });
+        hideLoading();
+        if (res.success && res.mocData) {
+            var html = '<div class="ai-result-box"><strong>🤖 AI MOC構成提案: ' + esc(res.mocData.title || topic) + '</strong>';
+            if (res.mocData.description) {
+                html += '<p style="margin:8px 0;opacity:.8">' + esc(res.mocData.description) + '</p>';
+            }
+            if (res.mocData.sections && res.mocData.sections.length > 0) {
+                res.mocData.sections.forEach(function(sec) {
+                    html += '<div style="margin-top:10px"><strong>' + esc(sec.heading) + '</strong><ul style="margin:4px 0 0 16px;list-style:disc">';
+                    (sec.noteLinks || []).forEach(function(link) {
+                        html += '<li>[[' + esc(link) + ']]</li>';
+                    });
+                    html += '</ul></div>';
+                });
+            }
+            html += '</div>';
+            resultEl.innerHTML = html;
+            addLog('🤖 AI MOC構成完了: ' + topic, 'success');
+        } else if (res.success && res.raw) {
+            resultEl.innerHTML = '<div class="ai-result-box"><strong>🤖 AI MOC構成提案:</strong><div style="white-space:pre-wrap;margin-top:8px">' + esc(res.raw) + '</div></div>';
+        } else {
+            resultEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error || 'MOC構成の生成に失敗しました') + '</div>';
+        }
+    } catch (e) {
+        hideLoading();
+        resultEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// Feature 4: Note Quality Review
+async function aiReviewNote(filePath, targetEl) {
+    if (!filePath || !targetEl) return;
+    targetEl.innerHTML = '<span class="ai-loading">⏳ AIレビューを生成中...</span>';
+    try {
+        var res = await window.api.aiReviewNote({ filePath: filePath });
+        if (res.success) {
+            var scoreHtml = '';
+            if (res.score !== null && res.score !== undefined) {
+                var color = res.score >= 70 ? 'var(--green)' : res.score >= 40 ? 'var(--yellow)' : 'var(--danger)';
+                scoreHtml = ' <span style="color:' + color + ';font-weight:bold">(' + res.score + '/100)</span>';
+            }
+            targetEl.innerHTML = '<div class="ai-result-box"><strong>📝 AIレビュー' + scoreHtml + ':</strong><div style="white-space:pre-wrap;margin-top:6px">' + esc(res.review) + '</div></div>';
+        } else {
+            targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// Feature 5: Flashcard Generation
+async function aiGenerateFlashcards(filePath, targetEl) {
+    if (!filePath || !targetEl) return;
+    targetEl.innerHTML = '<span class="ai-loading">⏳ フラッシュカードを生成中...</span>';
+    try {
+        var res = await window.api.aiGenerateFlashcards({ filePath: filePath });
+        if (res.success) {
+            if (!res.cards || res.cards.length === 0) {
+                targetEl.innerHTML = '<div class="ai-result-box">🎴 フラッシュカードを生成できませんでした</div>';
+                return;
+            }
+            var html = '<div class="ai-result-box"><strong>🎴 フラッシュカード (' + res.cards.length + '枚)</strong><p style="font-size:.78rem;opacity:.7;margin:4px 0">MDファイルにも保存されました</p>';
+            res.cards.forEach(function(c, i) {
+                html += '<div style="margin-top:10px;padding:8px 12px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)">';
+                html += '<div style="font-weight:bold;color:var(--accent)">Q' + (i + 1) + ': ' + esc(c.question) + '</div>';
+                html += '<div style="margin-top:4px;opacity:.85">A: ' + esc(c.answer) + '</div>';
+                html += '</div>';
+            });
+            html += '</div>';
+            targetEl.innerHTML = html;
+            addLog('🎴 フラッシュカード生成完了 (' + res.cards.length + '枚)', 'success');
+        } else {
+            targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// Feature 6: Bullet Point Expansion
+async function aiExpandNote(filePath, targetEl) {
+    if (!filePath || !targetEl) return;
+    targetEl.innerHTML = '<span class="ai-loading">⏳ 文章を展開中...</span>';
+    try {
+        var res = await window.api.aiExpandNote({ filePath: filePath });
+        if (res.success) {
+            targetEl.innerHTML = '<div class="ai-result-box"><strong>📝 文章化結果:</strong><div style="white-space:pre-wrap;margin-top:6px">' + esc(res.expanded) + '</div></div>';
+        } else {
+            targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// Feature 7: Knowledge Gap Detection
+async function aiDetectGaps() {
+    var resultEl = $('ai-gaps-result');
+    if (!resultEl) return;
+    resultEl.innerHTML = '<span class="ai-loading">⏳ 知識ギャップを分析中...</span>';
+    showLoading('知識ギャップ検出中...', 'Vault全体をAIが分析しています');
+
+    try {
+        var res = await window.api.aiDetectGaps();
+        hideLoading();
+        if (res.success) {
+            if (!res.gaps || res.gaps.length === 0) {
+                resultEl.innerHTML = '<div class="ai-result-box">✅ 知識ギャップは検出されませんでした</div>';
+                return;
+            }
+            var html = '<div class="ai-result-box"><strong>🔍 提案されたトピック (' + res.gaps.length + '件)</strong>';
+            res.gaps.forEach(function(g) {
+                html += '<div style="margin-top:8px;padding:8px 12px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)">';
+                html += '<div style="font-weight:bold;color:var(--accent)">' + esc(g.topic) + '</div>';
+                html += '<div style="margin-top:4px;font-size:.85rem;opacity:.8">' + esc(g.reason) + '</div>';
+                html += '</div>';
+            });
+            html += '</div>';
+            resultEl.innerHTML = html;
+            addLog('🔍 知識ギャップ検出完了: ' + res.gaps.length + '件の提案', 'success');
+        } else {
+            resultEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        hideLoading();
+        resultEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// Feature 8: AI Usage Stats
+async function loadAiUsage() {
+    var statsEl = $('ai-usage-stats');
+    if (!statsEl) return;
+    try {
+        var res = await window.api.getAiUsage();
+        if (res.success && res.usage && res.usage.totalCalls > 0) {
+            var u = res.usage;
+            var USD_TO_JPY = 150;
+            var costJpy = Math.round(u.totalEstimatedCost * USD_TO_JPY);
+            var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:8px">';
+            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">' + u.totalCalls + '</div><div style="font-size:.78rem;opacity:.7">総呼び出し回数</div></div>';
+            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">' + (u.totalInputTokens + u.totalOutputTokens).toLocaleString() + '</div><div style="font-size:.78rem;opacity:.7">総トークン数</div></div>';
+            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">$' + u.totalEstimatedCost.toFixed(4) + '</div><div style="font-size:.78rem;opacity:.7">推定コスト (USD)</div></div>';
+            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">約' + costJpy.toLocaleString() + '円</div><div style="font-size:.78rem;opacity:.7">推定コスト (JPY)</div></div>';
+            html += '</div>';
+
+            if (u.history && u.history.length > 0) {
+                html += '<div style="margin-top:12px"><strong style="font-size:.85rem">直近の利用履歴:</strong>';
+                html += '<div style="margin-top:6px;font-size:.8rem">';
+                var recentHistory = u.history.slice(-5).reverse();
+                recentHistory.forEach(function(h) {
+                    var d = new Date(h.date);
+                    var dateStr = d.toLocaleDateString('ja-JP') + ' ' + d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                    html += '<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06)">';
+                    html += '<span style="opacity:.6">' + esc(dateStr) + '</span> ';
+                    html += '<span style="color:var(--accent)">' + esc(h.feature) + '</span> ';
+                    html += '<span style="opacity:.5">(' + ((h.inputTokens || 0) + (h.outputTokens || 0)) + 'tok)</span>';
+                    html += '</div>';
+                });
+                html += '</div></div>';
+            }
+            statsEl.innerHTML = html;
+        }
+    } catch (_) { /* 初回起動時のエラーは無視 */ }
+}
+
+async function resetAiUsage() {
+    try {
+        await window.api.resetAiUsage();
+        showToast('AI利用状況をリセットしました', 'success');
+        var statsEl = $('ai-usage-stats');
+        if (statsEl) statsEl.innerHTML = '<div class="list-empty">AI機能を使うと利用状況がここに表示されます</div>';
+    } catch (e) {
+        showToast('リセットに失敗: ' + e.message, 'error');
+    }
+}
+
+window.aiReviewNote = aiReviewNote;
+window.aiGenerateFlashcards = aiGenerateFlashcards;
+window.aiExpandNote = aiExpandNote;
+
+// ============================================================
+// Feature 8: AI翻訳
+// ============================================================
+async function aiTranslateNote(filePath, targetLang, targetEl) {
+    if (!filePath || !targetEl) return;
+    const LANG_NAMES = { en: '英語', ja: '日本語', zh: '中国語' };
+    targetEl.innerHTML = '<span class="ai-loading">⏳ ' + esc(LANG_NAMES[targetLang] || targetLang) + 'に翻訳中...</span>';
+    try {
+        const res = await window.api.aiTranslateNote({ filePath, targetLang });
+        if (res.success) {
+            targetEl.innerHTML = '<div class="ai-result-box"><strong>🌐 翻訳完了:</strong> <a href="#" onclick="window.api.openPath(\'' + esc(res.translatedPath).replace(/'/g, "\\'") + '\');return false;" style="color:var(--accent)">' + esc(res.translatedPath.split('/').pop()) + '</a><br><pre style="white-space:pre-wrap;margin-top:8px;max-height:200px;overflow:auto;font-size:.8rem">' + esc(res.content.slice(0, 500)) + (res.content.length > 500 ? '\n...(省略)' : '') + '</pre></div>';
+            addLog('🌐 翻訳完了: ' + res.translatedPath.split('/').pop(), 'success');
+        } else {
+            targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// ============================================================
+// Feature 9: 会議メモ構造化
+// ============================================================
+async function aiStructureMeeting(filePath, targetEl) {
+    if (!filePath || !targetEl) return;
+    targetEl.innerHTML = '<span class="ai-loading">⏳ 議事録を構造化中...</span>';
+    try {
+        const res = await window.api.aiStructureMeeting({ filePath });
+        if (res.success) {
+            targetEl.innerHTML = '<div class="ai-result-box"><strong>📋 構造化された議事録:</strong><pre style="white-space:pre-wrap;margin-top:8px;max-height:400px;overflow:auto;font-size:.82rem">' + esc(res.structured) + '</pre></div>';
+            addLog('📋 議事録構造化完了', 'success');
+        } else {
+            targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// ============================================================
+// Feature 10: 文体変換
+// ============================================================
+async function aiConvertTone(filePath, tone, targetEl) {
+    if (!filePath || !targetEl) return;
+    const TONE_NAMES = { formal: 'フォーマル', casual: 'カジュアル', academic: '学術的', blog: 'ブログ風' };
+    targetEl.innerHTML = '<span class="ai-loading">⏳ ' + esc(TONE_NAMES[tone] || tone) + 'に変換中...</span>';
+    try {
+        const res = await window.api.aiConvertTone({ filePath, tone });
+        if (res.success) {
+            targetEl.innerHTML = '<div class="ai-result-box"><strong>✍️ 文体変換結果 (' + esc(TONE_NAMES[tone] || tone) + '):</strong><pre style="white-space:pre-wrap;margin-top:8px;max-height:300px;overflow:auto;font-size:.82rem">' + esc(res.converted) + '</pre></div>';
+            addLog('✍️ 文体変換完了: ' + (TONE_NAMES[tone] || tone), 'success');
+        } else {
+            targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
+        }
+    } catch (e) {
+        targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(e.message) + '</div>';
+    }
+}
+
+// ============================================================
+// Feature 11: AIスマート検索
+// ============================================================
+async function aiSmartSearch() {
+    const queryInput = $('ai-search-query');
+    const resultsEl = $('ai-search-results');
+    if (!queryInput || !resultsEl) return;
+
+    const query = queryInput.value.trim();
+    if (!query) { resultsEl.innerHTML = '<p class="muted-hint">検索キーワードを入力してください</p>'; resultsEl.style.display = 'block'; return; }
+
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<p class="ai-loading">⏳ AIが関連ノートを検索中...</p>';
+
+    try {
+        const res = await window.api.aiSmartSearch({ query });
+        if (res.success) {
+            if (!res.results || res.results.length === 0) {
+                resultsEl.innerHTML = '<p class="muted-hint">関連するノートが見つかりませんでした</p>'
+                    + (res.raw ? '<details style="margin-top:8px"><summary style="font-size:.75rem;opacity:.4;cursor:pointer">AI応答を表示</summary><pre style="font-size:.72rem;opacity:.5;white-space:pre-wrap;margin-top:4px">' + esc(res.raw.slice(0, 500)) + '</pre></details>' : '');
+            } else {
+                const RELEVANCE_COLORS = { '高': 'var(--green)', '中': 'var(--accent)', '低': 'var(--text-muted)' };
+                let html = '<p class="muted-hint" style="margin-bottom:8px">🔍 ' + res.results.length + '件の関連ノートが見つかりました</p>';
+                res.results.forEach(function(r) {
+                    const color = RELEVANCE_COLORS[r.relevance] || 'var(--text-muted)';
+                    html += '<div class="result-item" style="padding:8px 12px;margin-bottom:6px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)">'
+                        + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+                        + '<span style="font-weight:600;font-size:.88rem">' + esc(r.name) + '</span>'
+                        + '<span style="font-size:.72rem;padding:2px 8px;border-radius:10px;background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44">' + esc(r.relevance) + '</span>'
+                        + '</div>'
+                        + '<div style="font-size:.78rem;opacity:.7">' + esc(r.reason) + '</div>'
+                        + (r.path ? '<a href="#" onclick="window.api.openPath(\'' + esc(r.path).replace(/'/g, "\\'") + '\');return false;" style="font-size:.72rem;color:var(--accent);margin-top:4px;display:inline-block">📂 開く</a>' : '')
+                        + '</div>';
+                });
+                resultsEl.innerHTML = html;
+            }
+            addLog('🔍 AI検索完了: 「' + query + '」で ' + (res.results ? res.results.length : 0) + '件', 'success');
+        } else {
+            resultsEl.innerHTML = '<p class="ai-error">❌ ' + esc(res.error) + '</p>';
+        }
+    } catch (e) {
+        resultsEl.innerHTML = '<p class="ai-error">❌ ' + esc(e.message) + '</p>';
+    }
+}
+
+// ============================================================
+// Feature 12: 感情分析トレンド
+// ============================================================
+async function aiSentimentAnalysis() {
+    const chartEl = $('ai-sentiment-chart');
+    const resultsEl = $('ai-sentiment-results');
+    if (!chartEl || !resultsEl) return;
+
+    chartEl.style.display = 'block';
+    resultsEl.style.display = 'block';
+    chartEl.innerHTML = '<p class="ai-loading">⏳ AIが感情分析中...</p>';
+    resultsEl.innerHTML = '';
+
+    try {
+        const res = await window.api.aiSentimentAnalysis();
+        if (res.success) {
+            if (!res.results || res.results.length === 0) {
+                chartEl.innerHTML = '<p class="muted-hint">' + (res.message || '分析対象のノートが見つかりません') + '</p>';
+                return;
+            }
+
+            // 円グラフ（SVG）
+            const trend = res.trend || { positive: 0, negative: 0, neutral: 0 };
+            const total = trend.positive + trend.negative + trend.neutral;
+            if (total > 0) {
+                const COLORS = { positive: '#4ade80', negative: '#f87171', neutral: '#94a3b8' };
+                const LABELS = { positive: 'ポジティブ', negative: 'ネガティブ', neutral: 'ニュートラル' };
+                let pieHtml = '<div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">';
+                pieHtml += '<svg viewBox="0 0 100 100" style="width:120px;height:120px">';
+
+                let startAngle = 0;
+                ['positive', 'neutral', 'negative'].forEach(function(key) {
+                    const val = trend[key] || 0;
+                    if (val === 0) return;
+                    const slice = (val / total) * 360;
+                    const endAngle = startAngle + slice;
+                    const largeArc = slice > 180 ? 1 : 0;
+                    const startRad = (startAngle - 90) * Math.PI / 180;
+                    const endRad = (endAngle - 90) * Math.PI / 180;
+                    const x1 = 50 + 40 * Math.cos(startRad);
+                    const y1 = 50 + 40 * Math.sin(startRad);
+                    const x2 = 50 + 40 * Math.cos(endRad);
+                    const y2 = 50 + 40 * Math.sin(endRad);
+
+                    if (val === total) {
+                        pieHtml += '<circle cx="50" cy="50" r="40" fill="' + COLORS[key] + '"/>';
+                    } else {
+                        pieHtml += '<path d="M50,50 L' + x1 + ',' + y1 + ' A40,40 0 ' + largeArc + ',1 ' + x2 + ',' + y2 + ' Z" fill="' + COLORS[key] + '"/>';
+                    }
+                    startAngle = endAngle;
+                });
+                pieHtml += '</svg>';
+
+                pieHtml += '<div style="display:flex;flex-direction:column;gap:6px">';
+                ['positive', 'neutral', 'negative'].forEach(function(key) {
+                    const val = trend[key] || 0;
+                    const pct = total > 0 ? Math.round(val / total * 100) : 0;
+                    pieHtml += '<div style="display:flex;align-items:center;gap:8px;font-size:.82rem">'
+                        + '<span style="width:12px;height:12px;border-radius:3px;background:' + COLORS[key] + ';display:inline-block"></span>'
+                        + '<span>' + LABELS[key] + ': ' + val + '件 (' + pct + '%)</span>'
+                        + '</div>';
+                });
+                pieHtml += '</div></div>';
+                chartEl.innerHTML = pieHtml;
+            } else {
+                chartEl.innerHTML = '';
+            }
+
+            // ノートリスト
+            const SENTIMENT_BADGES = {
+                positive: { label: 'ポジティブ', color: '#4ade80', bg: 'rgba(74,222,128,.12)' },
+                negative: { label: 'ネガティブ', color: '#f87171', bg: 'rgba(248,113,113,.12)' },
+                neutral: { label: 'ニュートラル', color: '#94a3b8', bg: 'rgba(148,163,184,.12)' },
+            };
+            let listHtml = '';
+            res.results.forEach(function(r) {
+                const badge = SENTIMENT_BADGES[r.sentiment] || SENTIMENT_BADGES.neutral;
+                listHtml += '<div style="padding:6px 10px;margin-bottom:4px;border-radius:6px;background:rgba(255,255,255,.03);display:flex;align-items:center;gap:8px;justify-content:space-between">'
+                    + '<span style="font-size:.82rem;flex:1">' + esc(r.name) + '</span>'
+                    + '<span style="font-size:.72rem;opacity:.5">' + esc(r.date) + '</span>'
+                    + '<span style="font-size:.72rem;padding:2px 8px;border-radius:10px;background:' + badge.bg + ';color:' + badge.color + ';border:1px solid ' + badge.color + '33">' + badge.label + '</span>'
+                    + '<span style="font-size:.72rem;opacity:.6">スコア: ' + r.score + '</span>'
+                    + '</div>';
+            });
+            resultsEl.innerHTML = listHtml;
+            addLog('😊 感情分析完了: P=' + trend.positive + ' / N=' + trend.negative + ' / Neu=' + trend.neutral, 'success');
+        } else {
+            chartEl.innerHTML = '<p class="ai-error">❌ ' + esc(res.error) + '</p>';
+        }
+    } catch (e) {
+        chartEl.innerHTML = '<p class="ai-error">❌ ' + esc(e.message) + '</p>';
+    }
+}
+
+// ============================================================
+// Feature 13: AIタイトル自動提案
+// ============================================================
+async function aiAutoTitles() {
+    const loadingEl = $('org-auto-title-loading');
+    const resultsEl = $('org-auto-title-results');
+    const summaryEl = $('org-auto-title-summary');
+    const listEl = $('org-auto-title-list');
+    if (!resultsEl || !listEl) return;
+
+    if (loadingEl) loadingEl.style.display = 'flex';
+    if (resultsEl) resultsEl.style.display = 'none';
+
+    try {
+        const res = await window.api.aiAutoTitles();
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (resultsEl) resultsEl.style.display = 'block';
+
+        if (res.success) {
+            if (!res.suggestions || res.suggestions.length === 0) {
+                if (summaryEl) summaryEl.textContent = res.message || '無題のノートが見つかりません';
+                listEl.innerHTML = '';
+                return;
+            }
+
+            if (summaryEl) summaryEl.textContent = res.suggestions.length + '件の無題ノートにタイトルを提案';
+            let html = '';
+            res.suggestions.forEach(function(s, i) {
+                html += '<div class="org-list-item" style="padding:8px 12px;margin-bottom:6px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)">'
+                    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+                    + '<div style="flex:1">'
+                    + '<div style="font-size:.78rem;opacity:.5">現在: ' + esc(s.currentName) + '</div>'
+                    + '<div style="font-size:.88rem;font-weight:600;margin-top:2px">→ ' + esc(s.suggestedTitle) + '</div>'
+                    + '</div>'
+                    + '<button class="ghost-btn small-btn" data-auto-title-idx="' + i + '" onclick="window.applyAutoTitle(' + i + ')" style="white-space:nowrap">✨ 適用</button>'
+                    + '</div></div>';
+            });
+            listEl.innerHTML = html;
+
+            // 提案データを保存
+            window._aiAutoTitleSuggestions = res.suggestions;
+            addLog('🏷️ AIタイトル提案: ' + res.suggestions.length + '件', 'success');
+        } else {
+            if (summaryEl) summaryEl.textContent = 'エラー: ' + (res.error || '不明なエラー');
+            listEl.innerHTML = '';
+        }
+    } catch (e) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (resultsEl) resultsEl.style.display = 'block';
+        if (summaryEl) summaryEl.textContent = 'エラー: ' + e.message;
+        listEl.innerHTML = '';
+    }
+}
+
+// AIタイトル適用
+window.applyAutoTitle = async function(idx) {
+    const suggestions = window._aiAutoTitleSuggestions;
+    if (!suggestions || !suggestions[idx]) return;
+    const s = suggestions[idx];
+    try {
+        const res = await window.api.renameNote({ filePath: s.path, newTitle: s.suggestedTitle });
+        if (res.success) {
+            addLog('🏷️ リネーム成功: ' + s.currentName + ' → ' + s.suggestedTitle + '.md', 'success');
+            showToast('リネーム完了: ' + s.suggestedTitle, 'success');
+            // ボタンを無効化
+            const btns = document.querySelectorAll('[data-auto-title-idx="' + idx + '"]');
+            btns.forEach(function(b) { b.textContent = '✅ 適用済み'; b.disabled = true; });
+        } else {
+            addLog('❌ リネーム失敗: ' + (res.error || '不明なエラー'), 'error');
+        }
+    } catch (e) {
+        addLog('❌ リネームエラー: ' + e.message, 'error');
+    }
+};
+
+// ============================================================
+// Feature 14: AIライティング提案
+// ============================================================
+async function aiWritingPrompt() {
+    const resultsEl = $('ai-writing-prompts');
+    if (!resultsEl) return;
+
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<p class="ai-loading">⏳ AIがライティング提案を生成中...</p>';
+
+    try {
+        const res = await window.api.aiWritingPrompt();
+        if (res.success) {
+            if (!res.prompts || res.prompts.length === 0) {
+                resultsEl.innerHTML = '<p class="muted-hint">提案を生成できませんでした</p>'
+                    + (res.raw ? '<details style="margin-top:8px"><summary style="font-size:.75rem;opacity:.4;cursor:pointer">AI応答を表示</summary><pre style="font-size:.72rem;opacity:.5;white-space:pre-wrap;margin-top:4px">' + esc(res.raw.slice(0, 500)) + '</pre></details>' : '');
+                return;
+            }
+
+            let html = '';
+            res.prompts.forEach(function(p, i) {
+                html += '<div style="padding:12px;margin-bottom:8px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)">'
+                    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">'
+                    + '<div style="flex:1">'
+                    + '<div style="font-weight:600;font-size:.9rem;margin-bottom:4px">💡 ' + esc(p.title) + '</div>'
+                    + '<div style="font-size:.8rem;opacity:.7;margin-bottom:4px">' + esc(p.description) + '</div>'
+                    + (p.suggestedFolder ? '<div style="font-size:.72rem;opacity:.5">📁 ' + esc(p.suggestedFolder) + '</div>' : '')
+                    + '</div>'
+                    + '<button class="ghost-btn small-btn" onclick="window.createNoteFromPrompt(' + i + ')" style="white-space:nowrap">📝 ノートを作成</button>'
+                    + '</div></div>';
+            });
+            resultsEl.innerHTML = html;
+            window._aiWritingPrompts = res.prompts;
+            addLog('💡 ライティング提案: ' + res.prompts.length + '件生成', 'success');
+        } else {
+            resultsEl.innerHTML = '<p class="ai-error">❌ ' + esc(res.error) + '</p>';
+        }
+    } catch (e) {
+        resultsEl.innerHTML = '<p class="ai-error">❌ ' + esc(e.message) + '</p>';
+    }
+}
+
+// ライティング提案からノートを作成
+window.createNoteFromPrompt = async function(idx) {
+    const prompts = window._aiWritingPrompts;
+    if (!prompts || !prompts[idx]) return;
+    const p = prompts[idx];
+    try {
+        const res = await window.api.aiCreateNoteFromPrompt({
+            title: p.title,
+            content: p.description || '',
+            folder: p.suggestedFolder || '',
+        });
+        if (res.success) {
+            addLog('📝 ノート作成: ' + p.title, 'success');
+            showToast('ノート作成完了: ' + p.title, 'success');
+            // Obsidianで開く
+            try { await window.api.openInObsidian(res.filePath); } catch (_) { /* 無視 */ }
+        } else {
+            addLog('❌ ノート作成失敗: ' + (res.error || '不明なエラー'), 'error');
+        }
+    } catch (e) {
+        addLog('❌ ノート作成エラー: ' + e.message, 'error');
+    }
+};
+
+// ============================================================
+// Feature 15: AIコスト表示
+// ============================================================
+// APIコスト追跡用ローカルストレージ
+const AI_COST_STORAGE_KEY = 'obsidian-optimizer-ai-cost-history';
+const AI_PRICING_PER_1M = {
+    'claude-opus-4-6': { input: 15, output: 75 },
+    'claude-sonnet-4-6': { input: 3, output: 15 },
+    'claude-haiku-4-5-20251001': { input: 0.80, output: 4 },
+    'gpt-5.4': { input: 2.50, output: 10 },
+    'gpt-5.4-mini': { input: 0.40, output: 1.60 },
+    'gpt-5.4-nano': { input: 0.10, output: 0.40 },
+    'gpt-4o': { input: 2.50, output: 10 },
+    'gemini-2.5-flash': { input: 0.15, output: 0.60 },
+    'gemini-2.5-pro': { input: 1.25, output: 10 },
+    'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+};
+const JPY_RATE = 150;
+
+function getAiCostHistory() {
+    try {
+        const raw = localStorage.getItem(AI_COST_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch (_) { return []; }
+}
+
+function saveAiCostEntry(feature, model, inputTokensEstimate, outputTokensEstimate) {
+    const history = getAiCostHistory();
+    const pricing = AI_PRICING_PER_1M[model] || { input: 1, output: 5 };
+    const costUsd = (inputTokensEstimate / 1000000 * pricing.input) + (outputTokensEstimate / 1000000 * pricing.output);
+    const costJpy = Math.round(costUsd * JPY_RATE * 100) / 100;
+
+    history.push({
+        date: new Date().toISOString(),
+        feature: feature,
+        model: model,
+        inputTokens: inputTokensEstimate,
+        outputTokens: outputTokensEstimate,
+        costUsd: Math.round(costUsd * 10000) / 10000,
+        costJpy: costJpy,
+    });
+
+    // 最大1000件保持
+    if (history.length > 1000) history.splice(0, history.length - 1000);
+    localStorage.setItem(AI_COST_STORAGE_KEY, JSON.stringify(history));
+}
+
+async function renderAiCostDisplay() {
+    const container = $('ai-cost-display');
+    if (!container) return;
+
+    // サーバーからAI利用状況を取得
+    let usage;
+    try {
+        const res = await window.api.getAiUsage();
+        if (!res.success || !res.usage) { container.innerHTML = '<p class="muted-hint">AI利用データを取得できませんでした</p>'; return; }
+        usage = res.usage;
+    } catch (e) { container.innerHTML = '<p class="muted-hint">エラー: ' + esc(e.message) + '</p>'; return; }
+
+    const history = usage.history || [];
+    const now = new Date();
+    const thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+    const monthEntries = history.filter(function(h) { return h.date && h.date.startsWith(thisMonth); });
+    const totalCalls = monthEntries.length;
+    const totalCostJpy = monthEntries.reduce(function(sum, h) { return sum + ((h.cost || 0) * 150); }, 0);
+
+    // 機能別集計
+    const featureCosts = {};
+    monthEntries.forEach(function(h) {
+        const key = h.feature || '不明';
+        featureCosts[key] = (featureCosts[key] || 0) + ((h.cost || 0) * 150);
+    });
+
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px">';
+    html += '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,.04);text-align:center">'
+        + '<div style="font-size:1.2rem;font-weight:700">' + totalCalls + '</div>'
+        + '<div style="font-size:.72rem;opacity:.5">今月のAPI呼び出し</div></div>';
+    html += '<div style="padding:12px;border-radius:10px;background:rgba(255,255,255,.04);text-align:center">'
+        + '<div style="font-size:1.2rem;font-weight:700">¥' + Math.round(totalCostJpy) + '</div>'
+        + '<div style="font-size:.72rem;opacity:.5">今月の推定コスト</div></div>';
+    html += '</div>';
+
+    // 機能別内訳
+    if (Object.keys(featureCosts).length > 0) {
+        html += '<div style="margin-bottom:12px"><strong style="font-size:.82rem">機能別コスト内訳</strong>';
+        const sorted = Object.entries(featureCosts).sort(function(a, b) { return b[1] - a[1]; });
+        const maxCost = sorted[0] ? sorted[0][1] : 1;
+        sorted.forEach(function(entry) {
+            const pct = maxCost > 0 ? Math.round(entry[1] / maxCost * 100) : 0;
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-top:6px">'
+                + '<span style="font-size:.78rem;min-width:100px">' + esc(entry[0]) + '</span>'
+                + '<div style="flex:1;height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden">'
+                + '<div style="height:100%;width:' + pct + '%;background:var(--accent);border-radius:4px"></div></div>'
+                + '<span style="font-size:.72rem;opacity:.6">¥' + Math.round(entry[1]) + '</span>'
+                + '</div>';
+        });
+        html += '</div>';
+    }
+
+    // 最近10件の履歴
+    const last10 = history.slice(-10).reverse();
+    if (last10.length > 0) {
+        html += '<div style="margin-bottom:12px"><strong style="font-size:.82rem">直近のAPI呼び出し</strong>'
+            + '<div style="margin-top:6px;max-height:200px;overflow:auto">';
+        last10.forEach(function(h) {
+            const d = new Date(h.date);
+            const dateStr = (d.getMonth() + 1) + '/' + d.getDate() + ' ' + d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+            html += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:.75rem;border-bottom:1px solid rgba(255,255,255,.04)">'
+                + '<span style="opacity:.5;min-width:70px">' + dateStr + '</span>'
+                + '<span style="flex:1">' + esc(h.feature) + '</span>'
+                + '<span style="opacity:.5">' + esc(h.model || '') + '</span>'
+                + '<span style="min-width:50px;text-align:right">¥' + ((h.cost || 0) * 150).toFixed(2) + '</span>'
+                + '</div>';
+        });
+        html += '</div></div>';
+    }
+
+    // 料金参照テーブル
+    html += '<details style="margin-top:8px"><summary style="font-size:.78rem;cursor:pointer;opacity:.6">💰 プロバイダー料金一覧（1Mトークンあたり）</summary>'
+        + '<div style="margin-top:8px;overflow-x:auto"><table style="width:100%;font-size:.72rem;border-collapse:collapse">'
+        + '<tr style="border-bottom:1px solid rgba(255,255,255,.1)"><th style="text-align:left;padding:4px">モデル</th><th style="text-align:right;padding:4px">入力($)</th><th style="text-align:right;padding:4px">出力($)</th><th style="text-align:right;padding:4px">入力(¥)</th><th style="text-align:right;padding:4px">出力(¥)</th></tr>';
+    Object.entries(AI_PRICING_PER_1M).forEach(function(entry) {
+        html += '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
+            + '<td style="padding:3px 4px">' + esc(entry[0]) + '</td>'
+            + '<td style="text-align:right;padding:3px 4px">$' + entry[1].input + '</td>'
+            + '<td style="text-align:right;padding:3px 4px">$' + entry[1].output + '</td>'
+            + '<td style="text-align:right;padding:3px 4px">¥' + Math.round(entry[1].input * JPY_RATE) + '</td>'
+            + '<td style="text-align:right;padding:3px 4px">¥' + Math.round(entry[1].output * JPY_RATE) + '</td>'
+            + '</tr>';
+    });
+    html += '</table></div></details>';
+
+    container.innerHTML = html;
+}
+
+// ============================================================
+// Feature 8-14 ボタンバインド
+// ============================================================
+(function bindAiFeatureBatch2() {
+    const safe = function(id, fn) { const el = $(id); if (el) el.addEventListener('click', fn); };
+
+    // Feature 11: AI検索
+    safe('btn-ai-smart-search', aiSmartSearch);
+    const searchInput = $('ai-search-query');
+    if (searchInput) {
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.isComposing) aiSmartSearch();
+        });
+    }
+
+    // Feature 12: 感情分析
+    safe('btn-ai-sentiment', aiSentimentAnalysis);
+
+    // Feature 13: AIタイトル提案
+    safe('btn-ai-auto-titles', aiAutoTitles);
+
+    // Feature 14: ライティング提案
+    safe('btn-ai-writing-prompt', aiWritingPrompt);
+
+    // Feature 15: コスト表示
+    safe('btn-ai-cost-refresh', renderAiCostDisplay);
+    renderAiCostDisplay();
+})();
+
+// ============================================================
+// toggleNotePreview拡張: モーダルプレビュー（AI機能付き）
+// ============================================================
+const _origToggleNotePreviewWithAI = toggleNotePreviewWithAI;
+async function toggleNotePreviewWithAIv2(itemEl, filePath) {
+    // コンテンツ取得
+    let content = previewCache[filePath];
+    if (!content) {
+        try {
+            const res = await window.api.readNotePreview(filePath);
+            if (res.success) { content = res.preview; previewCache[filePath] = content; }
+            else { content = '(読み込み失敗: ' + res.error + ')'; }
+        } catch (e) { content = '(エラー: ' + e.message + ')'; }
+    }
+
+    // ノート名を取得（パスの最後の部分）
+    const noteName = filePath.split('/').pop().replace(/\.md$/i, '');
+
+    // AI結果表示用div
+    const aiResultDiv = document.createElement('div');
+    aiResultDiv.className = 'preview-modal-ai-result';
+    aiResultDiv.style.display = 'none';
+
+    // AIボタン行を構築
+    function buildAiRowsHtml() {
+        const container = document.createElement('div');
+        container.className = 'preview-modal-ai-rows';
+
+        // 第1行: AI要約・タグ提案・リンク提案
+        const aiRow1 = document.createElement('div');
+        aiRow1.className = 'ai-action-row';
+        var summaryBtn = document.createElement('button');
+        summaryBtn.className = 'ghost-btn small-btn ai-btn';
+        summaryBtn.textContent = '✨ AI要約';
+        summaryBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiSummarizeNote(filePath, aiResultDiv); });
+        var tagBtn = document.createElement('button');
+        tagBtn.className = 'ghost-btn small-btn ai-btn';
+        tagBtn.textContent = '🏷️ AIタグ提案';
+        tagBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiSuggestTags(filePath, aiResultDiv); });
+        var linkBtn = document.createElement('button');
+        linkBtn.className = 'ghost-btn small-btn ai-btn';
+        linkBtn.textContent = '🔗 AIリンク提案';
+        linkBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiSuggestLinks(filePath, aiResultDiv); });
+        aiRow1.appendChild(summaryBtn);
+        aiRow1.appendChild(tagBtn);
+        aiRow1.appendChild(linkBtn);
+        container.appendChild(aiRow1);
+
+        // 第2行: 翻訳・議事録整理・文体変換
+        const aiRow2 = document.createElement('div');
+        aiRow2.className = 'ai-action-row';
+        var translateWrap = document.createElement('span');
+        translateWrap.style.cssText = 'display:inline-flex;gap:2px;align-items:center';
+        var translateSelect = document.createElement('select');
+        translateSelect.className = 'vault-select';
+        translateSelect.style.cssText = 'width:70px;font-size:.72rem;padding:3px 4px;height:auto';
+        [{ v: 'en', l: '英語' }, { v: 'ja', l: '日本語' }, { v: 'zh', l: '中国語' }].forEach(function(opt) {
+            var o = document.createElement('option'); o.value = opt.v; o.textContent = opt.l; translateSelect.appendChild(o);
+        });
+        var translateBtn = document.createElement('button');
+        translateBtn.className = 'ghost-btn small-btn ai-btn';
+        translateBtn.textContent = '🌐 翻訳';
+        translateBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiTranslateNote(filePath, translateSelect.value, aiResultDiv); });
+        translateWrap.appendChild(translateSelect);
+        translateWrap.appendChild(translateBtn);
+        aiRow2.appendChild(translateWrap);
+        var meetingBtn = document.createElement('button');
+        meetingBtn.className = 'ghost-btn small-btn ai-btn';
+        meetingBtn.textContent = '📋 議事録整理';
+        meetingBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiStructureMeeting(filePath, aiResultDiv); });
+        aiRow2.appendChild(meetingBtn);
+        var toneWrap = document.createElement('span');
+        toneWrap.style.cssText = 'display:inline-flex;gap:2px;align-items:center';
+        var toneSelect = document.createElement('select');
+        toneSelect.className = 'vault-select';
+        toneSelect.style.cssText = 'width:90px;font-size:.72rem;padding:3px 4px;height:auto';
+        [{ v: 'formal', l: 'フォーマル' }, { v: 'casual', l: 'カジュアル' }, { v: 'academic', l: '学術的' }, { v: 'blog', l: 'ブログ風' }].forEach(function(opt) {
+            var o = document.createElement('option'); o.value = opt.v; o.textContent = opt.l; toneSelect.appendChild(o);
+        });
+        var toneBtn = document.createElement('button');
+        toneBtn.className = 'ghost-btn small-btn ai-btn';
+        toneBtn.textContent = '✍️ 文体変換';
+        toneBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiConvertTone(filePath, toneSelect.value, aiResultDiv); });
+        toneWrap.appendChild(toneSelect);
+        toneWrap.appendChild(toneBtn);
+        aiRow2.appendChild(toneWrap);
+        container.appendChild(aiRow2);
+
+        // 第3行: レビュー・フラッシュカード・文章化
+        var aiRow3 = document.createElement('div');
+        aiRow3.className = 'ai-action-row';
+        var reviewBtn = document.createElement('button');
+        reviewBtn.className = 'ghost-btn small-btn ai-btn';
+        reviewBtn.textContent = '📝 AIレビュー';
+        reviewBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiReviewNote(filePath, aiResultDiv); });
+        aiRow3.appendChild(reviewBtn);
+        var flashcardBtn = document.createElement('button');
+        flashcardBtn.className = 'ghost-btn small-btn ai-btn';
+        flashcardBtn.textContent = '🎴 フラッシュカード';
+        flashcardBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiGenerateFlashcards(filePath, aiResultDiv); });
+        aiRow3.appendChild(flashcardBtn);
+        var expandBtn = document.createElement('button');
+        expandBtn.className = 'ghost-btn small-btn ai-btn';
+        expandBtn.textContent = '📝 文章化';
+        expandBtn.addEventListener('click', function() { aiResultDiv.style.display = ''; aiExpandNote(filePath, aiResultDiv); });
+        aiRow3.appendChild(expandBtn);
+        container.appendChild(aiRow3);
+
+        container.appendChild(aiResultDiv);
+        return container;
+    }
+
+    // モーダルのbody用HTML構築
+    var bodyHtml = '<pre>' + esc(content) + '</pre>';
+
+    var modal = showPreviewModal({
+        title: noteName,
+        subtitle: filePath,
+        content: bodyHtml,
+        actions: [
+            { label: '⭐ お気に入り', className: 'ghost-btn small-btn', onClick: function() {
+                window.api.toggleFavorite({ notePath: filePath }).then(function(res) {
+                    if (res.success) {
+                        var nowFav = res.favorites.includes(filePath);
+                        showToast(nowFav ? 'お気に入りに追加しました' : 'お気に入りから削除しました', 'info');
+                        if (typeof loadFavorites === 'function') loadFavorites();
+                    }
+                }).catch(function(err) { showToast('エラー: ' + err.message, 'error'); });
+            }},
+            { label: '📂 Obsidianで開く', className: 'ghost-btn small-btn', onClick: function() {
+                window.api.openInObsidian(filePath).catch(console.error);
+            }},
+        ]
+    });
+
+    // AIボタン行をモーダルbodyに追加
+    if (modal && modal.bodyEl) {
+        modal.bodyEl.appendChild(buildAiRowsHtml());
+    }
+}
+
+// v2版で上書き
+window.toggleNotePreviewWithAI = toggleNotePreviewWithAIv2;
+
+// グローバルヘルパー: パスを渡してノートプレビューモーダルを開く（onclick属性から呼び出し用）
+async function openNotePreviewModal(filePath) {
+    // toggleNotePreviewWithAIv2は内部でモーダルを開くので、ダミーelementで呼び出す
+    // ただし引数のitemElは不要になったため、直接モーダルを開く
+    let content = previewCache[filePath];
+    if (!content) {
+        try {
+            const res = await window.api.readNotePreview(filePath);
+            if (res.success) { content = res.preview; previewCache[filePath] = content; }
+            else { content = '(読み込み失敗: ' + res.error + ')'; }
+        } catch (e) { content = '(エラー: ' + e.message + ')'; }
+    }
+    var noteName = filePath.split('/').pop().replace(/\.md$/i, '');
+    showPreviewModal({
+        title: noteName,
+        subtitle: filePath,
+        rawText: content,
+        actions: [
+            { label: '📂 Obsidianで開く', className: 'ghost-btn small-btn', onClick: function() {
+                window.api.openInObsidian(filePath).catch(console.error);
+            }}
+        ]
+    });
+}
+window.openNotePreviewModal = openNotePreviewModal;
+
+// 整理ツールのグローバル公開（inline onclick用）
+window.orgRenameNote = orgRenameNote;
+window.orgMoveNote = orgMoveNote;
+window.orgFixSingleFrontmatter = async function(path) {
+    try {
+        const res = await window.api.fixFrontmatter({ filePath: path, addFields: {} });
+        if (res.success) { addLog(`📝 Frontmatter補完: ${path}`, 'success', 'ORGANIZE'); orgScanFrontmatter(); }
+        else addLog(`❌ エラー: ${res.error}`, 'error', 'ORGANIZE');
+    } catch (e) { addLog(`❌ エラー: ${e.message}`, 'error', 'ORGANIZE'); }
+};
 
 // ============================================================
 // Feature 4: ノートスコアリングシステム
@@ -4496,6 +5882,55 @@ function orgShowResults(prefix) {
 // ── Feature 1: タイトル変更 ──
 
 /** タイトル不一致ノートのスキャンデータ（renameに利用） */
+// 全ツール一括スキャン
+async function orgScanAll() {
+    const btn = $('btn-org-scan-all');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 一括スキャン中...'; }
+    const summaryEl = $('org-all-summary');
+    const contentEl = $('org-all-summary-content');
+    if (summaryEl) summaryEl.style.display = 'block';
+    if (contentEl) contentEl.innerHTML = '<div class="org-loading"><div class="spinner-sm"></div><span>全ツールをスキャン中...</span></div>';
+
+    const results = [];
+    const tools = [
+        { name: 'メタデータ補完', icon: '📝', fn: orgScanFrontmatter, id: 'fm' },
+        { name: 'Inbox整理', icon: '📂', fn: orgScanInbox, id: 'inbox' },
+        { name: 'タイトル修正', icon: '✏️', fn: orgScanTitles, id: 'title' },
+        { name: 'リンク修正', icon: '🔗', fn: orgScanLinks, id: 'links' },
+        { name: '空フォルダ', icon: '🗑️', fn: orgScanEmpty, id: 'empty' },
+        { name: 'TODO抽出', icon: '☑️', fn: orgScanTodos, id: 'todo' },
+        { name: '長文分割', icon: '✂️', fn: orgScanSplit, id: 'split' },
+    ];
+
+    for (const tool of tools) {
+        try { await tool.fn(); } catch (_) { /* individual errors handled inside */ }
+        // 各ツールの結果サマリーを収集
+        const summaryP = $(`org-${tool.id}-summary`);
+        const text = summaryP ? summaryP.textContent : '';
+        results.push({ ...tool, summary: text });
+    }
+
+    // サマリーカード表示
+    if (contentEl) {
+        let html = '<div class="org-summary-items">';
+        for (const r of results) {
+            const hasIssue = r.summary && !r.summary.includes('✅') && !r.summary.includes('ありません') && !r.summary.includes('0件');
+            const status = hasIssue ? '⚠️' : '✅';
+            html += `<div class="org-summary-item ${hasIssue ? 'has-issue' : 'ok'}">
+                <span class="org-summary-icon">${r.icon}</span>
+                <span class="org-summary-name">${r.name}</span>
+                <span class="org-summary-status">${status}</span>
+                <span class="org-summary-text">${esc(r.summary || '完了')}</span>
+            </div>`;
+        }
+        html += '</div>';
+        contentEl.innerHTML = html;
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 全ツールを一括スキャン'; }
+    addLog('🧹 整理ツール一括スキャン完了', 'success');
+}
+
 let orgTitleData = [];
 
 async function orgScanTitles() {
@@ -4538,6 +5973,7 @@ function orgRenderTitles(items) {
             <div class="org-item-row">
                 <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.currentTitle)}</span>
                 <div class="org-item-actions">
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
                     <button class="org-btn" onclick="orgRenameNote(${idx}, 'heuristic')">変更</button>
                     ${item.aiTitle ? `<button class="org-btn" onclick="orgRenameNote(${idx}, 'ai')">AI提案で変更</button>` : ''}
                 </div>
@@ -4615,7 +6051,10 @@ function orgRenderFrontmatter(data) {
             <div class="org-item">
                 <div class="org-item-row">
                     <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.name)}</span>
-                    <span class="org-item-badge danger">未設定</span>
+                    <div class="org-item-actions">
+                        <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
+                        <button class="org-btn" onclick="window.orgFixSingleFrontmatter('${esc(item.path)}')">補完</button>
+                    </div>
                 </div>
                 <div class="org-item-detail">${esc(item.relPath)}</div>
             </div>
@@ -4627,7 +6066,11 @@ function orgRenderFrontmatter(data) {
             <div class="org-item">
                 <div class="org-item-row">
                     <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.name)}</span>
-                    <span class="org-item-badge warn">不足: ${esc(item.missing.join(', '))}</span>
+                    <div class="org-item-actions">
+                        <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
+                        <span class="org-item-badge warn">不足: ${esc(item.missing.join(', '))}</span>
+                        <button class="org-btn" onclick="window.orgFixSingleFrontmatter('${esc(item.path)}')">補完</button>
+                    </div>
                 </div>
                 <div class="org-item-detail">${esc(item.relPath)}</div>
             </div>
@@ -4640,7 +6083,7 @@ async function orgFixFrontmatterAll() {
     const total = orgFmData.notesWithoutFrontmatter.length + orgFmData.notesMissingFields.length;
     if (total === 0) return;
 
-    if (!confirm(`${total}件のノートのFrontmatterを補完します。よろしいですか？`)) return;
+    if (!await showConfirmModal('Frontmatter補完の確認', `${total}件のノートのFrontmatterを補完します。\n\n⚡ バックアップについて\n設定で『削除前にバックアップを作成』がオンの場合、自動的にバックアップが保存されます。`, '補完する')) return;
 
     let fixed = 0;
     let errors = 0;
@@ -4714,6 +6157,7 @@ function orgRenderInbox(data) {
             <div class="org-item-row">
                 <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.name)}</span>
                 <div class="org-item-actions">
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
                     <button class="org-btn" onclick="orgMoveNote(${idx})">移動</button>
                 </div>
             </div>
@@ -4778,7 +6222,10 @@ function orgRenderSplit(notes) {
         <div class="org-item">
             <div class="org-item-row">
                 <span class="org-item-title" onclick="window.api.openInObsidian('${esc(note.path)}')">${esc(note.name)}</span>
-                <span class="org-item-badge warn">${note.charCount.toLocaleString()}文字</span>
+                <div class="org-item-actions">
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(note.path)}')" title="プレビュー">👁️</button>
+                    <span class="org-item-badge warn">${note.charCount.toLocaleString()}文字</span>
+                </div>
             </div>
             <div class="org-heading-list">
                 ${note.headings.map(h => `<div class="org-heading-item">${esc(h.text)} (${h.charCount.toLocaleString()}文字)</div>`).join('')}
@@ -4840,7 +6287,7 @@ async function orgDeleteEmpty() {
     const deletable = orgEmptyData.filter(f => !f.hasOtherFiles);
     if (deletable.length === 0) return;
 
-    if (!confirm(`${deletable.length}件の空フォルダを削除します。よろしいですか？`)) return;
+    if (!await showConfirmModal('空フォルダ削除の確認', `${deletable.length}件の空フォルダを削除します。\n\n⚡ バックアップについて\n設定で『削除前にバックアップを作成』がオンの場合、自動的にバックアップが保存されます。`, '削除する')) return;
 
     try {
         const res = await window.api.deleteEmptyFolders(deletable.map(f => f.path));
@@ -4893,7 +6340,8 @@ function orgRenderTodos(results) {
     for (const day of results.slice(0, 30)) {
         html += `<div class="org-todo-date">
             <span onclick="window.api.openInObsidian('${esc(day.file)}')" style="cursor:pointer">${esc(day.date)}</span>
-            <span style="font-weight:normal;font-size:0.78rem;color:var(--muted);margin-left:8px">(${day.todos.length}件)</span>
+            <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(day.file)}')" title="プレビュー" style="margin-left:6px;vertical-align:middle">👁️</button>
+            <span style="font-weight:normal;font-size:0.78rem;color:var(--muted);margin-left:4px">(${day.todos.length}件)</span>
         </div>`;
         for (const todo of day.todos) {
             html += `<div class="org-todo-item">${esc(todo.text)}</div>`;
@@ -4946,7 +6394,10 @@ function orgRenderLinks(issues) {
         <div class="org-item">
             <div class="org-item-row">
                 <span class="org-item-title" onclick="window.api.openInObsidian('${esc(issue.file)}')">${esc(issue.relPath)}</span>
-                <span class="org-link-issue ${issue.issue === 'case_mismatch' ? 'case' : 'broken'}">${issue.issue === 'case_mismatch' ? '大小文字' : '壊れたリンク'}</span>
+                <div class="org-item-actions">
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(issue.file)}')" title="プレビュー">👁️</button>
+                    <span class="org-link-issue ${issue.issue === 'case_mismatch' ? 'case' : 'broken'}">${issue.issue === 'case_mismatch' ? '大小文字' : '壊れたリンク'}</span>
+                </div>
             </div>
             <div class="org-item-detail">
                 ${esc(issue.link)}${issue.suggestion ? ` → <strong>${esc('[[' + issue.suggestion + ']]')}</strong>` : ''}
@@ -4959,7 +6410,7 @@ async function orgNormalizeLinks() {
     const fixable = orgLinksData.filter(i => i.issue === 'case_mismatch' && i.suggestion);
     if (fixable.length === 0) return;
 
-    if (!confirm(`${fixable.length}件のリンクを修正します。よろしいですか？`)) return;
+    if (!await showConfirmModal('リンク修正の確認', `${fixable.length}件のリンクを修正します。\n\n⚡ バックアップについて\n設定で『削除前にバックアップを作成』がオンの場合、自動的にバックアップが保存されます。`, '修正する')) return;
 
     try {
         const res = await window.api.normalizeLinks(fixable);
@@ -4974,3 +6425,975 @@ async function orgNormalizeLinks() {
         addLog(`❌ リンク修正エラー: ${e.message}`, 'error', 'ORGANIZE');
     }
 }
+
+// ============================================================
+// タスク管理機能
+// ============================================================
+let allTasksCache = [];
+let currentTaskFilter = 'all';
+
+async function loadTaskTab() {
+    // 保存先ドロップダウンを取得
+    await loadTaskTargets();
+    // タスク一覧を取得
+    await refreshTaskList();
+    // イベントバインド
+    bindTaskEvents();
+}
+
+let selectedTaskPriority = '';
+
+function bindTaskEvents() {
+    const safe = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+    safe('btn-add-task', addTask);
+    safe('btn-refresh-tasks', refreshTaskList);
+
+    // Enterキーでタスク追加
+    const input = $('task-input');
+    if (input) {
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addTask(); }
+        });
+    }
+
+    // クイック日付ボタン
+    document.querySelectorAll('.task-quick-date-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const offset = parseInt(btn.dataset.offset, 10);
+            const d = new Date();
+            d.setDate(d.getDate() + offset);
+            const dateStr = d.toISOString().split('T')[0];
+            const dueDateEl = $('task-due-date');
+            if (dueDateEl) dueDateEl.value = dateStr;
+        });
+    });
+
+    // 優先度ボタン
+    document.querySelectorAll('.task-pri-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.task-pri-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedTaskPriority = btn.dataset.pri;
+        });
+    });
+    // デフォルト「なし」をアクティブに
+    const defaultPriBtn = document.querySelector('.task-pri-btn[data-pri=""]');
+    if (defaultPriBtn) defaultPriBtn.classList.add('active');
+
+    // フィルターボタン
+    document.querySelectorAll('.task-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.task-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentTaskFilter = btn.dataset.filter;
+            renderTaskList(allTasksCache, currentTaskFilter);
+        });
+    });
+}
+
+async function loadTaskTargets() {
+    const sel = $('task-target-note');
+    if (!sel) return;
+    try {
+        const res = await window.api.getTaskTargets();
+        if (!res.success) return;
+        sel.innerHTML = '';
+        // デフォルトオプション
+        const defOpt = document.createElement('option');
+        defOpt.value = '__default__';
+        defOpt.textContent = res.defaultLabel;
+        sel.appendChild(defOpt);
+        // タスクを含む既存ファイル
+        for (const t of res.targets) {
+            // デフォルトと同じファイルはスキップ
+            if (t.filePath === res.defaultPath) continue;
+            const opt = document.createElement('option');
+            opt.value = t.filePath;
+            opt.textContent = t.relPath;
+            sel.appendChild(opt);
+        }
+    } catch (e) { console.warn('loadTaskTargets error:', e); }
+}
+
+async function addTask() {
+    const input = $('task-input');
+    const dueDateEl = $('task-due-date');
+    const targetEl = $('task-target-note');
+    const feedback = $('task-add-feedback');
+    if (!input) return;
+
+    const text = input.value.trim();
+    if (!text) {
+        input.focus();
+        input.style.borderColor = '#f87171';
+        setTimeout(() => { input.style.borderColor = ''; }, 1500);
+        return;
+    }
+
+    try {
+        const res = await window.api.addTask({
+            text,
+            dueDate: dueDateEl ? dueDateEl.value : '',
+            priority: selectedTaskPriority || '',
+            targetNote: targetEl ? targetEl.value : '__default__',
+        });
+
+        if (res.success) {
+            addLog(`✅ タスク追加: ${text}`, 'info', 'TASK');
+            // 成功フィードバック
+            if (feedback) {
+                feedback.style.display = 'block';
+                feedback.style.background = 'rgba(52,211,153,.1)';
+                feedback.style.border = '1px solid rgba(52,211,153,.3)';
+                feedback.style.color = '#34d399';
+                feedback.innerHTML = `✅ 「${esc(text)}」を追加しました`;
+                setTimeout(() => { feedback.style.display = 'none'; }, 3000);
+            }
+            // フォームクリア
+            input.value = '';
+            if (dueDateEl) dueDateEl.value = '';
+            selectedTaskPriority = '';
+            document.querySelectorAll('.task-pri-btn').forEach(b => b.classList.remove('active'));
+            const defaultPri = document.querySelector('.task-pri-btn[data-pri=""]');
+            if (defaultPri) defaultPri.classList.add('active');
+            // 一覧更新
+            await refreshTaskList();
+            await loadTaskTargets();
+            input.focus();
+        } else {
+            addLog(`❌ タスク追加エラー: ${res.error}`, 'error', 'TASK');
+            if (feedback) {
+                feedback.style.display = 'block';
+                feedback.style.background = 'rgba(248,113,113,.1)';
+                feedback.style.border = '1px solid rgba(248,113,113,.3)';
+                feedback.style.color = '#f87171';
+                feedback.textContent = `❌ エラー: ${res.error}`;
+            }
+        }
+    } catch (e) {
+        addLog(`❌ タスク追加エラー: ${e.message}`, 'error', 'TASK');
+    }
+}
+
+async function refreshTaskList() {
+    const container = $('task-list-container');
+    if (!container) return;
+    container.innerHTML = '<div class="task-empty">読み込み中...</div>';
+
+    try {
+        const res = await window.api.getAllTasks();
+        if (!res.success) {
+            container.innerHTML = `<div class="task-empty">${esc(res.error)}</div>`;
+            return;
+        }
+        allTasksCache = res.tasks;
+        renderTaskList(allTasksCache, currentTaskFilter);
+    } catch (e) {
+        container.innerHTML = `<div class="task-empty">エラー: ${esc(e.message)}</div>`;
+    }
+}
+
+function renderTaskList(tasks, filter) {
+    const container = $('task-list-container');
+    if (!container) return;
+
+    const today = new Date().toISOString().slice(0, 10);
+    // 今週末の日付を計算
+    const todayDate = new Date();
+    const weekEnd = new Date(todayDate);
+    weekEnd.setDate(todayDate.getDate() + (7 - todayDate.getDay()));
+    const weekEndStr = weekEnd.toISOString().slice(0, 10);
+
+    // フィルタリング
+    let filtered = tasks;
+    switch (filter) {
+        case 'today':
+            filtered = tasks.filter(t => !t.done && t.dueDate === today);
+            break;
+        case 'week':
+            filtered = tasks.filter(t => !t.done && t.dueDate && t.dueDate >= today && t.dueDate <= weekEndStr);
+            break;
+        case 'overdue':
+            filtered = tasks.filter(t => !t.done && t.dueDate && t.dueDate < today);
+            break;
+        case 'done':
+            filtered = tasks.filter(t => t.done);
+            break;
+        case 'all':
+        default:
+            // すべて表示
+            break;
+    }
+
+    if (filtered.length === 0) {
+        const emptyMessages = {
+            all: 'タスクがありません。上のフォームからタスクを追加しましょう！',
+            today: '今日のタスクはありません 🎉',
+            week: '今週のタスクはありません',
+            overdue: '期限切れのタスクはありません 🎉',
+            done: '完了済みタスクはありません',
+        };
+        container.innerHTML = `<div class="task-empty"><span class="task-empty-icon">📭</span>${esc(emptyMessages[filter] || emptyMessages.all)}</div>`;
+        return;
+    }
+
+    container.innerHTML = filtered.map((task, idx) => {
+        const doneClass = task.done ? ' done' : '';
+        const checkIcon = task.done ? '✓' : '';
+
+        // 期限バッジ
+        let dueBadgeHtml = '';
+        if (task.dueDate) {
+            let dueBadgeClass = 'future';
+            let dueLabel = task.dueDate;
+            if (task.dueDate < today && !task.done) { dueBadgeClass = 'overdue'; dueLabel = `${task.dueDate} (期限切れ)`; }
+            else if (task.dueDate === today) { dueBadgeClass = 'today'; dueLabel = '今日'; }
+            else if (task.dueDate <= weekEndStr) { dueBadgeClass = 'soon'; }
+            dueBadgeHtml = `<span class="task-due-badge ${dueBadgeClass}">📅 ${esc(dueLabel)}</span>`;
+        }
+
+        // 優先度バッジ
+        let priorityBadgeHtml = '';
+        if (task.priority) {
+            const pLabels = { high: '⏫ 高', medium: '🔼 中', low: '🔽 低' };
+            priorityBadgeHtml = `<span class="task-priority-badge ${esc(task.priority)}">${pLabels[task.priority] || ''}</span>`;
+        }
+
+        // ソースファイル名
+        const fileName = task.relPath ? task.relPath.split('/').pop().replace(/\.md$/, '') : '';
+
+        return `<div class="task-item${doneClass}" data-task-idx="${idx}" data-file="${esc(task.filePath)}" data-line="${task.lineNumber}">
+            <button class="task-checkbox" data-action="toggle" title="${task.done ? '未完了に戻す' : '完了にする'}">${checkIcon}</button>
+            <span class="task-text">${esc(task.text)}</span>
+            <div class="task-badges">
+                ${dueBadgeHtml}
+                ${priorityBadgeHtml}
+                <span class="task-source" data-action="open-source" title="${esc(task.relPath)}">${esc(fileName)}</span>
+            </div>
+            <button class="obsidian-btn" data-action="preview" title="プレビュー" style="font-size:.78rem;padding:2px 6px">👁️</button>
+            <button class="task-delete-btn" data-action="delete" title="タスクを削除">🗑️</button>
+        </div>`;
+    }).join('');
+
+    // イベント委譲
+    container.querySelectorAll('.task-item').forEach(item => {
+        item.addEventListener('click', async (e) => {
+            const action = e.target.closest('[data-action]');
+            if (!action) return;
+            const act = action.dataset.action;
+            const filePath = item.dataset.file;
+            const lineNumber = parseInt(item.dataset.line, 10);
+
+            if (act === 'toggle') {
+                const isDone = item.classList.contains('done');
+                try {
+                    const res = await window.api.toggleTask({ filePath, lineNumber, done: !isDone });
+                    if (res.success) await refreshTaskList();
+                    else addLog(`❌ タスク更新エラー: ${res.error}`, 'error', 'TASK');
+                } catch (err) { addLog(`❌ タスク更新エラー: ${err.message}`, 'error', 'TASK'); }
+            } else if (act === 'delete') {
+                if (!await showConfirmModal('タスク削除の確認', 'このタスクを削除しますか？', '削除する')) return;
+                try {
+                    const res = await window.api.deleteTask({ filePath, lineNumber });
+                    if (res.success) { addLog('🗑️ タスク削除', 'info', 'TASK'); await refreshTaskList(); }
+                    else addLog(`❌ タスク削除エラー: ${res.error}`, 'error', 'TASK');
+                } catch (err) { addLog(`❌ タスク削除エラー: ${err.message}`, 'error', 'TASK'); }
+            } else if (act === 'preview') {
+                if (filePath) openNotePreviewModal(filePath);
+            } else if (act === 'open-source') {
+                window.api.openInObsidian(filePath).catch(console.error);
+            }
+        });
+    });
+}
+
+
+// ============================================================
+// オンボーディングウィザード
+// ============================================================
+
+function showOnboarding() {
+    const overlay = $('onboarding-overlay');
+    if (overlay) overlay.style.display = 'flex';
+}
+
+function goOnboardingStep(step) {
+    document.querySelectorAll('.onboarding-step').forEach(s => {
+        s.style.display = s.dataset.step === String(step) ? '' : 'none';
+    });
+    document.querySelectorAll('.onboarding-dot').forEach(d => {
+        d.classList.toggle('active', parseInt(d.dataset.dot) <= step);
+    });
+}
+
+async function onboardingSelectVault() {
+    try {
+        const result = await window.api.selectVaultFolder();
+        if (result) {
+            const status = $('onboarding-vault-status');
+            if (status) {
+                status.textContent = '✅ Vault を選択しました: ' + result;
+                status.style.color = 'var(--green)';
+            }
+            const nextBtn = $('onboarding-next-2');
+            if (nextBtn) nextBtn.disabled = false;
+            // 再初期化
+            await initAsync();
+        }
+    } catch (e) {
+        const status = $('onboarding-vault-status');
+        if (status) {
+            status.textContent = '❌ 選択に失敗しました: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+}
+
+async function onboardingRunScan() {
+    const status = $('onboarding-scan-status');
+    if (status) {
+        status.textContent = '⏳ スキャン中...';
+        status.style.color = 'var(--warn)';
+    }
+    try {
+        await runScan();
+        if (status) {
+            status.textContent = '✅ スキャン完了！';
+            status.style.color = 'var(--green)';
+        }
+        const nextBtn = $('onboarding-next-3');
+        if (nextBtn) nextBtn.disabled = false;
+    } catch (e) {
+        if (status) {
+            status.textContent = '❌ スキャンエラー: ' + e.message;
+            status.style.color = 'var(--danger)';
+        }
+    }
+}
+
+async function finishOnboarding() {
+    const overlay = $('onboarding-overlay');
+    if (overlay) overlay.style.display = 'none';
+    try {
+        await window.api.saveConfigPartial({ onboardingCompleted: true });
+    } catch (e) { console.warn('Failed to save onboarding state:', e); }
+    activateTab('dashboard');
+    showToast('セットアップ完了！ダッシュボードへようこそ', 'success');
+}
+
+// ============================================================
+// Feature 1: ライセンス認証
+// ============================================================
+
+// ライセンスキー入力の自動フォーマット（ダッシュ挿入）
+function formatLicenseKeyInput(inputEl) {
+    if (!inputEl) return;
+    inputEl.addEventListener('input', (e) => {
+        let val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        // OPT プレフィックスを保持
+        let formatted = '';
+        // OPT-XXXX-XXXX-XXXX-XXXX の形式にフォーマット
+        // まず「OPT」を処理
+        if (val.startsWith('OPT')) {
+            formatted = 'OPT';
+            val = val.slice(3);
+        } else if (val.length > 0) {
+            // OPTで始まらない場合はそのまま4文字ずつ区切る
+            formatted = 'OPT';
+            // 入力をそのまま残す（OPTプレフィックスなしの入力に対応）
+        }
+        // 残りを4文字ずつダッシュ区切り
+        let i = 0;
+        while (val.length > 0 && i < 4) {
+            const chunk = val.slice(0, 4);
+            val = val.slice(4);
+            formatted += '-' + chunk;
+            i++;
+        }
+        e.target.value = formatted;
+    });
+}
+
+async function checkLicenseStatus() {
+    try {
+        const status = await window.api.getLicenseStatus();
+        isLicensed = status.isLicensed;
+        updateLicenseUI(status);
+        if (!isLicensed) {
+            // ライセンスモーダルを表示
+            const modal = $('license-modal');
+            if (modal) modal.style.display = 'flex';
+        }
+    } catch (e) {
+        console.warn('ライセンス確認エラー:', e);
+    }
+}
+
+function updateLicenseUI(status) {
+    // 設定タブのライセンスバッジを更新
+    const badge = $('license-status-badge');
+    if (badge) {
+        if (status.isLicensed) {
+            badge.textContent = '認証済み: ' + status.maskedKey;
+            badge.className = 'license-status-badge licensed';
+        } else {
+            badge.textContent = 'トライアル版';
+            badge.className = 'license-status-badge trial';
+        }
+    }
+
+    // トライアルモードの制御
+    if (!status.isLicensed && isTrialMode) {
+        applyTrialRestrictions();
+    } else if (status.isLicensed) {
+        isTrialMode = false;
+        removeTrialRestrictions();
+    }
+}
+
+function applyTrialRestrictions() {
+    // 最適化、MOC、AIタブのボタンを無効化
+    const restrictedButtons = [
+        'btn-run-optimize', 'btn-quick-optimize', 'btn-preview', 'btn-run-dryrun'
+    ];
+    restrictedButtons.forEach(id => {
+        const el = $(id);
+        if (el) {
+            el.disabled = true;
+            el.title = 'ライセンスが必要です';
+        }
+    });
+
+    // MOC作成タブとAI関連を制限クラスでマーク
+    const restrictedTabs = ['tab-moc-create'];
+    restrictedTabs.forEach(id => {
+        const el = $(id);
+        if (el && !el.classList.contains('trial-disabled')) {
+            el.classList.add('trial-disabled');
+        }
+    });
+}
+
+function removeTrialRestrictions() {
+    // すべての制限を解除
+    const restrictedButtons = [
+        'btn-run-optimize', 'btn-quick-optimize', 'btn-preview', 'btn-run-dryrun'
+    ];
+    restrictedButtons.forEach(id => {
+        const el = $(id);
+        if (el) {
+            el.disabled = false;
+            el.title = '';
+        }
+    });
+    const restrictedTabs = ['tab-moc-create'];
+    restrictedTabs.forEach(id => {
+        const el = $(id);
+        if (el) el.classList.remove('trial-disabled');
+    });
+}
+
+async function verifyLicenseFromInput(inputId, errorId) {
+    const inputEl = $(inputId);
+    const errorEl = $(errorId);
+    if (!inputEl) return false;
+
+    const key = inputEl.value.trim().toUpperCase();
+    if (!key) {
+        if (errorEl) { errorEl.textContent = 'ライセンスキーを入力してください'; errorEl.style.display = 'block'; }
+        return false;
+    }
+
+    try {
+        const result = await window.api.verifyLicense(key);
+        if (result.success) {
+            isLicensed = true;
+            isTrialMode = false;
+            if (errorEl) errorEl.style.display = 'none';
+
+            // モーダルを閉じる
+            const modal = $('license-modal');
+            if (modal) modal.style.display = 'none';
+
+            // UIを更新
+            updateLicenseUI({ isLicensed: true, maskedKey: key.slice(0, 8) + '-****-****' });
+            removeTrialRestrictions();
+            showToast('ライセンスが認証されました', 'success');
+            return true;
+        } else {
+            if (errorEl) { errorEl.textContent = result.error; errorEl.style.display = 'block'; }
+            return false;
+        }
+    } catch (e) {
+        if (errorEl) { errorEl.textContent = 'エラー: ' + e.message; errorEl.style.display = 'block'; }
+        return false;
+    }
+}
+
+// ============================================================
+// Feature 2: アップデートチェック
+// ============================================================
+async function checkForUpdates(silent) {
+    const statusEl = $('update-status');
+    const infoEl = $('update-info');
+
+    if (!silent && statusEl) statusEl.textContent = '確認中...';
+
+    try {
+        const result = await window.api.checkForUpdates();
+        if (result.error && !silent) {
+            if (statusEl) statusEl.textContent = '確認できませんでした: ' + result.error;
+            return;
+        }
+        if (result.updateAvailable) {
+            if (statusEl) statusEl.textContent = '新バージョンがあります！';
+            if (infoEl) {
+                infoEl.style.display = 'block';
+                infoEl.innerHTML = `
+                    <div style="padding:12px;background:var(--glass);border:1px solid var(--border);border-radius:12px">
+                        <p><strong>v${esc(result.latestVersion)}</strong> が利用可能です（現在: v${esc(result.currentVersion)}）</p>
+                        ${result.releaseNotes ? '<p style="margin-top:8px;opacity:.7;font-size:.8rem;white-space:pre-wrap">' + esc(result.releaseNotes).slice(0, 300) + '</p>' : ''}
+                        <a href="${esc(result.downloadUrl)}" style="display:inline-block;margin-top:10px;color:var(--accent);text-decoration:underline;cursor:pointer" onclick="event.preventDefault();window.api.openPath('${esc(result.downloadUrl)}')">ダウンロードページを開く</a>
+                    </div>`;
+            }
+            // サイレントモードでもトーストを出す
+            showToast('新バージョン v' + result.latestVersion + ' が利用可能です', 'info', 6000);
+        } else {
+            if (!silent && statusEl) statusEl.textContent = '最新版です (v' + result.currentVersion + ')';
+            if (infoEl) infoEl.style.display = 'none';
+        }
+    } catch (e) {
+        if (!silent && statusEl) statusEl.textContent = '確認エラー: ' + e.message;
+    }
+}
+
+// ============================================================
+// Feature 4: テーマ切り替え
+// ============================================================
+let currentTheme = 'dark';
+
+function applyTheme(theme) {
+    currentTheme = theme;
+    const body = document.body;
+    if (theme === 'light') {
+        body.classList.add('theme-light');
+        body.classList.remove('theme-dark');
+    } else {
+        body.classList.remove('theme-light');
+        body.classList.add('theme-dark');
+    }
+    // テーマ切り替えボタンのアイコン更新
+    const btn = $('btn-theme-toggle');
+    if (btn) {
+        btn.textContent = theme === 'light' ? '\u2600\uFE0F' : '\uD83C\uDF19';
+        btn.title = theme === 'light' ? 'ダークテーマに切替' : 'ライトテーマに切替';
+    }
+}
+
+async function toggleTheme() {
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(newTheme);
+    try {
+        await window.api.setAppTheme(newTheme);
+    } catch (e) {
+        console.warn('テーマ保存エラー:', e);
+    }
+}
+
+// ============================================================
+// Feature 5: お気に入りノート
+// ============================================================
+async function addFavoriteFromDialog() {
+    try {
+        const res = await window.api.selectFavoriteNote();
+        if (res.success) {
+            showToast('⭐ 「' + res.name + '」をお気に入りに追加しました', 'success');
+            loadFavorites();
+        }
+    } catch (e) { showToast('エラー: ' + e.message, 'error'); }
+}
+
+async function loadFavorites() {
+    const container = $('favorites-list');
+    if (!container) return;
+    try {
+        const res = await window.api.getFavorites();
+        if (!res.success || !res.favorites || res.favorites.length === 0) {
+            container.innerHTML = '<p class="muted-hint">お気に入りはまだありません</p>';
+            return;
+        }
+        container.innerHTML = '';
+        res.favorites.forEach(fav => {
+            const div = document.createElement('div');
+            div.className = 'favorite-item';
+            div.innerHTML = `
+                <div class="favorite-item-info">
+                    <div class="favorite-item-name">${esc(fav.name)}</div>
+                    <div class="favorite-item-folder">${esc(fav.folder)}</div>
+                </div>
+            `;
+            // Obsidianで開くボタン
+            const openBtn = document.createElement('button');
+            openBtn.className = 'favorite-btn';
+            openBtn.textContent = '📂';
+            openBtn.title = 'Obsidianで開く';
+            openBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.api.openFavorite(fav.path).catch(err => console.warn(err));
+            });
+            // 削除ボタン
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'favorite-btn';
+            removeBtn.textContent = '✕';
+            removeBtn.title = 'お気に入りから削除';
+            removeBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                try {
+                    await window.api.toggleFavorite({ notePath: fav.path });
+                    showToast('お気に入りから削除しました', 'info');
+                    loadFavorites();
+                } catch (err) { showToast('エラー: ' + err.message, 'error'); }
+            });
+            div.appendChild(openBtn);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        });
+    } catch (e) {
+        container.innerHTML = `<p class="muted-hint">読み込みエラー: ${esc(e.message)}</p>`;
+    }
+}
+
+// ノートプレビューにお気に入りボタンを追加するヘルパー
+function addFavoriteButtonToPreview(previewEl, filePath) {
+    if (!previewEl || !filePath) return;
+    // 既にボタンがある場合はスキップ
+    if (previewEl.querySelector('.favorite-btn')) return;
+
+    const favBtn = document.createElement('button');
+    favBtn.className = 'favorite-btn';
+    favBtn.style.cssText = 'position:absolute;top:6px;right:6px;font-size:1.1rem;z-index:2';
+    favBtn.title = 'お気に入りに追加/削除';
+
+    // 現在の状態を確認
+    window.api.getFavorites().then(res => {
+        const isFav = res.success && res.favorites.some(f => f.path === filePath);
+        favBtn.textContent = isFav ? '⭐' : '☆';
+        if (isFav) favBtn.classList.add('favorite-btn-active');
+    }).catch(() => { favBtn.textContent = '☆'; });
+
+    favBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+            const res = await window.api.toggleFavorite({ notePath: filePath });
+            if (res.success) {
+                const nowFav = res.favorites.includes(filePath);
+                favBtn.textContent = nowFav ? '⭐' : '☆';
+                favBtn.classList.toggle('favorite-btn-active', nowFav);
+                showToast(nowFav ? 'お気に入りに追加しました' : 'お気に入りから削除しました', 'info');
+                loadFavorites();
+            }
+        } catch (err) { showToast('エラー: ' + err.message, 'error'); }
+    });
+
+    previewEl.style.position = 'relative';
+    previewEl.appendChild(favBtn);
+}
+
+// note-previewが生成された後にお気に入りボタンを注入するMutationObserver
+const notePreviewObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+            if (node.nodeType === 1 && node.classList && node.classList.contains('note-preview')) {
+                // 親要素からファイルパスを取得
+                const parent = node.closest('[data-path]') || node.parentElement;
+                if (parent) {
+                    const pathEl = parent.querySelector('[data-path]');
+                    const filePath = pathEl ? pathEl.getAttribute('data-path') : parent.getAttribute('data-path');
+                    if (filePath) addFavoriteButtonToPreview(node, filePath);
+                }
+            }
+        }
+    }
+});
+notePreviewObserver.observe(document.body, { childList: true, subtree: true });
+
+// ============================================================
+// Feature 6: Vault間ノート操作
+// ============================================================
+async function compareVaults() {
+    const container = $('vault-compare-content');
+    if (!container) return;
+    container.innerHTML = '<p class="muted-hint">比較中...</p>';
+
+    try {
+        const res = await window.api.compareVaults();
+        if (!res.success) {
+            container.innerHTML = `<p class="muted-hint">${esc(res.error)}</p>`;
+            return;
+        }
+
+        let html = '<table class="vault-compare-table"><thead><tr><th>Vault名</th><th>ノート数</th><th>タグ数</th><th>操作</th></tr></thead><tbody>';
+        res.vaults.forEach(v => {
+            html += `<tr>
+                <td>${esc(v.name)}</td>
+                <td>${v.noteCount}</td>
+                <td>${v.tagCount}</td>
+                <td><span class="muted-hint" style="font-size:.75rem">${esc(v.path)}</span></td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+
+        if (res.commonNotes && res.commonNotes.length > 0) {
+            html += `<div class="vault-compare-common">
+                <strong>📎 共通ノート名 (${res.commonNotes.length}件):</strong>
+                <span style="margin-left:8px">${res.commonNotes.map(n => esc(n)).join(', ')}</span>
+            </div>`;
+        } else {
+            html += '<p class="muted-hint" style="margin-top:8px">共通ノートはありません</p>';
+        }
+
+        // ノートコピーUI
+        if (res.vaults.length >= 2) {
+            html += `<div style="margin-top:14px;padding:12px;border:1px solid rgba(255,255,255,.06);border-radius:10px">
+                <strong style="font-size:.85rem">📋 ノートをコピー</strong>
+                <p class="muted-hint" style="font-size:.75rem;margin:4px 0 8px">現在のVaultのノートを別のVaultにコピーします（対象Vaultの 00 Inbox に保存されます）</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                    <span style="font-size:.83rem">コピー先:</span>
+                    <select id="copy-target-vault" class="vault-select" style="width:200px">
+                        ${res.vaults.map(v => `<option value="${esc(v.path)}">${esc(v.name)}</option>`).join('')}
+                    </select>
+                </div>
+                <p class="muted-hint" style="font-size:.72rem;margin-top:6px">※ スキャン結果画面でノートを選択してコピーする機能は今後追加予定です</p>
+            </div>`;
+        }
+
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<p class="muted-hint">エラー: ${esc(e.message)}</p>`;
+    }
+}
+
+// ============================================================
+// Feature 7: 自動バックアップスケジュール（UI連携）
+// ============================================================
+async function initBackupScheduleUI() {
+    const sel = $('backup-schedule');
+    if (!sel) return;
+    try {
+        const res = await window.api.getBackupSchedule();
+        if (res.success) sel.value = res.schedule;
+    } catch (_) { /* ignore */ }
+
+    sel.addEventListener('change', async () => {
+        try {
+            const res = await window.api.setBackupSchedule({ schedule: sel.value });
+            if (res.success) {
+                const labels = { off: 'オフ', daily: '毎日', weekly: '毎週' };
+                showToast(`バックアップスケジュール: ${labels[res.schedule] || res.schedule}`, 'info');
+            }
+        } catch (e) { showToast('設定エラー: ' + e.message, 'error'); }
+    });
+
+    const runBtn = $('btn-run-backup-now');
+    if (runBtn) {
+        runBtn.addEventListener('click', async () => {
+            runBtn.disabled = true;
+            runBtn.textContent = 'バックアップ中...';
+            try {
+                const res = await window.api.runVaultBackup();
+                if (res.success) {
+                    showToast(`バックアップ完了: ${res.copiedCount}ファイル`, 'success');
+                } else {
+                    showToast('バックアップ失敗: ' + (res.error || '不明なエラー'), 'error');
+                }
+            } catch (e) {
+                showToast('バックアップエラー: ' + e.message, 'error');
+            } finally {
+                runBtn.disabled = false;
+                runBtn.textContent = '今すぐバックアップ';
+            }
+        });
+    }
+}
+
+// ============================================================
+// Feature 8: コマンドパレット (Cmd+P / Ctrl+P)
+// ============================================================
+const COMMANDS = [
+    { id: 'scan', label: '🔍 スキャンを実行', action: () => runScan() },
+    { id: 'optimize', label: '✨ 最適化を実行', action: () => activateTab('scan-optimize') },
+    { id: 'moc', label: '🗺️ MOC作成', action: () => activateTab('moc-create') },
+    { id: 'tasks', label: '📝 タスクタブを開く', action: () => activateTab('tasks') },
+    { id: 'settings', label: '⚙️ 設定を開く', action: () => activateTab('settings') },
+    { id: 'help', label: '❓ ヘルプを開く', action: () => activateTab('help') },
+    { id: 'graph', label: '🕸️ グラフビューを開く', action: () => { activateTab('analytics'); switchSubTab('analytics', 'graph-view'); } },
+    { id: 'organize', label: '🧹 整理ツールを開く', action: () => activateTab('tools') },
+    { id: 'organize-all', label: '🔍 全ツール一括スキャン', action: () => { activateTab('tools'); orgScanAll(); } },
+    { id: 'dashboard-full', label: '🖥️ フルダッシュボード生成', action: () => selectDashboardType('full') },
+    { id: 'report', label: '📋 健康レポート出力', action: () => runHealthReport() },
+    { id: 'ai-search', label: '🤖 AI検索', action: () => { activateTab('dashboard'); const el = $('ai-search-query'); if (el) el.focus(); } },
+    { id: 'ai-ask', label: '🤖 Vaultに質問する', action: () => { activateTab('dashboard'); const el = $('ai-chat-input'); if (el) el.focus(); } },
+    { id: 'theme', label: '🌙 テーマ切替', action: () => toggleTheme() },
+    { id: 'favorites', label: '⭐ お気に入りを表示', action: () => { activateTab('dashboard'); const el = $('favorites-list'); if (el) el.scrollIntoView({ behavior: 'smooth' }); } },
+    { id: 'analytics', label: '📊 分析タブを開く', action: () => activateTab('analytics') },
+    { id: 'dashboard', label: '🏠 ダッシュボードを開く', action: () => activateTab('dashboard') },
+    { id: 'backup', label: '💾 今すぐバックアップ', action: () => { const btn = $('btn-run-backup-now'); if (btn) btn.click(); else showToast('設定タブからバックアップを実行してください', 'warn'); } },
+];
+
+let commandPaletteActiveIndex = 0;
+let filteredCommands = [...COMMANDS];
+
+function openCommandPalette() {
+    const overlay = $('command-palette');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    const searchInput = $('command-search');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.focus();
+    }
+    commandPaletteActiveIndex = 0;
+    filteredCommands = [...COMMANDS];
+    renderCommandList();
+}
+
+function closeCommandPalette() {
+    const overlay = $('command-palette');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function renderCommandList() {
+    const list = $('command-list');
+    if (!list) return;
+    list.innerHTML = '';
+    filteredCommands.forEach((cmd, i) => {
+        const div = document.createElement('div');
+        div.className = 'command-item' + (i === commandPaletteActiveIndex ? ' active' : '');
+        div.textContent = cmd.label;
+        div.addEventListener('click', () => {
+            closeCommandPalette();
+            cmd.action();
+        });
+        div.addEventListener('mouseenter', () => {
+            commandPaletteActiveIndex = i;
+            list.querySelectorAll('.command-item').forEach((el, j) => {
+                el.classList.toggle('active', j === i);
+            });
+        });
+        list.appendChild(div);
+    });
+}
+
+function filterCommands(query) {
+    const q = query.toLowerCase().trim();
+    if (!q) {
+        filteredCommands = [...COMMANDS];
+    } else {
+        filteredCommands = COMMANDS.filter(cmd =>
+            cmd.label.toLowerCase().includes(q) || cmd.id.toLowerCase().includes(q)
+        );
+    }
+    commandPaletteActiveIndex = 0;
+    renderCommandList();
+}
+
+function executeActiveCommand() {
+    if (filteredCommands.length > 0 && commandPaletteActiveIndex < filteredCommands.length) {
+        const cmd = filteredCommands[commandPaletteActiveIndex];
+        closeCommandPalette();
+        cmd.action();
+    }
+}
+
+// コマンドパレットのイベントバインド
+document.addEventListener('keydown', (e) => {
+    // Cmd+P / Ctrl+P でコマンドパレットを開く
+    if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+        e.preventDefault();
+        const overlay = $('command-palette');
+        if (overlay && overlay.style.display !== 'none') {
+            closeCommandPalette();
+        } else {
+            openCommandPalette();
+        }
+        return;
+    }
+
+    // コマンドパレットが開いている時のキーボード操作
+    const overlay = $('command-palette');
+    if (!overlay || overlay.style.display === 'none') return;
+
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeCommandPalette();
+        return;
+    }
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (filteredCommands.length > 0) {
+            commandPaletteActiveIndex = (commandPaletteActiveIndex + 1) % filteredCommands.length;
+            renderCommandList();
+            // アクティブアイテムが見えるようにスクロール
+            const list = $('command-list');
+            const activeItem = list ? list.querySelector('.command-item.active') : null;
+            if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+        }
+        return;
+    }
+
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (filteredCommands.length > 0) {
+            commandPaletteActiveIndex = (commandPaletteActiveIndex - 1 + filteredCommands.length) % filteredCommands.length;
+            renderCommandList();
+            const list = $('command-list');
+            const activeItem = list ? list.querySelector('.command-item.active') : null;
+            if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
+        }
+        return;
+    }
+
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        executeActiveCommand();
+        return;
+    }
+});
+
+// 検索入力のフィルタリング
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = $('command-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            filterCommands(e.target.value);
+        });
+    }
+
+    // コマンドパレットのオーバーレイクリックで閉じる
+    const overlay = $('command-palette');
+    if (overlay) {
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeCommandPalette();
+        });
+    }
+});
+
+// ============================================================
+// Feature 5/6/7: 初期化統合
+// ============================================================
+// initAsyncから呼び出せるよう、DOMContentLoaded後に初期化
+document.addEventListener('DOMContentLoaded', () => {
+    // お気に入りの初期読み込み
+    setTimeout(() => loadFavorites(), 500);
+    // お気に入り追加ボタン
+    const favAddBtn = $('btn-add-favorite');
+    if (favAddBtn) favAddBtn.addEventListener('click', addFavoriteFromDialog);
+    // バックアップスケジュールUI初期化
+    setTimeout(() => initBackupScheduleUI(), 500);
+    // Vault比較ボタン
+    const compareBtn = $('btn-compare-vaults');
+    if (compareBtn) {
+        compareBtn.addEventListener('click', compareVaults);
+    }
+});

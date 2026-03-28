@@ -109,6 +109,12 @@ contextBridge.exposeInMainWorld('api', {
     normalizeLinks: (items) => ipcRenderer.invoke('normalize-links', items),
     // Obsidianダッシュボード生成
     generateObsidianDashboard: (params) => ipcRenderer.invoke('generate-obsidian-dashboard', params),
+    // タスク管理機能
+    addTask: (params) => ipcRenderer.invoke('add-task', params),
+    getAllTasks: () => ipcRenderer.invoke('get-all-tasks'),
+    toggleTask: (params) => ipcRenderer.invoke('toggle-task', params),
+    deleteTask: (params) => ipcRenderer.invoke('delete-task', params),
+    getTaskTargets: () => ipcRenderer.invoke('get-task-targets'),
     // AI統合機能
     saveAiConfig: (params) => ipcRenderer.invoke('save-ai-config', params),
     testAiConnection: () => ipcRenderer.invoke('test-ai-connection'),
@@ -116,4 +122,46 @@ contextBridge.exposeInMainWorld('api', {
     aiSuggestTags: (filePath) => ipcRenderer.invoke('ai-suggest-tags', filePath),
     aiFindDuplicates: () => ipcRenderer.invoke('ai-find-duplicates'),
     aiSuggestLinks: (filePath) => ipcRenderer.invoke('ai-suggest-links', filePath),
+    // AI機能 バッチ2 (Feature 8-14)
+    aiTranslateNote: (params) => ipcRenderer.invoke('ai-translate-note', params),
+    aiStructureMeeting: (params) => ipcRenderer.invoke('ai-structure-meeting', params),
+    aiConvertTone: (params) => ipcRenderer.invoke('ai-convert-tone', params),
+    aiSmartSearch: (params) => ipcRenderer.invoke('ai-smart-search', params),
+    aiSentimentAnalysis: () => ipcRenderer.invoke('ai-sentiment-analysis'),
+    aiAutoTitles: () => ipcRenderer.invoke('ai-auto-titles'),
+    aiWritingPrompt: () => ipcRenderer.invoke('ai-writing-prompt'),
+    aiCreateNoteFromPrompt: (params) => ipcRenderer.invoke('ai-create-note-from-prompt', params),
+    // ライセンス認証
+    verifyLicense: (key) => ipcRenderer.invoke('verify-license', key),
+    getLicenseStatus: () => ipcRenderer.invoke('get-license-status'),
+    generateLicenseKey: () => ipcRenderer.invoke('generate-license-key'),
+    // アップデートチェック
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    // スキャンデータエクスポート
+    exportScanData: (params) => ipcRenderer.invoke('export-scan-data', params),
+    // テーマ切り替え
+    setAppTheme: (theme) => ipcRenderer.invoke('set-app-theme', theme),
+    // AI拡張機能 (Feature 1-8)
+    aiAskVault: (params) => ipcRenderer.invoke('ai-ask-vault', params),
+    aiWeeklyInsight: () => ipcRenderer.invoke('ai-weekly-insight'),
+    aiComposeMoc: (params) => ipcRenderer.invoke('ai-compose-moc', params),
+    aiReviewNote: (params) => ipcRenderer.invoke('ai-review-note', params),
+    aiGenerateFlashcards: (params) => ipcRenderer.invoke('ai-generate-flashcards', params),
+    aiExpandNote: (params) => ipcRenderer.invoke('ai-expand-note', params),
+    aiDetectGaps: () => ipcRenderer.invoke('ai-detect-gaps'),
+    getAiUsage: () => ipcRenderer.invoke('get-ai-usage'),
+    resetAiUsage: () => ipcRenderer.invoke('reset-ai-usage'),
+    // Feature 5: お気に入りノート
+    toggleFavorite: (params) => ipcRenderer.invoke('toggle-favorite', params),
+    getFavorites: () => ipcRenderer.invoke('get-favorites'),
+    openFavorite: (filePath) => ipcRenderer.invoke('open-favorite', filePath),
+    selectFavoriteNote: () => ipcRenderer.invoke('select-favorite-note'),
+    // Feature 6: Vault間ノート操作
+    getVaultList: () => ipcRenderer.invoke('get-vault-list'),
+    copyNoteToVault: (params) => ipcRenderer.invoke('copy-note-to-vault', params),
+    compareVaults: () => ipcRenderer.invoke('compare-vaults'),
+    // Feature 7: 自動バックアップスケジュール
+    setBackupSchedule: (params) => ipcRenderer.invoke('set-backup-schedule', params),
+    runVaultBackup: () => ipcRenderer.invoke('run-vault-backup'),
+    getBackupSchedule: () => ipcRenderer.invoke('get-backup-schedule'),
 });
