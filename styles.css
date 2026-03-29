@@ -4946,3 +4946,236 @@ body.theme-light .preview-modal-header { border-bottom-color: rgba(0,0,0,.08); }
 body.theme-light .preview-modal-footer { border-top-color: rgba(0,0,0,.08); }
 body.theme-light .preview-modal-body pre { background: rgba(0,0,0,.04); }
 body.theme-light .preview-modal-ai-result { background: rgba(0,0,0,.04); }
+
+/* MOC分類ルール編集 */
+.moc-rule-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 10px;
+}
+.moc-rule-fields {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 2fr 1.5fr;
+    gap: 8px;
+}
+.moc-rule-field label {
+    display: block;
+    font-size: .72rem;
+    opacity: .5;
+    margin-bottom: 3px;
+}
+.moc-rule-field input {
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.04);
+    color: var(--text);
+    font-size: .84rem;
+    outline: none;
+}
+.moc-rule-field input:focus {
+    border-color: var(--accent);
+}
+@media (max-width: 768px) {
+    .moc-rule-fields { grid-template-columns: 1fr; }
+}
+
+/* トライアル制限オーバーレイ */
+.trial-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(8,12,26,.92);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+}
+.trial-overlay-content {
+    text-align: center;
+    padding: 40px;
+}
+.trial-btn-disabled {
+    opacity: .35 !important;
+    cursor: not-allowed !important;
+}
+
+/* ============================================================
+   v5.0 World-Class Edition — 新規スタイル
+   ============================================================ */
+
+/* v5スキャンカード */
+.v5-scan-card {
+    border: 1px solid rgba(124,108,248,.2);
+    background: rgba(124,108,248,.03);
+}
+.v5-scan-card .card-title {
+    color: var(--accent);
+}
+
+/* v5リンクツール */
+.v5-link-tools .text-input {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.04);
+    color: var(--text);
+    font-size: .84rem;
+    outline: none;
+}
+.v5-link-tools .text-input:focus {
+    border-color: var(--accent);
+}
+
+/* pill-tag */
+.pill-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(124,108,248,.12);
+    color: var(--accent);
+    font-size: .72rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* スキャン行（v5用） */
+.scan-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    transition: background .15s;
+    font-size: .84rem;
+}
+.scan-row:hover {
+    background: rgba(255,255,255,.04);
+}
+
+/* リンクヘルスバッジ */
+.count-badge.broken { background: rgba(239,68,68,.15); color: #f87171; }
+.count-badge.warn { background: rgba(251,191,36,.15); color: #fbbf24; }
+.count-badge.stale { background: rgba(251,191,36,.1); color: #fcd34d; }
+
+/* v5設定サブタブ */
+#subtab-settings-v5 .glass-card {
+    border: 1px solid rgba(124,108,248,.1);
+}
+
+/* プリセットカード */
+#preset-list .dashboard-gen-card {
+    cursor: pointer;
+    transition: all .2s;
+}
+#preset-list .dashboard-gen-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(124,108,248,.2);
+}
+
+/* v5バッジ */
+.org-recommend-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: .68rem;
+    font-weight: 600;
+}
+
+/* メタデータスプレッドシート */
+#metadata-spreadsheet table {
+    width: 100%;
+    border-collapse: collapse;
+}
+#metadata-spreadsheet th,
+#metadata-spreadsheet td {
+    padding: 4px 8px;
+    border: 1px solid rgba(255,255,255,.08);
+    text-align: left;
+    white-space: nowrap;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#metadata-spreadsheet th {
+    background: rgba(124,108,248,.1);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+#metadata-spreadsheet tr:hover td {
+    background: rgba(255,255,255,.04);
+}
+
+/* RAG / ダイジェスト結果 */
+#rag-answer .glass-card,
+#digest-result .glass-card {
+    border: 1px solid rgba(124,108,248,.15);
+}
+
+/* 復習キュー */
+#review-queue-list .scan-row {
+    border-bottom: 1px solid rgba(255,255,255,.05);
+}
+
+/* グラフ差分KPI */
+#graph-diff-results .kpi-card {
+    text-align: center;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(255,255,255,.03);
+}
+
+/* コーチ品質スコア */
+#org-coach-content .health-ring-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(255,255,255,.05);
+}
+
+/* 機密スキャナー - 重大度カラー */
+#org-secrets-list .scan-row {
+    border-bottom: 1px solid rgba(255,255,255,.04);
+}
+
+/* 外部連携カード */
+#subtab-settings-v5 h4 {
+    font-weight: 600;
+}
+
+/* ローディング微調整 */
+.org-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    font-size: .84rem;
+    opacity: .7;
+}
+
+/* v5アニメーション */
+@keyframes v5-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .6; }
+}
+.v5-scan-card .primary-btn:active {
+    animation: v5-pulse .3s;
+}
+
+/* レスポンシブ: v5機能 */
+@media (max-width: 768px) {
+    .v5-scan-card > div { flex-direction: column; }
+    .v5-link-tools { flex-direction: column; }
+    .v5-link-tools > div { flex-direction: column; }
+    #preset-list { grid-template-columns: 1fr !important; }
+    #metadata-spreadsheet { font-size: .68rem; }
+}

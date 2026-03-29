@@ -189,6 +189,8 @@ function bindAllButtons() {
         try { await window.api.saveConfigPartial({ enableMoc: e.target.checked }); } catch (e2) { addLog('設定保存エラー: ' + e2.message, 'error'); }
     });
     safe('btn-save-junk-rules', saveJunkRules);
+    safe('btn-add-moc-rule', addMocRuleRow);
+    safe('btn-save-moc-rules', saveMocRules);
 
     // MOC生成（最適化タブ内の既存機能）
     safe('btn-gen-moc', runGenMoc);
@@ -526,6 +528,8 @@ function applyConfig(cfg) {
         const nb = $('junk-min-bytes'); if (nb) nb.value = cfg.junkRules.minBytes ?? 5;
         const kw = $('junk-keywords'); if (kw) kw.value = (cfg.junkRules.keywords || ['untitled', '無題']).join('\n');
     }
+    // MOC分類ルールの復元
+    if (cfg.rules) renderMocRules(cfg.rules);
     // Feature 10: 自動スキャンスケジュール
     const autoScanSel = $('auto-scan-schedule');
     if (autoScanSel) autoScanSel.value = cfg.autoScanSchedule || 'off';
@@ -616,6 +620,92 @@ async function saveJunkRules() {
         await window.api.saveConfigPartial({ junkRules: { minChars, minBytes, keywords } });
         addLog(`💾 ゴミ判定ルールを保存しました`, 'success', 'CONFIG');
     } catch (e) { addLog(`❌ 保存失敗: ${e.message}`, 'error', 'CONFIG'); }
+}
+
+// ============================================================
+// MOC分類ルール編集
+// ============================================================
+let currentMocRules = {};
+
+function renderMocRules(rules) {
+    currentMocRules = rules || {};
+    const container = $('moc-rules-list');
+    if (!container) return;
+    const entries = Object.entries(currentMocRules);
+    if (entries.length === 0) {
+        container.innerHTML = '<p class="muted-hint">ルールがありません。「➕ ルールを追加」で作成してください。</p>';
+        return;
+    }
+    container.innerHTML = entries.map(([category, rule], idx) => `
+        <div class="moc-rule-row" data-rule-idx="${idx}">
+            <div class="moc-rule-fields">
+                <div class="moc-rule-field">
+                    <label>カテゴリ名</label>
+                    <input type="text" class="moc-rule-category" value="${esc(category)}" placeholder="例: AI・LLM" />
+                </div>
+                <div class="moc-rule-field">
+                    <label>キーワード（カンマ区切り）</label>
+                    <input type="text" class="moc-rule-keywords" value="${esc((rule.keywords || []).join(', '))}" placeholder="例: ai, gpt, claude" />
+                </div>
+                <div class="moc-rule-field">
+                    <label>生成MOC名</label>
+                    <input type="text" class="moc-rule-moc" value="${esc(rule.moc || '')}" placeholder="例: MOC - AI Tools" />
+                </div>
+            </div>
+            <button class="ghost-btn small-btn" onclick="removeMocRuleRow(${idx})" title="削除" style="color:var(--danger);flex-shrink:0">🗑️</button>
+        </div>
+    `).join('');
+}
+
+function addMocRuleRow() {
+    const container = $('moc-rules-list');
+    if (!container) return;
+    // 現在のフォームからルールを読み取って追加
+    const newKey = '新規カテゴリ' + (Object.keys(currentMocRules).length + 1);
+    currentMocRules[newKey] = { keywords: [], moc: 'MOC - ' };
+    renderMocRules(currentMocRules);
+    // 最後の行にフォーカス
+    const rows = container.querySelectorAll('.moc-rule-row');
+    if (rows.length > 0) {
+        const lastRow = rows[rows.length - 1];
+        const catInput = lastRow.querySelector('.moc-rule-category');
+        if (catInput) { catInput.focus(); catInput.select(); }
+    }
+}
+
+window.removeMocRuleRow = function(idx) {
+    const entries = Object.entries(currentMocRules);
+    if (idx >= 0 && idx < entries.length) {
+        delete currentMocRules[entries[idx][0]];
+        renderMocRules(currentMocRules);
+    }
+};
+
+async function saveMocRules() {
+    // フォームからルールを収集
+    const container = $('moc-rules-list');
+    if (!container) return;
+    const rows = container.querySelectorAll('.moc-rule-row');
+    const newRules = {};
+    rows.forEach(row => {
+        const category = row.querySelector('.moc-rule-category')?.value?.trim();
+        const keywordsStr = row.querySelector('.moc-rule-keywords')?.value || '';
+        const moc = row.querySelector('.moc-rule-moc')?.value?.trim();
+        if (category && moc) {
+            newRules[category] = {
+                keywords: keywordsStr.split(',').map(k => k.trim().toLowerCase()).filter(Boolean),
+                moc: moc,
+            };
+        }
+    });
+    try {
+        await window.api.saveConfigPartial({ rules: newRules });
+        currentMocRules = newRules;
+        addLog('💾 MOC分類ルールを保存しました（' + Object.keys(newRules).length + '件）', 'success', 'CONFIG');
+        showToast('MOC分類ルールを保存しました', 'success');
+    } catch (e) {
+        addLog('❌ ルール保存エラー: ' + e.message, 'error', 'CONFIG');
+    }
 }
 
 // ============================================================
@@ -6852,45 +6942,76 @@ function updateLicenseUI(status) {
 }
 
 function applyTrialRestrictions() {
-    // 最適化、MOC、AIタブのボタンを無効化
+    // トライアルで使えるタブ: ダッシュボード（スキャンのみ）、設定、ヘルプ
+    // 制限するタブ: MOC作成、分析、整理ツール、タスク
+    const restrictedTabIds = ['tab-moc-create', 'tab-analytics', 'tab-tools', 'tab-tasks'];
+    restrictedTabIds.forEach(id => {
+        const el = $(id);
+        if (el) {
+            el.classList.add('trial-disabled');
+            // タブ内容を制限メッセージで上書き
+            if (!el.querySelector('.trial-overlay')) {
+                const overlay = document.createElement('div');
+                overlay.className = 'trial-overlay';
+                overlay.innerHTML = '<div class="trial-overlay-content">'
+                    + '<div style="font-size:2.5rem;margin-bottom:12px">🔑</div>'
+                    + '<h3 style="margin:0 0 8px">ライセンスが必要です</h3>'
+                    + '<p style="opacity:.6;font-size:.88rem;margin:0 0 16px">この機能はライセンス認証後に使用できます</p>'
+                    + '<button class="primary-btn" onclick="activateTab(\'settings\')">⚙️ 設定でライセンスを入力</button>'
+                    + '</div>';
+                el.style.position = 'relative';
+                el.appendChild(overlay);
+            }
+        }
+    });
+
+    // スキャン＆最適化タブ: スキャンは許可、最適化は制限
     const restrictedButtons = [
-        'btn-run-optimize', 'btn-quick-optimize', 'btn-preview', 'btn-run-dryrun'
+        'btn-run-optimize', 'btn-quick-optimize', 'btn-preview', 'btn-run-dryrun',
+        'btn-create-moc', 'btn-gen-moc', 'btn-health-report', 'btn-export',
+        'btn-export-data', 'btn-add-task', 'btn-org-scan-all',
+        'btn-ai-ask', 'btn-ai-smart-search', 'btn-ai-writing-prompt',
+        'btn-gen-dash-full', 'btn-gen-dash-tasks', 'btn-gen-dash-weekly', 'btn-gen-dash-projects',
+        'btn-dash-confirm'
     ];
     restrictedButtons.forEach(id => {
         const el = $(id);
         if (el) {
             el.disabled = true;
-            el.title = 'ライセンスが必要です';
+            el.title = '🔑 ライセンスが必要です';
+            el.classList.add('trial-btn-disabled');
         }
     });
 
-    // MOC作成タブとAI関連を制限クラスでマーク
-    const restrictedTabs = ['tab-moc-create'];
-    restrictedTabs.forEach(id => {
-        const el = $(id);
-        if (el && !el.classList.contains('trial-disabled')) {
-            el.classList.add('trial-disabled');
+    // サイドバーの制限タブにロックアイコン
+    document.querySelectorAll('.nav-item').forEach(btn => {
+        const tab = btn.dataset.tab;
+        if (['moc-create', 'analytics', 'tools', 'tasks'].includes(tab)) {
+            if (!btn.querySelector('.trial-lock')) {
+                const lock = document.createElement('span');
+                lock.className = 'trial-lock';
+                lock.textContent = '🔒';
+                lock.style.cssText = 'font-size:.7rem;margin-left:4px;opacity:.6';
+                btn.appendChild(lock);
+            }
         }
     });
 }
 
 function removeTrialRestrictions() {
-    // すべての制限を解除
-    const restrictedButtons = [
-        'btn-run-optimize', 'btn-quick-optimize', 'btn-preview', 'btn-run-dryrun'
-    ];
-    restrictedButtons.forEach(id => {
-        const el = $(id);
-        if (el) {
-            el.disabled = false;
-            el.title = '';
-        }
+    // タブオーバーレイを削除
+    document.querySelectorAll('.trial-overlay').forEach(el => el.remove());
+    document.querySelectorAll('.trial-disabled').forEach(el => el.classList.remove('trial-disabled'));
+
+    // ボタンの制限を解除
+    document.querySelectorAll('.trial-btn-disabled').forEach(el => {
+        el.disabled = false;
+        el.title = '';
+        el.classList.remove('trial-btn-disabled');
     });
-    const restrictedTabs = ['tab-moc-create'];
-    restrictedTabs.forEach(id => {
-        const el = $(id);
-        if (el) el.classList.remove('trial-disabled');
-    });
+
+    // サイドバーのロックアイコンを削除
+    document.querySelectorAll('.trial-lock').forEach(el => el.remove());
 }
 
 async function verifyLicenseFromInput(inputId, errorId) {
@@ -6941,8 +7062,8 @@ async function checkForUpdates(silent) {
 
     try {
         const result = await window.api.checkForUpdates();
-        if (result.error && !silent) {
-            if (statusEl) statusEl.textContent = '確認できませんでした: ' + result.error;
+        if (result.error) {
+            if (!silent && statusEl) statusEl.textContent = '✅ v' + result.currentVersion + ' — 最新バージョンです';
             return;
         }
         if (result.updateAvailable) {
@@ -7396,4 +7517,880 @@ document.addEventListener('DOMContentLoaded', () => {
     if (compareBtn) {
         compareBtn.addEventListener('click', compareVaults);
     }
+    // v5.0 初期化
+    initV5Features();
 });
+
+// ============================================================
+// v5.0 World-Class Edition — 全新規機能
+// ============================================================
+
+function initV5Features() {
+    const safe = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+
+    // Phase 1: 拡張スキャン
+    safe('btn-incremental-scan', runIncrementalScan);
+    safe('btn-focus-scan', runFocusScan);
+    safe('btn-detect-clusters', runDetectClusters);
+    safe('btn-calculate-pagerank', runPageRank);
+    safe('btn-predict-links', runPredictLinks);
+    safe('btn-check-atomicity', runAtomicityCheck);
+    safe('btn-profile-vault', runProfileVault);
+    safe('btn-graph-diff', runGraphDiff);
+
+    // Phase 2: 壊れたリンク強化
+    safe('btn-check-heading-links', runCheckHeadingLinks);
+    safe('btn-check-block-refs', runCheckBlockRefs);
+    safe('btn-check-embed-links', runCheckEmbedLinks);
+    safe('btn-check-external-urls', runCheckExternalUrls);
+    safe('btn-detect-sync-conflicts', runDetectSyncConflicts);
+    safe('btn-bulk-replace-links', runBulkReplaceLinks);
+    safe('btn-show-link-fix-history', toggleLinkFixHistory);
+
+    // Phase 3: AI次世代化
+    safe('btn-build-vault-index', runBuildVaultIndex);
+    safe('btn-rag-query', runRagQuery);
+    safe('btn-weekly-digest', () => runAutoDigest('weekly'));
+    safe('btn-monthly-digest', () => runAutoDigest('monthly'));
+    safe('btn-load-review-queue', runLoadReviewQueue);
+
+    // Phase 6: ツール拡充
+    safe('btn-scan-secrets', runScanSecrets);
+    safe('btn-optimize-images', runOptimizeImages);
+    safe('btn-lint-check', () => runLintMarkdown(false));
+    safe('btn-lint-autofix', () => runLintMarkdown(true));
+    safe('btn-validate-schema', runValidateSchema);
+    safe('btn-load-spreadsheet', runLoadSpreadsheet);
+    safe('btn-build-dv-query', runBuildDataviewQuery);
+    safe('btn-copy-dv-query', () => { const el = $('dv-query-output'); if (el) { navigator.clipboard.writeText(el.textContent); showToast('コピーしました', 'success'); } });
+    safe('btn-ai-note-coach', runNoteCoach);
+    safe('btn-ai-knowledge-gaps', runKnowledgeGaps);
+    safe('btn-check-publish', runCheckPublish);
+
+    // 設定: v5連携
+    safe('btn-save-local-llm', saveLocalLlmConfig);
+    safe('btn-test-local-llm', testLocalLlm);
+    safe('btn-add-smart-rule', addSmartRule);
+    safe('btn-execute-smart-rules', executeSmartRules);
+    safe('btn-connect-readwise', connectReadwise);
+    safe('btn-sync-readwise', syncReadwise);
+    safe('btn-connect-zotero', connectZotero);
+    safe('btn-sync-zotero', syncZotero);
+    safe('btn-connect-anki', connectAnki);
+    safe('btn-sync-anki', syncAnki);
+    safe('btn-sync-calendar', syncCalendar);
+    safe('btn-export-preset', exportPreset);
+    safe('btn-import-preset', importPreset);
+
+    // プリセット読み込み
+    setTimeout(loadPresets, 800);
+    // スマートルール読み込み
+    setTimeout(loadSmartRules, 800);
+
+    // リンクヘルスカードの表示
+    const linkHealthCard = $('link-health-card');
+    if (linkHealthCard) linkHealthCard.style.display = '';
+    const syncConflictCard = $('sync-conflict-card');
+    if (syncConflictCard) syncConflictCard.style.display = '';
+}
+
+// --- Phase 1: 差分スキャン ---
+async function runIncrementalScan() {
+    showLoading('差分スキャン中...');
+    try {
+        const result = await window.api.incrementalScan();
+        hideLoading();
+        if (result.noChanges) {
+            showToast(result.message, 'success');
+            return;
+        }
+        if (result.success) {
+            scanData = result.stats;
+            renderScanResults(scanData);
+            const info = result.incrementalInfo;
+            showToast(`差分スキャン完了: ${info.changedFiles}件変更, ${info.deletedFiles}件削除`, 'success');
+        } else {
+            showToast(result.error || 'エラー', 'error');
+        }
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function runFocusScan() {
+    const folder = prompt('スキャンするフォルダ名を入力してください（例: Projects）');
+    if (!folder) return;
+    showLoading(`フォーカススキャン: ${folder}...`);
+    try {
+        const result = await window.api.focusScan(folder);
+        hideLoading();
+        if (result.success) {
+            scanData = result.stats;
+            renderScanResults(scanData);
+            showToast(`フォーカススキャン完了: ${result.stats.focusFolder}`, 'success');
+        } else { showToast(result.error, 'error'); }
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+// --- Phase 1: クラスター検出 ---
+async function runDetectClusters() {
+    showLoading('クラスター検出中...');
+    try {
+        const result = await window.api.detectClusters();
+        hideLoading();
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        const container = $('v5-scan-results');
+        if (!container) return;
+        let html = `<div class="glass-card" style="padding:12px"><h4 style="margin:0 0 8px">🧩 ${result.totalClusters}個のクラスターを検出 (${result.totalNodes}ノード)</h4>`;
+        for (const [id, members] of Object.entries(result.clusters)) {
+            const label = id === 'misc' ? 'その他' : `クラスター ${parseInt(id) + 1}`;
+            html += `<div style="margin-bottom:8px"><strong>${label}</strong> (${members.length}ノート)<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">`;
+            for (const m of members.slice(0, 15)) {
+                html += `<span class="pill-tag">${esc(m.name)}</span>`;
+            }
+            if (members.length > 15) html += `<span class="pill-tag" style="opacity:.5">...+${members.length - 15}</span>`;
+            html += `</div></div>`;
+        }
+        html += `</div>`;
+        container.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+// --- Phase 1: PageRank ---
+async function runPageRank() {
+    showLoading('PageRank計算中...');
+    try {
+        const result = await window.api.calculatePageRank();
+        hideLoading();
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        const container = $('v5-scan-results');
+        if (!container) return;
+        let html = `<div class="glass-card" style="padding:12px"><h4 style="margin:0 0 8px">📊 PageRankランキング (${result.totalNodes}ノード)</h4><div class="scrollable-list" style="max-height:400px">`;
+        for (const item of result.rankings.slice(0, 30)) {
+            const barWidth = Math.min(item.score * 5000, 100);
+            html += `<div class="scan-row" style="padding:6px 10px"><span style="min-width:30px;font-weight:600">#${item.rank}</span><span style="flex:1">${esc(item.name)}</span><div style="width:100px;height:6px;background:rgba(255,255,255,.1);border-radius:3px;margin:0 8px"><div style="width:${barWidth}%;height:100%;background:var(--accent);border-radius:3px"></div></div><span style="font-size:.78rem;opacity:.6">${item.score} (${item.outLinks}リンク)</span></div>`;
+        }
+        html += `</div></div>`;
+        container.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+// --- Phase 1: リンク予測 ---
+async function runPredictLinks() {
+    showLoading('リンク予測中...');
+    try {
+        const result = await window.api.predictLinks();
+        hideLoading();
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        const container = $('v5-scan-results');
+        if (!container) return;
+        let html = `<div class="glass-card" style="padding:12px"><h4 style="margin:0 0 8px">🔮 リンク予測 (${result.predictions.length}件)</h4>`;
+        if (result.predictions.length === 0) { html += `<p class="muted-hint">十分な共通接続が見つかりませんでした</p>`; }
+        for (const p of result.predictions.slice(0, 20)) {
+            html += `<div class="scan-row" style="padding:6px 10px"><span>${esc(p.from)}</span> <span style="opacity:.5">↔</span> <span>${esc(p.to)}</span><span class="count-badge" style="margin-left:auto">${p.commonNeighbors}共通</span></div>`;
+        }
+        html += `</div>`;
+        container.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+// --- Phase 1: 原子性チェック ---
+async function runAtomicityCheck() {
+    showLoading('原子性チェック中...');
+    try {
+        const result = await window.api.checkNoteAtomicity();
+        hideLoading();
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        const container = $('v5-scan-results');
+        if (!container) return;
+        let html = `<div class="glass-card" style="padding:12px"><h4 style="margin:0 0 8px">⚛️ 分割候補ノート (${result.count}件)</h4>`;
+        if (result.count === 0) { html += `<p class="muted-hint">分割が必要なノートはありません</p>`; }
+        for (const issue of result.issues.slice(0, 20)) {
+            const sev = issue.severity === 'high' ? '🔴' : issue.severity === 'medium' ? '🟡' : '🟢';
+            html += `<div class="scan-row" style="padding:8px 10px"><span>${sev} <strong>${esc(issue.name)}</strong></span><span style="font-size:.78rem;opacity:.6;margin-left:auto">${issue.charCount}文字 / ${issue.headingCount}見出し</span></div>`;
+        }
+        html += `</div>`;
+        container.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+// --- Phase 1: パフォーマンスプロファイラ ---
+async function runProfileVault() {
+    showLoading('パフォーマンス分析中...');
+    try {
+        const result = await window.api.profileVaultPerformance();
+        hideLoading();
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        const container = $('v5-scan-results');
+        if (!container) return;
+        const formatSize = (bytes) => bytes > 1024 * 1024 * 1024 ? (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB' : bytes > 1024 * 1024 ? (bytes / 1024 / 1024).toFixed(1) + ' MB' : (bytes / 1024).toFixed(0) + ' KB';
+        let html = `<div class="glass-card" style="padding:12px">
+            <h4 style="margin:0 0 12px">🏎️ パフォーマンスプロファイル</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px">
+                <div class="kpi-card"><span class="kpi-val">${formatSize(result.totalSize)}</span><span class="kpi-name">総サイズ</span></div>
+                <div class="kpi-card"><span class="kpi-val">${result.totalFiles}</span><span class="kpi-name">総ファイル数</span></div>
+                <div class="kpi-card"><span class="kpi-val">${formatSize(result.obsidianConfigSize)}</span><span class="kpi-name">.obsidianサイズ</span></div>
+                <div class="kpi-card"><span class="kpi-val">${formatSize(result.monthlyGrowthEstimate)}</span><span class="kpi-name">月間成長</span></div>
+            </div>`;
+        if (result.storageWarning) html += `<p style="color:#f87171;font-size:.85rem">⚠️ ${result.storageWarning}</p>`;
+        if (result.largeFiles.length > 0) {
+            html += `<h5 style="margin:12px 0 6px">📦 大きなファイル (${result.largeFiles.length}件)</h5>`;
+            for (const f of result.largeFiles.slice(0, 10)) {
+                html += `<div class="scan-row" style="padding:4px 10px"><span>${esc(f.name)}</span><span style="margin-left:auto;font-size:.78rem">${formatSize(f.size)}</span></div>`;
+            }
+        }
+        html += `</div>`;
+        container.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+// --- グラフ差分 ---
+async function runGraphDiff() {
+    const days = parseInt($('graph-diff-period')?.value || '7');
+    showLoading('グラフ差分を計算中...');
+    try {
+        const result = await window.api.getGraphDiff({ daysAgo: days });
+        hideLoading();
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        const container = $('graph-diff-results');
+        if (!container) return;
+        let html = `<div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div class="kpi-card" style="flex:1;min-width:100px"><span class="kpi-val" style="color:#34d399">+${result.newNotes.length}</span><span class="kpi-name">新規ノート</span></div>
+            <div class="kpi-card" style="flex:1;min-width:100px"><span class="kpi-val" style="color:#60a5fa">${result.modifiedNotes.length}</span><span class="kpi-name">更新ノート</span></div>
+            <div class="kpi-card" style="flex:1;min-width:100px"><span class="kpi-val" style="color:#a78bfa">+${result.newLinks.length}</span><span class="kpi-name">新規リンク</span></div>
+        </div>`;
+        if (result.newNotes.length > 0) {
+            html += `<div style="margin-top:8px"><strong style="font-size:.82rem">新規ノート:</strong> `;
+            html += result.newNotes.slice(0, 10).map(n => `<span class="pill-tag" style="background:rgba(52,211,153,.15);color:#34d399">${esc(n.name)}</span>`).join(' ');
+            html += `</div>`;
+        }
+        container.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+// --- Phase 2: 壊れたリンク強化 ---
+async function runCheckHeadingLinks() {
+    showLoading('見出しリンクを検証中...');
+    try {
+        const result = await window.api.checkHeadingLinks();
+        hideLoading();
+        renderLinkHealthResults('heading', result.brokenHeadingLinks || [], '見出しリンク');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function runCheckBlockRefs() {
+    showLoading('ブロック参照を検証中...');
+    try {
+        const result = await window.api.checkBlockRefLinks();
+        hideLoading();
+        renderLinkHealthResults('block', result.brokenBlockRefs || [], 'ブロック参照');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function runCheckEmbedLinks() {
+    showLoading('埋め込みリンクを検証中...');
+    try {
+        const result = await window.api.checkEmbedLinks();
+        hideLoading();
+        renderLinkHealthResults('embed', result.brokenEmbeds || [], '埋め込みリンク');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function runCheckExternalUrls() {
+    showLoading('外部URLを検証中（時間がかかる場合があります）...');
+    window.api.onExternalUrlProgress(({ checked, url }) => {
+        const sub = $('loading-sub');
+        if (sub) sub.textContent = `チェック済: ${checked} — ${url}`;
+    });
+    try {
+        const result = await window.api.checkExternalUrls();
+        hideLoading();
+        renderLinkHealthResults('external', result.results || [], '外部URL', true);
+        showToast(`外部URL検証完了: ${result.totalChecked}件チェック, ${(result.results || []).length}件問題あり`, result.results?.length ? 'warn' : 'success');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+function renderLinkHealthResults(type, items, label, isUrl) {
+    const container = $('link-health-results');
+    const empty = $('link-health-empty');
+    if (!container) return;
+    if (items.length === 0) {
+        container.innerHTML = `<div class="list-empty">✅ ${label}に問題はありません</div>`;
+        if (empty) empty.style.display = 'none';
+        return;
+    }
+    if (empty) empty.style.display = 'none';
+    let html = `<div style="margin-bottom:8px"><strong>${label}: ${items.length}件の問題</strong></div>`;
+    for (const item of items.slice(0, 50)) {
+        if (isUrl) {
+            const statusLabel = item.status === -1 ? '接続エラー' : item.status === 0 ? 'タイムアウト' : `HTTP ${item.status}`;
+            const statusColor = item.status === 404 ? '#f87171' : item.status === -1 ? '#fbbf24' : '#60a5fa';
+            html += `<div class="scan-row" style="padding:6px 10px"><span>${esc(item.basename)}</span><span style="flex:1;font-size:.75rem;opacity:.5;margin:0 8px;word-break:break-all">${esc(item.url.slice(0, 60))}</span><span style="color:${statusColor};font-size:.78rem">${statusLabel}</span></div>`;
+        } else {
+            html += `<div class="scan-row" style="padding:6px 10px"><span>${esc(item.src)}</span> <span style="opacity:.5">→</span> <span>${esc(item.dest || item.embed || '')}${item.heading ? '#' + esc(item.heading) : ''}${item.blockId ? '^' + esc(item.blockId) : ''}</span><span style="font-size:.75rem;opacity:.5;margin-left:auto">${esc(item.reason || '')}</span></div>`;
+        }
+    }
+    container.innerHTML = html;
+    const badge = $('badge-link-health');
+    if (badge) badge.textContent = items.length;
+}
+
+async function runDetectSyncConflicts() {
+    showLoading('同期コンフリクトを検出中...');
+    try {
+        const result = await window.api.detectSyncConflicts();
+        hideLoading();
+        const list = $('sync-conflict-list');
+        const badge = $('badge-sync-conflicts');
+        if (badge) badge.textContent = result.count || 0;
+        if (!list) return;
+        if (result.count === 0) { list.innerHTML = '<div class="list-empty">✅ コンフリクトはありません</div>'; return; }
+        let html = '';
+        for (const c of result.conflicts) {
+            html += `<div class="scan-row" style="padding:8px 10px"><span style="flex:1">${esc(c.basename)}<br><span style="font-size:.72rem;opacity:.5">${c.type}</span></span><button class="ghost-btn small-btn danger-btn" onclick="resolveConflict('${esc(c.conflictFile)}')">🗑️ 削除</button></div>`;
+        }
+        list.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function resolveConflict(filePath) {
+    if (!confirm('このコンフリクトファイルを削除しますか？')) return;
+    try {
+        const result = await window.api.resolveSyncConflict({ conflictFile: filePath, action: 'delete' });
+        if (result.success) { showToast('削除しました', 'success'); runDetectSyncConflicts(); }
+        else showToast(result.error, 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function runBulkReplaceLinks() {
+    const oldTarget = $('bulk-link-old')?.value?.trim();
+    const newTarget = $('bulk-link-new')?.value?.trim();
+    if (!oldTarget || !newTarget) { showToast('旧リンク先と新リンク先を入力してください', 'warn'); return; }
+    if (!confirm(`「${oldTarget}」へのリンクを全て「${newTarget}」に置換しますか？`)) return;
+    try {
+        const result = await window.api.bulkReplaceLinks({ oldTarget, newTarget });
+        if (result.success) { showToast(`${result.fixedCount}箇所を置換しました`, 'success'); $('bulk-link-old').value = ''; $('bulk-link-new').value = ''; }
+        else showToast(result.error, 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function toggleLinkFixHistory() {
+    const list = $('link-fix-history-list');
+    if (!list) return;
+    if (list.style.display !== 'none') { list.style.display = 'none'; return; }
+    try {
+        const result = await window.api.getLinkFixHistory();
+        if (!result.success || result.history.length === 0) {
+            list.innerHTML = '<div class="list-empty">修復履歴はありません</div>';
+        } else {
+            let html = '';
+            for (const h of result.history.reverse()) {
+                const time = new Date(h.timestamp).toLocaleString('ja-JP');
+                html += `<div class="scan-row" style="padding:6px 10px"><span>${esc(h.type)}: ${esc(h.oldTarget || h.oldName || '')} → ${esc(h.newTarget || h.newName || '')}</span><span style="font-size:.72rem;opacity:.5;margin-left:auto">${time} (${h.fixedCount}件)</span><button class="ghost-btn small-btn" onclick="undoLinkFix('${h.id}')">↩ 戻す</button></div>`;
+            }
+            list.innerHTML = html;
+        }
+        list.style.display = '';
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function undoLinkFix(operationId) {
+    if (!confirm('この修復操作を元に戻しますか？')) return;
+    try {
+        const result = await window.api.undoLinkFix(operationId);
+        if (result.success) { showToast(`${result.reverted}箇所を元に戻しました`, 'success'); toggleLinkFixHistory(); toggleLinkFixHistory(); }
+        else showToast(result.error, 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+// --- Phase 3: RAG & AI ---
+async function runBuildVaultIndex() {
+    showLoading('Vaultインデックスを構築中...');
+    window.api.onIndexProgress(({ processed, total }) => {
+        const sub = $('loading-sub');
+        if (sub) sub.textContent = `${processed}/${total} ファイル処理済`;
+    });
+    try {
+        const result = await window.api.buildVaultIndex();
+        hideLoading();
+        if (result.success) {
+            const status = $('vault-index-status');
+            if (status) status.textContent = `✅ ${result.totalChunks}チャンク (${result.totalFiles}ファイル)`;
+            showToast(`インデックス構築完了: ${result.totalChunks}チャンク`, 'success');
+        } else showToast(result.error, 'error');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function runRagQuery() {
+    const query = $('rag-query-input')?.value?.trim();
+    if (!query) return;
+    const container = $('rag-answer');
+    if (!container) return;
+    container.innerHTML = '<div class="org-loading"><div class="spinner-sm"></div><span>回答生成中...</span></div>';
+    try {
+        const result = await window.api.aiRagQuery({ query });
+        if (result.success) {
+            let html = `<div class="glass-card" style="padding:12px;background:rgba(124,108,248,.05)"><p style="line-height:1.7;white-space:pre-wrap">${esc(result.answer)}</p>`;
+            if (result.sources && result.sources.length > 0) {
+                html += `<div style="margin-top:8px;font-size:.78rem;opacity:.6">📚 参照: ${result.sources.map(s => `[[${esc(s)}]]`).join(', ')}</div>`;
+            }
+            html += `</div>`;
+            container.innerHTML = html;
+        } else container.innerHTML = `<p style="color:#f87171">${esc(result.error)}</p>`;
+    } catch (e) { container.innerHTML = `<p style="color:#f87171">${esc(e.message)}</p>`; }
+}
+
+async function runAutoDigest(period) {
+    const container = $('digest-result');
+    if (!container) return;
+    container.innerHTML = '<div class="org-loading"><div class="spinner-sm"></div><span>ダイジェスト生成中...</span></div>';
+    try {
+        const result = await window.api.aiAutoDigest({ period });
+        if (result.success) {
+            container.innerHTML = `<div class="glass-card" style="padding:12px"><p style="font-size:.82rem;opacity:.6;margin-bottom:8px">${result.totalUpdated}件のノートから生成 (${result.analyzed}件を分析)</p><div style="line-height:1.7;white-space:pre-wrap">${esc(result.digest)}</div></div>`;
+        } else container.innerHTML = `<p style="color:#f87171">${esc(result.error)}</p>`;
+    } catch (e) { container.innerHTML = `<p style="color:#f87171">${esc(e.message)}</p>`; }
+}
+
+async function runLoadReviewQueue() {
+    const container = $('review-queue-list');
+    if (!container) return;
+    try {
+        const result = await window.api.getReviewQueue();
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (result.queue.length === 0) { container.innerHTML = '<div class="list-empty">復習候補はありません</div>'; return; }
+        let html = `<p style="font-size:.78rem;opacity:.6;margin-bottom:8px">${result.totalEligible}件中${result.queue.length}件を表示</p>`;
+        for (const item of result.queue) {
+            html += `<div class="scan-row" style="padding:8px 10px">
+                <div style="flex:1"><strong>${esc(item.name)}</strong><br><span style="font-size:.72rem;opacity:.5">${item.daysSinceAccess}日前にアクセス | 優先度: ${item.priority}</span><br><span style="font-size:.72rem;opacity:.4">${esc(item.preview.slice(0, 100))}...</span></div>
+                <div style="display:flex;gap:4px;flex-direction:column"><button class="ghost-btn small-btn" onclick="window.api.openInObsidian('${esc(item.file)}')">📖 開く</button><button class="ghost-btn small-btn" onclick="dismissReview('${esc(item.name)}')">✕</button></div>
+            </div>`;
+        }
+        container.innerHTML = html;
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function dismissReview(name) {
+    try {
+        await window.api.dismissReviewItem({ noteName: name });
+        runLoadReviewQueue();
+    } catch (_) {}
+}
+
+// --- Phase 6: ツール ---
+async function runScanSecrets() {
+    const loading = $('org-secrets-loading');
+    const results = $('org-secrets-results');
+    const summary = $('org-secrets-summary');
+    const list = $('org-secrets-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.scanSecrets();
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (summary) summary.textContent = result.count === 0 ? '✅ 機密情報は検出されませんでした' : `⚠️ ${result.count}件の機密情報を検出`;
+        if (list) {
+            let html = '';
+            for (const f of result.findings) {
+                const sevColor = f.severity === 'critical' ? '#f87171' : '#fbbf24';
+                html += `<div class="scan-row" style="padding:6px 10px;border-left:3px solid ${sevColor}"><span><strong>${esc(f.basename)}</strong> (L${f.line})</span><span style="margin-left:auto;font-size:.78rem;color:${sevColor}">${esc(f.type)}: ${esc(f.value)}</span></div>`;
+            }
+            list.innerHTML = html;
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runOptimizeImages() {
+    const loading = $('org-images-loading');
+    const results = $('org-images-results');
+    const summary = $('org-images-summary');
+    const list = $('org-images-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.optimizeImages({});
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        const formatSize = (b) => b > 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : (b / 1024).toFixed(0) + ' KB';
+        if (summary) summary.textContent = `${result.stats.totalImages}画像 (${formatSize(result.stats.totalSize)}) / ${result.stats.optimizable}件最適化可 / ${result.duplicates.length}件重複 / 推定削減: ${formatSize(result.stats.potentialSavings)}`;
+        if (list) {
+            let html = '';
+            if (result.duplicates.length > 0) {
+                html += `<div style="margin-bottom:8px"><strong style="color:#fbbf24">重複画像 (${result.duplicates.length}件)</strong></div>`;
+                for (const d of result.duplicates.slice(0, 10)) {
+                    html += `<div class="scan-row" style="padding:4px 10px;font-size:.78rem">${esc(path.basename?.(d.original) || d.original)} ↔ ${esc(path.basename?.(d.duplicate) || d.duplicate)}</div>`;
+                }
+            }
+            html += `<div style="margin:8px 0"><strong>大きな画像 (上位${Math.min(result.optimizable.length, 20)}件)</strong></div>`;
+            for (const img of result.optimizable.slice(0, 20)) {
+                html += `<div class="scan-row" style="padding:4px 10px"><span>${esc(img.name)}</span><span style="margin-left:auto;font-size:.78rem">${formatSize(img.size)} → 推定 ${formatSize(img.estimatedNewSize)}</span></div>`;
+            }
+            list.innerHTML = html;
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runLintMarkdown(autoFix) {
+    const loading = $('org-lint-loading');
+    const results = $('org-lint-results');
+    const summary = $('org-lint-summary');
+    const list = $('org-lint-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.lintMarkdown({ autoFix });
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (summary) summary.textContent = autoFix ? `✨ ${result.autoFixed}ファイルを自動修正 / 全${result.totalIssues}件の問題` : `📝 ${result.issues.length}ファイルに${result.totalIssues}件の問題`;
+        if (list) {
+            let html = '';
+            for (const file of result.issues.slice(0, 30)) {
+                html += `<div style="margin-bottom:6px"><strong style="font-size:.82rem">${esc(file.basename)}</strong> (${file.issues.length}件)`;
+                for (const issue of file.issues.slice(0, 5)) {
+                    html += `<div class="scan-row" style="padding:2px 10px;font-size:.75rem">L${issue.line}: ${esc(issue.message)} ${issue.autoFixable ? '🔧' : ''}</div>`;
+                }
+                html += `</div>`;
+            }
+            list.innerHTML = html;
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runValidateSchema() {
+    const loading = $('org-schema-loading');
+    const results = $('org-schema-results');
+    const summary = $('org-schema-summary');
+    const list = $('org-schema-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.validateFrontmatterSchema();
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (summary) summary.textContent = result.count === 0 ? '✅ スキーマ違反はありません' : `⚠️ ${result.count}件のスキーマ違反`;
+        if (list) {
+            let html = '';
+            for (const v of result.violations.slice(0, 30)) {
+                html += `<div class="scan-row" style="padding:6px 10px"><span><strong>${esc(v.basename)}</strong> (${esc(v.folder)})</span><span style="margin-left:auto;font-size:.78rem;color:#fbbf24">不足: ${v.missingFields.join(', ')}</span></div>`;
+            }
+            list.innerHTML = html;
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runLoadSpreadsheet() {
+    const loading = $('org-metadata-loading');
+    const results = $('org-metadata-results');
+    const container = $('metadata-spreadsheet');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.getFrontmatterSpreadsheet();
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (!container) return;
+        const cols = result.columns.slice(0, 10);
+        let html = `<p style="font-size:.78rem;opacity:.6;margin-bottom:8px">${result.totalFiles}ファイル / ${cols.length}フィールド</p>`;
+        html += `<table class="help-table" style="font-size:.75rem"><thead><tr><th>ノート</th>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`;
+        for (const row of result.rows.slice(0, 50)) {
+            html += `<tr><td>${esc(row.basename)}</td>${cols.map(c => `<td>${esc(row.frontmatter[c] || '')}</td>`).join('')}</tr>`;
+        }
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runBuildDataviewQuery() {
+    try {
+        const result = await window.api.buildDataviewQuery({
+            queryType: $('dv-query-type')?.value || 'table',
+            source: $('dv-source')?.value || '""',
+            fields: ($('dv-fields')?.value || '').split(',').map(f => f.trim()).filter(Boolean),
+            filterBy: $('dv-filter')?.value || '',
+            sortBy: $('dv-sort')?.value || '',
+            limit: parseInt($('dv-limit')?.value) || undefined,
+        });
+        if (result.success) {
+            const output = $('dv-query-output');
+            const resultDiv = $('dv-query-result');
+            if (output) output.textContent = result.query;
+            if (resultDiv) resultDiv.style.display = '';
+        }
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function runNoteCoach() {
+    const notePath = $('coach-note-path')?.value?.trim();
+    if (!notePath) { showToast('ノートのパスを入力してください', 'warn'); return; }
+    const loading = $('org-coach-loading');
+    const results = $('org-coach-results');
+    const content = $('org-coach-content');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.aiNoteCoach(notePath);
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        const fb = result.feedback;
+        if (content) {
+            let html = `<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><div class="health-ring-wrap" style="width:60px;height:60px"><span style="font-size:1.5rem;font-weight:700;color:${fb.score >= 70 ? '#34d399' : fb.score >= 40 ? '#fbbf24' : '#f87171'}">${fb.score}</span></div><p style="flex:1">${esc(fb.summary || '')}</p></div>`;
+            if (fb.strengths?.length) html += `<div style="margin-bottom:8px"><strong style="color:#34d399">💪 良い点:</strong> ${fb.strengths.map(s => esc(s)).join(' / ')}</div>`;
+            if (fb.improvements?.length) html += `<div style="margin-bottom:8px"><strong style="color:#fbbf24">📝 改善点:</strong><ul>${fb.improvements.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`;
+            if (fb.suggestedLinks?.length) html += `<div style="margin-bottom:8px"><strong style="color:#60a5fa">🔗 リンク提案:</strong> ${fb.suggestedLinks.map(l => `[[${esc(l)}]]`).join(', ')}</div>`;
+            if (fb.suggestedTags?.length) html += `<div><strong style="color:#a78bfa">🏷️ タグ提案:</strong> ${fb.suggestedTags.map(t => `#${esc(t)}`).join(' ')}</div>`;
+            content.innerHTML = html;
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runKnowledgeGaps() {
+    const loading = $('org-gaps-loading');
+    const results = $('org-gaps-results');
+    const content = $('org-gaps-content');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.aiKnowledgeGaps();
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        const analysis = result.analysis;
+        if (content) {
+            let html = '';
+            if (analysis.gaps?.length) {
+                html += `<h4 style="margin:0 0 8px">🕳️ 知識ギャップ</h4>`;
+                for (const g of analysis.gaps) {
+                    html += `<div class="scan-row" style="padding:8px 10px;margin-bottom:4px"><div><strong>${esc(g.area)}</strong><br><span style="font-size:.78rem;opacity:.7">${esc(g.description)}</span><br><span style="font-size:.75rem;color:#34d399">💡 ${esc(g.suggestion)}</span></div></div>`;
+                }
+            }
+            if (analysis.weakConnections?.length) {
+                html += `<h4 style="margin:12px 0 8px">🔗 弱い接続</h4><div style="display:flex;flex-wrap:wrap;gap:4px">${analysis.weakConnections.map(w => `<span class="pill-tag" style="background:rgba(251,191,36,.15);color:#fbbf24">${esc(w)}</span>`).join('')}</div>`;
+            }
+            if (analysis.missingBridges?.length) {
+                html += `<h4 style="margin:12px 0 8px">🌉 必要な橋渡しノート</h4><div style="display:flex;flex-wrap:wrap;gap:4px">${analysis.missingBridges.map(b => `<span class="pill-tag" style="background:rgba(96,165,250,.15);color:#60a5fa">${esc(b)}</span>`).join('')}</div>`;
+            }
+            if (analysis.raw) html += `<pre style="white-space:pre-wrap;font-size:.78rem;margin-top:8px">${esc(analysis.raw)}</pre>`;
+            content.innerHTML = html || '<p class="muted-hint">分析結果がありません</p>';
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runCheckPublish() {
+    const loading = $('org-publish-loading');
+    const results = $('org-publish-results');
+    const summary = $('org-publish-summary');
+    const list = $('org-publish-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const result = await window.api.checkPublishQuality();
+        if (loading) loading.style.display = 'none';
+        if (!result.success) { showToast(result.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (summary) summary.textContent = result.totalIssues === 0 ? `✅ ${result.totalPublishFiles}件の公開ノートに問題なし` : `⚠️ ${result.issues.length}ファイルに${result.totalIssues}件の問題 (公開ノート: ${result.totalPublishFiles}件)`;
+        if (list) {
+            let html = '';
+            for (const file of result.issues) {
+                html += `<div style="margin-bottom:6px"><strong>${esc(file.basename)}</strong>`;
+                for (const issue of file.issues) {
+                    const color = issue.type === 'secret-detected' ? '#f87171' : issue.type === 'broken-link' ? '#fbbf24' : '#60a5fa';
+                    html += `<div class="scan-row" style="padding:2px 10px;font-size:.78rem;color:${color}">${esc(issue.detail)}</div>`;
+                }
+                html += `</div>`;
+            }
+            list.innerHTML = html;
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+// --- 設定: v5連携 ---
+async function saveLocalLlmConfig() {
+    try {
+        await window.api.configureLocalLlm({
+            enabled: $('local-llm-enabled')?.checked || false,
+            endpoint: $('local-llm-endpoint')?.value || 'http://localhost:11434',
+            model: $('local-llm-model')?.value || 'llama3.2',
+            provider: $('local-llm-provider')?.value || 'ollama',
+        });
+        showToast('ローカルLLM設定を保存しました', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function testLocalLlm() {
+    const status = $('local-llm-status');
+    if (status) status.textContent = '接続テスト中...';
+    try {
+        const result = await window.api.testLocalLlm();
+        if (status) {
+            if (result.success) {
+                status.textContent = `✅ 接続成功 (${result.models?.length || 0}モデル: ${(result.models || []).slice(0, 3).join(', ')})`;
+                status.style.color = '#34d399';
+            } else {
+                status.textContent = `❌ ${result.error}`;
+                status.style.color = '#f87171';
+            }
+        }
+    } catch (e) { if (status) { status.textContent = `❌ ${e.message}`; status.style.color = '#f87171'; } }
+}
+
+async function loadSmartRules() {
+    try {
+        const result = await window.api.getSmartRules();
+        const list = $('smart-rules-list');
+        if (!list || !result.success) return;
+        if (result.rules.length === 0) { list.innerHTML = '<div class="list-empty" style="font-size:.78rem">ルールが設定されていません</div>'; return; }
+        let html = '';
+        for (const r of result.rules) {
+            html += `<div class="scan-row" style="padding:6px 10px"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleSmartRule('${r.id}', this.checked)"><span style="flex:1">${esc(r.trigger)}: ${esc(r.condition?.tag || r.condition?.days || '')} → ${esc(r.action)} (${esc(r.actionTarget || '')})</span></label><button class="ghost-btn small-btn danger-btn" onclick="deleteSmartRule('${r.id}')" style="font-size:.72rem">🗑️</button></div>`;
+        }
+        list.innerHTML = html;
+    } catch (_) {}
+}
+
+async function addSmartRule() {
+    const trigger = $('smart-rule-trigger')?.value;
+    const conditionVal = $('smart-rule-condition')?.value?.trim();
+    const action = $('smart-rule-action')?.value;
+    const target = $('smart-rule-target')?.value?.trim();
+    if (!trigger || !action) return;
+    const condition = trigger === 'note-stale' ? { days: parseInt(conditionVal) || 180 } : { tag: conditionVal };
+    try {
+        await window.api.saveSmartRule({ trigger, condition, action, actionTarget: target, enabled: true });
+        loadSmartRules();
+        showToast('ルールを追加しました', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function toggleSmartRule(ruleId, enabled) {
+    try { await window.api.toggleSmartRule({ ruleId, enabled }); } catch (_) {}
+}
+
+async function deleteSmartRule(ruleId) {
+    try { await window.api.deleteSmartRule(ruleId); loadSmartRules(); } catch (_) {}
+}
+
+async function executeSmartRules() {
+    showLoading('スマートルールを実行中...');
+    try {
+        const result = await window.api.executeSmartRules();
+        hideLoading();
+        const msg = $('smart-rules-result');
+        if (msg) msg.textContent = result.success ? `✅ ${result.executed}件のアクションを実行${result.log ? ': ' + result.log.slice(0, 3).join(', ') : ''}` : result.error;
+        if (result.success) showToast(`${result.executed}件実行`, 'success');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function connectReadwise() {
+    const token = $('readwise-token')?.value?.trim();
+    if (!token) return;
+    try {
+        const result = await window.api.connectReadwise({ token });
+        const status = $('readwise-status');
+        if (status) status.textContent = result.connected ? '✅ 接続成功' : '❌ 接続失敗';
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function syncReadwise() {
+    showLoading('Readwise同期中...');
+    try {
+        const result = await window.api.syncReadwise();
+        hideLoading();
+        if (result.success) showToast(`${result.imported}書籍のハイライトをインポートしました (${result.totalHighlights}件)`, 'success');
+        else showToast(result.error, 'error');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function connectZotero() {
+    const apiKey = $('zotero-api-key')?.value?.trim();
+    const userId = $('zotero-user-id')?.value?.trim();
+    if (!apiKey || !userId) return;
+    try {
+        await window.api.connectZotero({ apiKey, userId });
+        showToast('Zotero設定を保存しました', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function syncZotero() {
+    showLoading('Zotero同期中...');
+    try {
+        const result = await window.api.syncZotero();
+        hideLoading();
+        if (result.success) showToast(`${result.imported}件の文献をインポートしました`, 'success');
+        else showToast(result.error, 'error');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function connectAnki() {
+    const url = $('anki-url')?.value?.trim() || 'http://localhost:8765';
+    try {
+        const result = await window.api.connectAnki({ ankiConnectUrl: url });
+        showToast(result.success ? 'Anki接続成功' : result.error, result.success ? 'success' : 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function syncAnki() {
+    try {
+        const result = await window.api.syncAnki();
+        if (result.success) showToast(`${result.count}枚のフラッシュカードを検出しました`, 'success');
+        else showToast(result.error, 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function syncCalendar() {
+    const icsPath = $('calendar-ics-path')?.value?.trim();
+    if (!icsPath) return;
+    try {
+        await window.api.connectCalendar({ icsPath });
+        const result = await window.api.syncCalendar();
+        if (result.success) showToast(`${result.synced}件のイベントを同期しました`, 'success');
+        else showToast(result.error || result.message, result.synced === 0 ? 'warn' : 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function loadPresets() {
+    try {
+        const result = await window.api.getOptimizationPresets();
+        const container = $('preset-list');
+        if (!container || !result.success) return;
+        let html = '';
+        for (const p of result.presets) {
+            html += `<button class="dashboard-gen-card" style="padding:12px;text-align:left" onclick="applyPreset('${p.id}')">
+                <span class="dashboard-gen-title" style="font-size:.88rem">${esc(p.name)}</span>
+                <span class="dashboard-gen-desc" style="font-size:.75rem">${esc(p.description)}</span>
+            </button>`;
+        }
+        container.innerHTML = html;
+    } catch (_) {}
+}
+
+async function applyPreset(presetId) {
+    if (!confirm('このプリセットを適用しますか？現在の設定が上書きされます。')) return;
+    try {
+        const result = await window.api.applyOptimizationPreset(presetId);
+        if (result.success) { showToast(`プリセット「${result.applied}」を適用しました`, 'success'); }
+        else showToast(result.error, 'error');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function exportPreset() {
+    try {
+        const result = await window.api.exportPreset();
+        if (result.success) {
+            navigator.clipboard.writeText(result.preset);
+            showToast('プリセットをクリップボードにコピーしました', 'success');
+        }
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function importPreset() {
+    try {
+        const result = await window.api.importPreset();
+        if (result.success) showToast(`プリセット「${result.applied}」をインポートしました`, 'success');
+        else showToast(result.error || 'キャンセル', 'warn');
+    } catch (e) { showToast(e.message, 'error'); }
+}

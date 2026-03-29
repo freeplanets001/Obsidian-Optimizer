@@ -1,8 +1,8 @@
 {
   "name": "obsidian-optimizer",
   "productName": "Obsidian Optimizer",
-  "version": "4.3.0",
-  "description": "世界最高レベルのObsidian Vault最適化・知識管理アシスタント。孤立ノート検出、MOC自動生成、ナレッジグラフ分析、リアルタイム監視、構造テンプレート適用を統合したデスクトップアプリ。",
+  "version": "5.0.0",
+  "description": "世界一のObsidian Vault最適化・知識管理アシスタント。差分スキャン、壊れたリンク完全修復、ローカルLLM対応、RAG検索、PageRank分析、クラスター検出、スマートルールエンジン、機密情報スキャナー、画像最適化、Markdown Linter、外部連携(Readwise/Zotero/Anki/カレンダー)を統合したデスクトップアプリ。",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,6 +10,7 @@
     "dist": "COPYFILE_DISABLE=1 electron-builder",
     "dist:mac": "COPYFILE_DISABLE=1 electron-builder --mac",
     "dist:mac:pkg": "COPYFILE_DISABLE=1 electron-builder --mac pkg --arm64",
+    "dist:mac:x64": "COPYFILE_DISABLE=1 electron-builder --mac --x64",
     "dist:win": "COPYFILE_DISABLE=1 electron-builder --win --x64",
     "dist:all": "COPYFILE_DISABLE=1 electron-builder --mac --win --x64",
     "test": "echo \"Error: no test specified\" && exit 1"

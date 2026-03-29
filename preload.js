@@ -164,4 +164,99 @@ contextBridge.exposeInMainWorld('api', {
     setBackupSchedule: (params) => ipcRenderer.invoke('set-backup-schedule', params),
     runVaultBackup: () => ipcRenderer.invoke('run-vault-backup'),
     getBackupSchedule: () => ipcRenderer.invoke('get-backup-schedule'),
+
+    // ======================================================
+    // v5.0 新機能 API ブリッジ
+    // ======================================================
+
+    // Phase 1: 基盤強化
+    incrementalScan: () => ipcRenderer.invoke('incremental-scan'),
+    focusScan: (folderPath) => ipcRenderer.invoke('focus-scan', folderPath),
+    detectSyncConflicts: () => ipcRenderer.invoke('detect-sync-conflicts'),
+    resolveSyncConflict: (params) => ipcRenderer.invoke('resolve-sync-conflict', params),
+
+    // Phase 2: 壊れたリンク機能強化
+    checkExternalUrls: () => ipcRenderer.invoke('check-external-urls'),
+    onExternalUrlProgress: (cb) => { ipcRenderer.removeAllListeners('external-url-progress'); ipcRenderer.on('external-url-progress', (_, d) => cb(d)); },
+    checkHeadingLinks: () => ipcRenderer.invoke('check-heading-links'),
+    checkBlockRefLinks: () => ipcRenderer.invoke('check-block-ref-links'),
+    checkEmbedLinks: () => ipcRenderer.invoke('check-embed-links'),
+    trackRenames: () => ipcRenderer.invoke('track-renames'),
+    autoFixRenamedLinks: (params) => ipcRenderer.invoke('auto-fix-renamed-links', params),
+    previewLinkTarget: (filePath) => ipcRenderer.invoke('preview-link-target', filePath),
+    preventBrokenLinks: (params) => ipcRenderer.invoke('prevent-broken-links', params),
+    getLinkHealthHistory: () => ipcRenderer.invoke('get-link-health-history'),
+    bulkReplaceLinks: (params) => ipcRenderer.invoke('bulk-replace-links', params),
+    undoLinkFix: (operationId) => ipcRenderer.invoke('undo-link-fix', operationId),
+    getLinkFixHistory: () => ipcRenderer.invoke('get-link-fix-history'),
+    onBrokenLinkAlert: (cb) => { ipcRenderer.removeAllListeners('broken-link-alert'); ipcRenderer.on('broken-link-alert', (_, d) => cb(d)); },
+
+    // Phase 3: AI次世代化
+    configureLocalLlm: (params) => ipcRenderer.invoke('configure-local-llm', params),
+    testLocalLlm: () => ipcRenderer.invoke('test-local-llm'),
+    aiRagQuery: (params) => ipcRenderer.invoke('ai-rag-query', params),
+    buildVaultIndex: () => ipcRenderer.invoke('build-vault-index'),
+    onIndexProgress: (cb) => { ipcRenderer.removeAllListeners('index-progress'); ipcRenderer.on('index-progress', (_, d) => cb(d)); },
+    aiNoteCoach: (filePath) => ipcRenderer.invoke('ai-note-coach', filePath),
+    aiAutoDigest: (params) => ipcRenderer.invoke('ai-auto-digest', params),
+    aiKnowledgeGaps: () => ipcRenderer.invoke('ai-knowledge-gaps'),
+
+    // Phase 4: 高度な分析
+    detectClusters: () => ipcRenderer.invoke('detect-clusters'),
+    calculatePageRank: () => ipcRenderer.invoke('calculate-page-rank'),
+    predictLinks: () => ipcRenderer.invoke('predict-links'),
+    getGraphDiff: (params) => ipcRenderer.invoke('get-graph-diff', params),
+    checkNoteAtomicity: () => ipcRenderer.invoke('check-note-atomicity'),
+    profileVaultPerformance: () => ipcRenderer.invoke('profile-vault-performance'),
+
+    // Phase 5: ワークフロー自動化
+    getSmartRules: () => ipcRenderer.invoke('get-smart-rules'),
+    saveSmartRule: (rule) => ipcRenderer.invoke('save-smart-rule', rule),
+    deleteSmartRule: (ruleId) => ipcRenderer.invoke('delete-smart-rule', ruleId),
+    toggleSmartRule: (params) => ipcRenderer.invoke('toggle-smart-rule', params),
+    executeSmartRules: () => ipcRenderer.invoke('execute-smart-rules'),
+    getScheduledWorkflows: () => ipcRenderer.invoke('get-scheduled-workflows'),
+    saveScheduledWorkflow: (workflow) => ipcRenderer.invoke('save-scheduled-workflow', workflow),
+    deleteScheduledWorkflow: (id) => ipcRenderer.invoke('delete-scheduled-workflow', id),
+    getReviewQueue: () => ipcRenderer.invoke('get-review-queue'),
+    dismissReviewItem: (params) => ipcRenderer.invoke('dismiss-review-item', params),
+
+    // Phase 6: ツール拡充
+    scanSecrets: () => ipcRenderer.invoke('scan-secrets'),
+    optimizeImages: (params) => ipcRenderer.invoke('optimize-images', params),
+    getImageStats: () => ipcRenderer.invoke('get-image-stats'),
+    validateFrontmatterSchema: () => ipcRenderer.invoke('validate-frontmatter-schema'),
+    saveFrontmatterSchema: (schema) => ipcRenderer.invoke('save-frontmatter-schema', schema),
+    batchEditFrontmatter: (params) => ipcRenderer.invoke('batch-edit-frontmatter', params),
+    getFrontmatterSpreadsheet: () => ipcRenderer.invoke('get-frontmatter-spreadsheet'),
+    lintMarkdown: (params) => ipcRenderer.invoke('lint-markdown', params),
+    getLintRules: () => ipcRenderer.invoke('get-lint-rules'),
+    saveLintRules: (rules) => ipcRenderer.invoke('save-lint-rules', rules),
+    buildDataviewQuery: (params) => ipcRenderer.invoke('build-dataview-query', params),
+
+    // Phase 7: UI/UX刷新
+    saveDashboardLayout: (layout) => ipcRenderer.invoke('save-dashboard-layout', layout),
+    getDashboardLayout: () => ipcRenderer.invoke('get-dashboard-layout'),
+    getOperationHistory: () => ipcRenderer.invoke('get-operation-history'),
+    rollbackOperation: (operationId) => ipcRenderer.invoke('rollback-operation', operationId),
+    mergeVaults: (params) => ipcRenderer.invoke('merge-vaults', params),
+    previewMergeVaults: (params) => ipcRenderer.invoke('preview-merge-vaults', params),
+    crossVaultSearch: (query) => ipcRenderer.invoke('cross-vault-search', query),
+
+    // Phase 8: 外部連携
+    connectReadwise: (params) => ipcRenderer.invoke('connect-readwise', params),
+    syncReadwise: () => ipcRenderer.invoke('sync-readwise'),
+    connectZotero: (params) => ipcRenderer.invoke('connect-zotero', params),
+    syncZotero: () => ipcRenderer.invoke('sync-zotero'),
+    connectCalendar: (params) => ipcRenderer.invoke('connect-calendar', params),
+    syncCalendar: () => ipcRenderer.invoke('sync-calendar'),
+    getWebhookConfig: () => ipcRenderer.invoke('get-webhook-config'),
+    saveWebhookConfig: (config) => ipcRenderer.invoke('save-webhook-config', config),
+    connectAnki: (params) => ipcRenderer.invoke('connect-anki', params),
+    syncAnki: () => ipcRenderer.invoke('sync-anki'),
+    checkPublishQuality: () => ipcRenderer.invoke('check-publish-quality'),
+    getOptimizationPresets: () => ipcRenderer.invoke('get-optimization-presets'),
+    applyOptimizationPreset: (presetId) => ipcRenderer.invoke('apply-optimization-preset', presetId),
+    exportPreset: () => ipcRenderer.invoke('export-preset'),
+    importPreset: () => ipcRenderer.invoke('import-preset'),
 });

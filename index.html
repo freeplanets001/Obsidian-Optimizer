@@ -52,7 +52,7 @@
                     <span class="last-scan-label">最終スキャン</span>
                     <span id="last-scan-time" class="last-scan-time">未実行</span>
                 </div>
-                <p class="version">v4.3 Ultimate Edition</p>
+                <p class="version">v5.0 World-Class Edition</p>
             </div>
         </aside>
 
@@ -208,6 +208,74 @@
                     <div id="recommended-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px"></div>
                 </div>
 
+                <!-- v5.0: 拡張スキャン＆分析 -->
+                <div class="glass-card v5-scan-card">
+                    <h3 class="card-title">⚡ v5.0 拡張スキャン</h3>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                        <button class="ghost-btn small-btn" id="btn-incremental-scan" title="変更ファイルのみスキャン">🔄 差分スキャン</button>
+                        <button class="ghost-btn small-btn" id="btn-focus-scan" title="特定フォルダのみスキャン">🎯 フォーカスモード</button>
+                        <button class="ghost-btn small-btn" id="btn-detect-clusters" title="ナレッジクラスターを検出">🧩 クラスター検出</button>
+                        <button class="ghost-btn small-btn" id="btn-calculate-pagerank" title="ノートの重要度を算出">📊 PageRank分析</button>
+                        <button class="ghost-btn small-btn" id="btn-predict-links" title="リンクすべきノートを予測">🔮 リンク予測</button>
+                        <button class="ghost-btn small-btn" id="btn-check-atomicity" title="分割すべきノートを検出">⚛️ 原子性チェック</button>
+                        <button class="ghost-btn small-btn" id="btn-profile-vault" title="パフォーマンスを診断">🏎️ パフォーマンス</button>
+                    </div>
+                    <div id="v5-scan-results" style="margin-top:12px"></div>
+                </div>
+
+                <!-- v5.0: グラフ差分ビュー -->
+                <div class="glass-card widget-card" data-widget="graphDiff">
+                    <div class="card-header-row">
+                        <h3 class="card-title">📊 グラフ変化</h3>
+                        <div style="display:flex;gap:8px;align-items:center">
+                            <select id="graph-diff-period" class="vault-select" style="width:100px">
+                                <option value="7">1週間</option>
+                                <option value="14">2週間</option>
+                                <option value="30">1ヶ月</option>
+                            </select>
+                            <button class="ghost-btn small-btn" id="btn-graph-diff">📊 差分表示</button>
+                        </div>
+                    </div>
+                    <div id="graph-diff-results" style="margin-top:8px"></div>
+                </div>
+
+                <!-- v5.0: RAG Vault Q&A -->
+                <div class="glass-card widget-card" data-widget="ragQA">
+                    <h3 class="card-title">🧠 RAG Vault Q&A</h3>
+                    <p class="muted-hint" style="margin:4px 0 8px">Vault全体をナレッジベース化し、複数ノートを横断して回答</p>
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                        <button class="ghost-btn small-btn" id="btn-build-vault-index">📚 インデックス構築</button>
+                        <span id="vault-index-status" class="muted-hint" style="font-size:.78rem"></span>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <input type="text" id="rag-query-input" placeholder="Vaultに何でも質問..." style="flex:1;padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);color:#fff;font-size:.9rem;outline:none">
+                        <button class="primary-btn" id="btn-rag-query">質問</button>
+                    </div>
+                    <div id="rag-answer" style="margin-top:12px"></div>
+                </div>
+
+                <!-- v5.0: スマート復習キュー -->
+                <div class="glass-card widget-card" data-widget="reviewQueue">
+                    <div class="card-header-row">
+                        <h3 class="card-title">🔄 スマート復習キュー</h3>
+                        <button class="ghost-btn small-btn" id="btn-load-review-queue">🔍 キューを更新</button>
+                    </div>
+                    <p class="muted-hint" style="margin:4px 0 8px">忘れかけの知識を定期的にサーフェシング</p>
+                    <div id="review-queue-list" class="scrollable-list" style="max-height:300px"></div>
+                </div>
+
+                <!-- v5.0: AI自動ダイジェスト -->
+                <div class="glass-card widget-card" data-widget="autoDigest">
+                    <div class="card-header-row">
+                        <h3 class="card-title">📰 AI知識ダイジェスト</h3>
+                        <div style="display:flex;gap:6px">
+                            <button class="ghost-btn small-btn ai-btn" id="btn-weekly-digest">📅 週次</button>
+                            <button class="ghost-btn small-btn ai-btn" id="btn-monthly-digest">📆 月次</button>
+                        </div>
+                    </div>
+                    <div id="digest-result" style="margin-top:8px"></div>
+                </div>
+
                 <!-- Feature 11: AI スマート検索 -->
                 <div class="glass-card widget-card" data-widget="aiSearch">
                     <h3 class="card-title">🔍 AI検索</h3>
@@ -317,7 +385,7 @@
                     <div class="scrollable-list" id="junk-list"></div>
                 </div>
 
-                <!-- 壊れたリンク -->
+                <!-- 壊れたリンク（v5.0 大幅強化） -->
                 <div class="glass-card" id="broken-card" style="display:none">
                     <div class="card-header-row">
                         <h3 class="card-title">💔 壊れたリンク <span class="count-badge broken" id="badge-broken">0</span></h3>
@@ -329,6 +397,45 @@
                         </div>
                     </div>
                     <div class="scrollable-list" id="broken-list"></div>
+                    <!-- v5.0: 一括リンク置換 -->
+                    <div class="v5-link-tools" style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(124,108,248,.05);border:1px solid rgba(124,108,248,.15)">
+                        <h4 style="margin:0 0 8px;font-size:.85rem">🔄 一括リンク置換</h4>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <input type="text" id="bulk-link-old" class="text-input" placeholder="旧リンク先" style="flex:1;min-width:120px">
+                            <span style="font-size:.85rem;opacity:.5">→</span>
+                            <input type="text" id="bulk-link-new" class="text-input" placeholder="新リンク先" style="flex:1;min-width:120px">
+                            <button class="ghost-btn small-btn" id="btn-bulk-replace-links">置換</button>
+                        </div>
+                    </div>
+                    <!-- v5.0: リンク修復履歴 -->
+                    <div style="margin-top:8px">
+                        <button class="ghost-btn small-btn" id="btn-show-link-fix-history" style="font-size:.78rem;opacity:.6">📜 修復履歴</button>
+                        <div id="link-fix-history-list" style="display:none;margin-top:8px" class="scrollable-list"></div>
+                    </div>
+                </div>
+
+                <!-- v5.0: リンクヘルスダッシュボード -->
+                <div class="glass-card" id="link-health-card" style="display:none">
+                    <div class="card-header-row">
+                        <h3 class="card-title">🔗 リンクヘルス分析 <span class="count-badge" id="badge-link-health">v5</span></h3>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <button class="ghost-btn small-btn" id="btn-check-heading-links">📌 見出しリンク検証</button>
+                            <button class="ghost-btn small-btn" id="btn-check-block-refs">🧱 ブロック参照検証</button>
+                            <button class="ghost-btn small-btn" id="btn-check-embed-links">📎 埋め込み検証</button>
+                            <button class="ghost-btn small-btn" id="btn-check-external-urls">🌐 外部URL検証</button>
+                        </div>
+                    </div>
+                    <div id="link-health-results" class="scrollable-list" style="max-height:400px"></div>
+                    <div id="link-health-empty" class="list-empty">ボタンを押してリンクの健全性を検証してください</div>
+                </div>
+
+                <!-- v5.0: 同期コンフリクト検出 -->
+                <div class="glass-card" id="sync-conflict-card" style="display:none">
+                    <div class="card-header-row">
+                        <h3 class="card-title">⚠️ 同期コンフリクト <span class="count-badge warn" id="badge-sync-conflicts">0</span></h3>
+                        <button class="ghost-btn small-btn" id="btn-detect-sync-conflicts">🔍 検出</button>
+                    </div>
+                    <div id="sync-conflict-list" class="scrollable-list"></div>
                 </div>
 
                 <!-- 重複ノート -->
@@ -1007,12 +1114,24 @@
                         <p class="page-subtitle">アプリの構成を編集</p>
                     </div>
                 </div>
+
+                <!-- 設定サブタブ -->
+                <div class="sub-tab-bar">
+                    <button class="sub-tab active" data-subtab="settings-general" data-parent="settings">⚙️ 基本設定</button>
+                    <button class="sub-tab" data-subtab="settings-ai" data-parent="settings">🤖 AI設定</button>
+                    <button class="sub-tab" data-subtab="settings-dashboard" data-parent="settings">📊 ダッシュボード</button>
+                    <button class="sub-tab" data-subtab="settings-import" data-parent="settings">📥 インポート</button>
+                    <button class="sub-tab" data-subtab="settings-v5" data-parent="settings">🚀 v5連携・自動化</button>
+                    <button class="sub-tab" data-subtab="settings-advanced" data-parent="settings">🔧 詳細</button>
+                </div>
+
+                <div class="sub-tab-content active" id="subtab-settings-general">
                 <div class="tab-banner" data-banner="settings">
                   <div class="tab-banner-content">
                     <span class="tab-banner-icon">💡</span>
                     <div>
                       <strong>設定のポイント</strong>
-                      <p>まずVaultフォルダを登録してください。AI機能を使う場合はAPIキーの設定が必要です。ダッシュボード生成やインポーターもここにあります。</p>
+                      <p>まずVaultフォルダを登録してください。AI機能を使う場合はAPIキーの設定が必要です。</p>
                     </div>
                   </div>
                   <button class="tab-banner-close" onclick="this.closest('.tab-banner').style.display='none'">✕</button>
@@ -1046,6 +1165,17 @@
                                 placeholder="untitled&#10;無題"></textarea>
                         </div>
                         <button class="ghost-btn" id="btn-save-junk-rules" style="margin-top:8px">💾 ルールを保存</button>
+                    </div>
+                </div>
+
+                <!-- MOC分類ルール -->
+                <div class="glass-card">
+                    <h3 class="card-title">🗺️ MOC自動分類ルール</h3>
+                    <p class="muted-hint" style="margin-bottom:12px">孤立ノートをMOCに自動接続する際のキーワードルールを編集できます。</p>
+                    <div id="moc-rules-list"></div>
+                    <div style="display:flex;gap:8px;margin-top:12px">
+                        <button class="ghost-btn" id="btn-add-moc-rule">➕ ルールを追加</button>
+                        <button class="primary-btn" id="btn-save-moc-rules">💾 ルールを保存</button>
                     </div>
                 </div>
 
@@ -1126,6 +1256,11 @@
                     <button class="ghost-btn" id="btn-compare-vaults" style="margin-top:8px">🔍 Vault比較</button>
                 </div>
 
+                </div><!-- /subtab-settings-general -->
+
+                <!-- サブタブ: インポート -->
+                <div class="sub-tab-content" id="subtab-settings-import">
+
                 <!-- Feature 9: ノートインポーター -->
                 <div class="glass-card">
                     <h3 class="card-title">📥 ノートインポーター</h3>
@@ -1171,6 +1306,11 @@
                     <p class="muted-hint" style="margin-bottom:8px">Vault内にDataviewクエリ付きの自動更新レポートノートを生成します</p>
                     <button class="ghost-btn" id="btn-generate-report-note">📊 レポートノートを生成</button>
                 </div>
+
+                </div><!-- /subtab-settings-import -->
+
+                <!-- サブタブ: ダッシュボード -->
+                <div class="sub-tab-content" id="subtab-settings-dashboard">
 
                 <!-- Obsidianダッシュボード生成 -->
                 <div class="glass-card">
@@ -1257,6 +1397,11 @@
                     </details>
                 </div>
 
+                </div><!-- /subtab-settings-dashboard -->
+
+                <!-- サブタブ: AI設定 -->
+                <div class="sub-tab-content" id="subtab-settings-ai">
+
                 <!-- AI設定 -->
                 <div class="glass-card" id="ai-settings-card">
                     <h3 class="card-title">🤖 AI設定</h3>
@@ -1328,6 +1473,123 @@
                     </div>
                 </div>
 
+                </div><!-- /subtab-settings-ai -->
+
+                <!-- サブタブ: v5.0 連携・自動化 -->
+                <div class="sub-tab-content" id="subtab-settings-v5">
+
+                <!-- v5.0: ローカルLLM設定 -->
+                <div class="glass-card">
+                    <h3 class="card-title">🦙 ローカルLLM設定</h3>
+                    <p class="muted-hint" style="margin-bottom:12px">Ollama / LM Studioを使用してオフラインでAI分析。APIコスト0・プライバシー保護。</p>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="local-llm-enabled">
+                        <div class="toggle-body"><span class="toggle-title">ローカルLLMを使用</span><span class="toggle-desc">クラウドAPIの代わりにローカルモデルを使用します</span></div>
+                    </label>
+                    <div class="rule-row" style="margin-top:8px">
+                        <label class="rule-label">プロバイダー</label>
+                        <select id="local-llm-provider" class="vault-select" style="width:150px"><option value="ollama">Ollama</option><option value="lm-studio">LM Studio</option></select>
+                    </div>
+                    <div class="rule-row">
+                        <label class="rule-label">エンドポイント</label>
+                        <input type="text" id="local-llm-endpoint" class="text-input" placeholder="http://localhost:11434" style="max-width:300px">
+                    </div>
+                    <div class="rule-row">
+                        <label class="rule-label">モデル</label>
+                        <input type="text" id="local-llm-model" class="text-input" placeholder="llama3.2" style="max-width:200px">
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px">
+                        <button class="ghost-btn" id="btn-save-local-llm">💾 保存</button>
+                        <button class="ghost-btn" id="btn-test-local-llm">🔗 接続テスト</button>
+                        <span id="local-llm-status" style="font-size:.85rem"></span>
+                    </div>
+                </div>
+
+                <!-- v5.0: スマートルールエンジン -->
+                <div class="glass-card">
+                    <h3 class="card-title">⚡ スマートルールエンジン</h3>
+                    <p class="muted-hint" style="margin-bottom:12px">IF-THEN形式の自動化ルールを設定</p>
+                    <div id="smart-rules-list" style="margin-bottom:12px"></div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                        <select id="smart-rule-trigger" class="vault-select" style="width:150px">
+                            <option value="note-stale">ノートが放置されたら</option>
+                            <option value="tag-match">特定タグがあれば</option>
+                        </select>
+                        <input type="text" id="smart-rule-condition" class="text-input" placeholder="条件 (日数 or タグ名)" style="width:150px">
+                        <select id="smart-rule-action" class="vault-select" style="width:150px">
+                            <option value="archive">アーカイブに移動</option>
+                            <option value="tag">タグを追加</option>
+                            <option value="add-to-moc">MOCに追加</option>
+                        </select>
+                        <input type="text" id="smart-rule-target" class="text-input" placeholder="対象 (フォルダ/タグ/MOC)" style="width:150px">
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class="ghost-btn" id="btn-add-smart-rule">➕ ルール追加</button>
+                        <button class="primary-btn" id="btn-execute-smart-rules">▶️ ルール実行</button>
+                    </div>
+                    <div id="smart-rules-result" class="moc-result-msg" style="margin-top:8px"></div>
+                </div>
+
+                <!-- v5.0: 外部連携 -->
+                <div class="glass-card">
+                    <h3 class="card-title">🔌 外部連携</h3>
+                    <div style="display:grid;gap:12px">
+                        <!-- Readwise -->
+                        <div style="padding:10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+                            <h4 style="margin:0 0 6px;font-size:.88rem">📖 Readwise</h4>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <input type="text" id="readwise-token" class="text-input" placeholder="Readwise APIトークン" style="flex:1">
+                                <button class="ghost-btn small-btn" id="btn-connect-readwise">接続</button>
+                                <button class="ghost-btn small-btn" id="btn-sync-readwise">同期</button>
+                            </div>
+                            <span id="readwise-status" class="muted-hint" style="font-size:.75rem"></span>
+                        </div>
+                        <!-- Zotero -->
+                        <div style="padding:10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+                            <h4 style="margin:0 0 6px;font-size:.88rem">📚 Zotero</h4>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                                <input type="text" id="zotero-api-key" class="text-input" placeholder="APIキー" style="flex:1;min-width:100px">
+                                <input type="text" id="zotero-user-id" class="text-input" placeholder="ユーザーID" style="width:100px">
+                                <button class="ghost-btn small-btn" id="btn-connect-zotero">接続</button>
+                                <button class="ghost-btn small-btn" id="btn-sync-zotero">同期</button>
+                            </div>
+                        </div>
+                        <!-- Anki -->
+                        <div style="padding:10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+                            <h4 style="margin:0 0 6px;font-size:.88rem">🃏 Anki (AnkiConnect)</h4>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <input type="text" id="anki-url" class="text-input" placeholder="http://localhost:8765" style="flex:1">
+                                <button class="ghost-btn small-btn" id="btn-connect-anki">接続</button>
+                                <button class="ghost-btn small-btn" id="btn-sync-anki">同期</button>
+                            </div>
+                        </div>
+                        <!-- カレンダー -->
+                        <div style="padding:10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+                            <h4 style="margin:0 0 6px;font-size:.88rem">📅 カレンダー (ICSファイル)</h4>
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <input type="text" id="calendar-ics-path" class="text-input" placeholder="ICSファイルのパス" style="flex:1">
+                                <button class="ghost-btn small-btn" id="btn-sync-calendar">同期</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- v5.0: 最適化プリセット -->
+                <div class="glass-card">
+                    <h3 class="card-title">🎯 最適化プリセット</h3>
+                    <p class="muted-hint" style="margin-bottom:12px">用途に合わせた設定プリセットを適用</p>
+                    <div id="preset-list" style="display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))"></div>
+                    <div style="display:flex;gap:8px;margin-top:12px">
+                        <button class="ghost-btn small-btn" id="btn-export-preset">📤 現在の設定をエクスポート</button>
+                        <button class="ghost-btn small-btn" id="btn-import-preset">📥 プリセットをインポート</button>
+                    </div>
+                </div>
+
+                </div><!-- /subtab-settings-v5 -->
+
+                <!-- サブタブ: 詳細 -->
+                <div class="sub-tab-content" id="subtab-settings-advanced">
+
                 <!-- 更新チェック -->
                 <div class="glass-card">
                     <h3 class="card-title">&#x1F504; アップデート</h3>
@@ -1341,7 +1603,7 @@
                 <div class="glass-card">
                     <h3 class="card-title">ℹ️ アプリ情報</h3>
                     <p class="app-info-text">
-                        <strong>Obsidian Optimizer</strong> v4.3 Ultimate Edition<br>
+                        <strong>Obsidian Optimizer</strong> v5.0 World-Class Edition<br>
                         Vault の自動整理・ナレッジグラフ分析・MOC生成・リアルタイム監視を統合したデスクトップツール。<br>
                         Developed by <strong>AI寺子屋 CraftLab</strong><br>
                         Built with Electron
@@ -1359,6 +1621,8 @@
                         💬 オープンチャット「ObsidianOptimizerオプチャ」に参加する
                     </a>
                 </div>
+
+                </div><!-- /subtab-settings-advanced -->
             </div>
 
             <!-- ヘルプ -->
@@ -2050,6 +2314,204 @@
                         </div>
                     </div>
 
+                    <!-- v5.0: 機密情報スキャナー -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">🔒</span>
+                                <span class="org-recommend-badge" style="background:rgba(239,68,68,.15);color:#f87171">v5.0</span>
+                            </div>
+                            <h3>機密情報スキャナー</h3>
+                            <p class="org-description">ノート内のAPIキー、パスワード、個人情報を検出します。Obsidian Publish前のチェックにも。</p>
+                            <details class="org-detail-help"><summary>💡 これは何？</summary><p>ノートにうっかり書いてしまったAPIキー、パスワード、メールアドレス、電話番号などを正規表現パターンで検出します。機密情報を公開してしまう事故を防ぎます。</p></details>
+                        </div>
+                        <div id="org-secrets-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-scan-secrets" style="background:rgba(239,68,68,.2);border-color:rgba(239,68,68,.3)">🔒 機密スキャン</button>
+                            <div id="org-secrets-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>スキャン中...</span></div>
+                            <div id="org-secrets-results" class="org-results" style="display:none">
+                                <p id="org-secrets-summary" class="org-summary"></p>
+                                <div id="org-secrets-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: 画像最適化エンジン -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">🖼️</span>
+                                <span class="org-recommend-badge" style="background:rgba(34,211,153,.15);color:#34d399">v5.0</span>
+                            </div>
+                            <h3>画像最適化エンジン</h3>
+                            <p class="org-description">画像の重複検出・サイズ分析を行い、ストレージを節約します。</p>
+                            <details class="org-detail-help"><summary>💡 これは何？</summary><p>Vault内の全画像ファイルのサイズを分析し、100KB以上の画像を最適化候補として表示します。MD5ハッシュによる完全重複も検出します。</p></details>
+                        </div>
+                        <div id="org-images-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-optimize-images">🖼️ 画像分析</button>
+                            <div id="org-images-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>画像を分析中...</span></div>
+                            <div id="org-images-results" class="org-results" style="display:none">
+                                <p id="org-images-summary" class="org-summary"></p>
+                                <div id="org-images-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: Markdown Linter -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">📝</span>
+                                <span class="org-recommend-badge" style="background:rgba(59,130,246,.15);color:#60a5fa">v5.0</span>
+                            </div>
+                            <h3>Markdown Linter</h3>
+                            <p class="org-description">Markdown書式の一貫性をチェックし、自動修正します（末尾スペース・タブ・見出しレベル等）。</p>
+                        </div>
+                        <div id="org-lint-body" class="organize-card-body">
+                            <div style="display:flex;gap:8px">
+                                <button class="primary-btn small-btn" id="btn-lint-check">📝 チェック</button>
+                                <button class="ghost-btn small-btn" id="btn-lint-autofix">✨ 自動修正</button>
+                            </div>
+                            <div id="org-lint-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>チェック中...</span></div>
+                            <div id="org-lint-results" class="org-results" style="display:none">
+                                <p id="org-lint-summary" class="org-summary"></p>
+                                <div id="org-lint-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: frontmatterスキーマ検証 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">📋</span>
+                                <span class="org-recommend-badge" style="background:rgba(168,85,247,.15);color:#c084fc">v5.0</span>
+                            </div>
+                            <h3>Frontmatterスキーマ検証</h3>
+                            <p class="org-description">フォルダ単位でfrontmatterの必須フィールドを定義・検証します。</p>
+                        </div>
+                        <div id="org-schema-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-validate-schema">📋 検証</button>
+                            <div id="org-schema-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>検証中...</span></div>
+                            <div id="org-schema-results" class="org-results" style="display:none">
+                                <p id="org-schema-summary" class="org-summary"></p>
+                                <div id="org-schema-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: メタデータ一括編集 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">📊</span>
+                                <span class="org-recommend-badge" style="background:rgba(251,191,36,.15);color:#fbbf24">v5.0</span>
+                            </div>
+                            <h3>メタデータ一括編集</h3>
+                            <p class="org-description">スプレッドシート風UIで複数ノートのfrontmatterを一括操作します。</p>
+                        </div>
+                        <div id="org-metadata-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-load-spreadsheet">📊 スプレッドシート表示</button>
+                            <div id="org-metadata-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>読み込み中...</span></div>
+                            <div id="org-metadata-results" class="org-results" style="display:none">
+                                <div id="metadata-spreadsheet" style="overflow-x:auto;max-height:400px"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: Dataviewクエリビルダー -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">🔍</span>
+                                <span class="org-recommend-badge" style="background:rgba(124,108,248,.15);color:#7c6cf8">v5.0</span>
+                            </div>
+                            <h3>Dataviewクエリビルダー</h3>
+                            <p class="org-description">GUIでDataviewクエリを生成し、クリップボードにコピーできます。</p>
+                        </div>
+                        <div id="org-dataview-body" class="organize-card-body">
+                            <div class="moc-form" style="gap:8px">
+                                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                    <select id="dv-query-type" class="vault-select" style="width:120px"><option value="table">TABLE</option><option value="list">LIST</option><option value="task">TASK</option></select>
+                                    <input type="text" id="dv-source" class="text-input" placeholder='FROM (例: "Projects")' style="flex:1;min-width:120px">
+                                </div>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                    <input type="text" id="dv-fields" class="text-input" placeholder="フィールド (例: file.name, tags)" style="flex:1">
+                                    <input type="text" id="dv-filter" class="text-input" placeholder="WHERE (例: tags = #active)" style="flex:1">
+                                </div>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                                    <input type="text" id="dv-sort" class="text-input" placeholder="SORT (例: file.mtime DESC)" style="flex:1">
+                                    <input type="number" id="dv-limit" class="text-input" placeholder="LIMIT" style="width:80px">
+                                    <button class="primary-btn small-btn" id="btn-build-dv-query">🔍 生成</button>
+                                </div>
+                            </div>
+                            <div id="dv-query-result" style="display:none;margin-top:8px">
+                                <pre id="dv-query-output" class="note-preview" style="max-height:200px"></pre>
+                                <button class="ghost-btn small-btn" id="btn-copy-dv-query" style="margin-top:4px">📋 コピー</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: AI品質コーチ -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">🎓</span>
+                                <span class="org-recommend-badge" style="background:rgba(147,51,234,.15);color:#a78bfa">🤖 AI v5</span>
+                            </div>
+                            <h3>ノート品質コーチ</h3>
+                            <p class="org-description">AIがノートの品質を評価し、改善点・リンク提案・タグ提案を提示します。</p>
+                        </div>
+                        <div id="org-coach-body" class="organize-card-body">
+                            <div style="display:flex;gap:8px;align-items:center">
+                                <input type="text" id="coach-note-path" class="text-input" placeholder="ノートのパスを入力" style="flex:1">
+                                <button class="primary-btn small-btn ai-btn" id="btn-ai-note-coach">🎓 品質評価</button>
+                            </div>
+                            <div id="org-coach-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>AIが分析中...</span></div>
+                            <div id="org-coach-results" class="org-results" style="display:none">
+                                <div id="org-coach-content"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: AI知識ギャップ検出 -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">🕳️</span>
+                                <span class="org-recommend-badge" style="background:rgba(147,51,234,.15);color:#a78bfa">🤖 AI v5</span>
+                            </div>
+                            <h3>知識ギャップ検出</h3>
+                            <p class="org-description">Vaultの構造を分析し、接続が弱い領域や橋渡しノートが必要な箇所を特定します。</p>
+                        </div>
+                        <div id="org-gaps-body" class="organize-card-body">
+                            <button class="primary-btn small-btn ai-btn" id="btn-ai-knowledge-gaps">🕳️ ギャップ検出</button>
+                            <div id="org-gaps-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>AIが分析中...</span></div>
+                            <div id="org-gaps-results" class="org-results" style="display:none">
+                                <div id="org-gaps-content"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- v5.0: Publish品質チェック -->
+                    <div class="glass-card organize-card">
+                        <div class="organize-card-header">
+                            <div class="org-header-top">
+                                <span class="organize-icon">🌐</span>
+                                <span class="org-recommend-badge" style="background:rgba(34,211,153,.15);color:#34d399">v5.0</span>
+                            </div>
+                            <h3>Publish品質チェック</h3>
+                            <p class="org-description">Obsidian Publishで公開するノートに壊れたリンクや機密情報がないか検証します。</p>
+                        </div>
+                        <div id="org-publish-body" class="organize-card-body">
+                            <button class="primary-btn small-btn" id="btn-check-publish">🌐 公開前チェック</button>
+                            <div id="org-publish-loading" class="org-loading" style="display:none"><div class="spinner-sm"></div><span>チェック中...</span></div>
+                            <div id="org-publish-results" class="org-results" style="display:none">
+                                <p id="org-publish-summary" class="org-summary"></p>
+                                <div id="org-publish-list" class="org-list"></div>
+                            </div>
+                        </div>
+                    </div>
+
 </div>
 </div>
                 <div class="sub-tab-content" id="subtab-archive">
@@ -2220,6 +2682,10 @@
                 <label class="toggle-row"><input type="checkbox" data-widget-key="trends" checked><div class="toggle-body"><span class="toggle-title">📈 推移グラフ</span></div></label>
                 <label class="toggle-row"><input type="checkbox" data-widget-key="noteScore" checked><div class="toggle-body"><span class="toggle-title">📊 ノートスコア</span></div></label>
                 <label class="toggle-row"><input type="checkbox" data-widget-key="favorites" checked><div class="toggle-body"><span class="toggle-title">⭐ お気に入りノート</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="graphDiff" checked><div class="toggle-body"><span class="toggle-title">📊 グラフ変化</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="ragQA" checked><div class="toggle-body"><span class="toggle-title">🧠 RAG Vault Q&A</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="reviewQueue" checked><div class="toggle-body"><span class="toggle-title">🔄 スマート復習</span></div></label>
+                <label class="toggle-row"><input type="checkbox" data-widget-key="autoDigest" checked><div class="toggle-body"><span class="toggle-title">📰 AI知識ダイジェスト</span></div></label>
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
                 <button class="ghost-btn" id="btn-widget-settings-close">閉じる</button>
