@@ -35,7 +35,9 @@
       "installLocation": "/Applications",
       "allowAnywhere": true,
       "allowCurrentUserHome": true,
-      "allowRootDirectory": true
+      "allowRootDirectory": true,
+      "scripts": "scripts",
+      "isRelocatable": false
     },
     "win": {
       "target": [

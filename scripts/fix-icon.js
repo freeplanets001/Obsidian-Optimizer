@@ -42,6 +42,22 @@ module.exports = async function (context) {
     execSync(`chmod -R a+rX "${resourcesDir}"`, { stdio: 'pipe' });
     console.log('  Fixed permissions on Resources/');
 
+    // ._ファイル（リソースフォーク）を除去 — 外付けドライブでのビルド時に「破損」エラーを防止
+    try {
+        execSync(`dot_clean "${appPath}"`, { stdio: 'pipe' });
+        console.log('  Cleaned resource forks with dot_clean');
+    } catch (_) {
+        // dot_cleanが無くても続行
+    }
+
+    // quarantine属性を除去 — PKGインストール後に「破損」ダイアログを防止
+    try {
+        execSync(`xattr -cr "${appPath}"`, { stdio: 'pipe' });
+        console.log('  Removed quarantine attributes');
+    } catch (_) {
+        console.log('  Warning: Could not remove quarantine attributes (may need sudo)');
+    }
+
     // Touch the app bundle to invalidate icon cache
     execSync(`touch "${appPath}"`, { stdio: 'pipe' });
     console.log('  Touched app bundle');
