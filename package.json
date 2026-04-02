@@ -2,7 +2,7 @@
   "name": "obsidian-optimizer",
   "productName": "Obsidian Optimizer",
   "version": "5.0.0",
-  "description": "世界一のObsidian Vault最適化・知識管理アシスタント。差分スキャン、壊れたリンク完全修復、ローカルLLM対応、RAG検索、PageRank分析、クラスター検出、スマートルールエンジン、機密情報スキャナー、画像最適化、Markdown Linter、外部連携(Readwise/Zotero/Anki/カレンダー)を統合したデスクトップアプリ。",
+  "description": "世界一のObsidian Vault最適化・知識管理アシスタント。グローバル検索、Gitバックアップ、重複ノート検出、一括タグ操作、バッチリネーム、デイリーノート自動生成、孤立ノート救済、クリップボード→Inbox、整理ツールUX刷新を統合したデスクトップアプリ。",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -24,6 +24,7 @@
       "category": "public.app-category.productivity",
       "icon": "assets/icon.icns",
       "target": [
+        "dmg",
         "zip"
       ],
       "identity": null,
@@ -36,7 +37,7 @@
       "allowAnywhere": true,
       "allowCurrentUserHome": true,
       "allowRootDirectory": true,
-      "scripts": "scripts",
+      "scripts": "assets/pkg-scripts",
       "isRelocatable": false
     },
     "win": {
@@ -65,7 +66,7 @@
       "shortcutName": "Obsidian Optimizer"
     },
     "directories": {
-      "output": "dist",
+      "output": "release",
       "buildResources": "assets"
     },
     "asar": false,

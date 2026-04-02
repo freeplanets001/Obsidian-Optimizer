@@ -4645,10 +4645,16 @@ function trackAiUsage(featureName, inputText, outputText, model) {
 }
 
 async function callLLM(prompt, systemPrompt = '', featureName = 'unknown') {
+    // ローカルLLMが有効な場合はそちらを優先
+    const llmConfig = config.localLlm || {};
+    if (llmConfig.enabled && llmConfig.endpoint) {
+        return callAI(prompt, systemPrompt || 'あなたは優秀なアシスタントです。日本語で簡潔に回答してください。', {});
+    }
+
     const provider = config.aiProvider || 'claude';
     const apiKey = config.aiApiKey || '';
     const model = config.aiModel || (AI_MODELS[provider] ? AI_MODELS[provider][0] : '');
-    if (!apiKey) throw new Error('APIキーが設定されていません');
+    if (!apiKey) throw new Error('APIキーが設定されていません。設定画面でAPIキーを入力するか、ローカルLLM（Ollama等）を有効にしてください');
     if (!model) throw new Error('モデルが選択されていません');
 
     // コンテンツ長制限（トークン節約のため最大8000文字に制限）
@@ -6130,6 +6136,192 @@ ipcMain.handle('find-splittable-notes', async () => {
     }
 });
 
+// ノート分割実行
+ipcMain.handle('split-note', async (_, { filePath, headingLevel }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        if (!isPathInsideVault(filePath)) return { success: false, error: 'Vault外のファイルは操作できません' };
+        if (!fs.existsSync(filePath)) return { success: false, error: 'ファイルが見つかりません' };
+
+        const content = fs.readFileSync(filePath, 'utf-8');
+        const noteName = path.basename(filePath, '.md');
+        const noteDir = path.dirname(filePath);
+        const level = headingLevel || 2;
+        const headingRe = new RegExp(`^${'#'.repeat(level)}\\s+(.+)`);
+
+        // frontmatterを先に分離
+        const fmRe = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
+        const fmMatch = content.match(fmRe);
+        const bodyContent = fmMatch ? content.slice(fmMatch[0].length) : content;
+        const lines = bodyContent.split(/\r?\n/);
+
+        // セクションごとに分割（frontmatter除外済み）
+        const sections = [];
+        let currentSection = { title: null, lines: [] };
+
+        for (const line of lines) {
+            const m = line.match(headingRe);
+            if (m) {
+                if (currentSection.lines.length > 0 || currentSection.title) {
+                    sections.push({ ...currentSection });
+                }
+                currentSection = { title: m[1].trim(), lines: [] };
+            } else {
+                currentSection.lines.push(line);
+            }
+        }
+        if (currentSection.lines.length > 0 || currentSection.title) {
+            sections.push(currentSection);
+        }
+
+        if (sections.length < 2) return { success: false, error: '分割できるセクションが見つかりません' };
+
+        const createdFiles = [];
+        const indexLines = [];
+        if (fmMatch) indexLines.push(fmMatch[0].trimEnd(), '');
+        indexLines.push(`# ${noteName}`, '', `> このノートは自動分割されました。`, '');
+
+        for (const sec of sections) {
+            if (!sec.title) {
+                // 冒頭部分（frontmatter除外済み）をインデックスに含める
+                const trimmed = sec.lines.join('\n').trim();
+                if (trimmed) indexLines.push(trimmed, '');
+                continue;
+            }
+            // 安全なファイル名を生成
+            const safeTitle = sec.title.replace(/[/\\:*?"<>|]/g, '_').substring(0, 80);
+            const newFileName = `${noteName} - ${safeTitle}.md`;
+            const newFilePath = path.join(noteDir, newFileName);
+
+            const newContent = [
+                `# ${sec.title}`,
+                '',
+                `> 元ノート: [[${noteName}]]`,
+                '',
+                ...sec.lines,
+            ].join('\n');
+
+            fs.writeFileSync(newFilePath, newContent, 'utf-8');
+            createdFiles.push({ title: sec.title, path: newFilePath });
+            indexLines.push(`- [[${path.basename(newFilePath, '.md')}|${sec.title}]]`);
+        }
+
+        // 元ノートをインデックスノートに更新
+        fs.writeFileSync(filePath, indexLines.join('\n'), 'utf-8');
+
+        return { success: true, createdFiles, count: createdFiles.length };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// 機密情報マスク処理
+ipcMain.handle('mask-secrets', async (_, { filePath, findings }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        // 相対パスの場合は絶対パスに変換
+        const absPath = path.isAbsolute(filePath) ? filePath : path.join(vaultPath, filePath);
+        filePath = absPath;
+        if (!isPathInsideVault(filePath)) return { success: false, error: 'Vault外のファイルは操作できません' };
+        if (!fs.existsSync(filePath)) return { success: false, error: 'ファイルが見つかりません' };
+
+        let content = fs.readFileSync(filePath, 'utf-8');
+        let maskedCount = 0;
+
+        // 行番号とパターンでマッチしてマスク
+        const lines = content.split('\n');
+        for (const finding of findings) {
+            const lineIdx = finding.line - 1;
+            if (lineIdx < 0 || lineIdx >= lines.length) continue;
+            const patterns = [
+                /(?:api[_-]?key|apikey)\s*[:=]\s*['"]?([a-zA-Z0-9_\-]{20,})['"]?/gi,
+                /AKIA[0-9A-Z]{16}/g,
+                /gh[ps]_[A-Za-z0-9_]{36,}/g,
+                /sk-[a-zA-Z0-9]{20,}/g,
+                /(?:password|passwd|pass)\s*[:=]\s*['"]?([^\s'"]{8,})['"]?/gi,
+                /xox[bprs]-[0-9A-Za-z-]+/g,
+                /Bearer\s+[a-zA-Z0-9._\-]{20,}/g,
+                /-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----/g,
+            ];
+            for (const re of patterns) {
+                const before = lines[lineIdx];
+                lines[lineIdx] = lines[lineIdx].replace(re, '***REDACTED***');
+                if (lines[lineIdx] !== before) maskedCount++;
+            }
+        }
+
+        fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+        return { success: true, maskedCount };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// 未参照画像の検出と削除
+ipcMain.handle('find-unreferenced-images', async () => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+
+        const allFiles = getFilesRecursively(vaultPath);
+        const imageExts = new Set(['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.svg', '.webp']);
+        const images = allFiles.filter(f => imageExts.has(path.extname(f).toLowerCase()));
+        const mdFiles = allFiles.filter(f => f.endsWith('.md'));
+
+        // 全MDファイルの内容を結合して画像参照を検索
+        let allMdContent = '';
+        for (const md of mdFiles) {
+            try { allMdContent += fs.readFileSync(md, 'utf-8') + '\n'; } catch (_) {}
+        }
+
+        const unreferenced = [];
+        for (const img of images) {
+            const imgName = path.basename(img);
+            // Obsidianのリンク形式とMarkdown形式の両方をチェック
+            if (!allMdContent.includes(imgName)) {
+                let size = 0;
+                try { size = fs.statSync(img).size; } catch (_) {}
+                unreferenced.push({
+                    path: img,
+                    relPath: path.relative(vaultPath, img),
+                    name: imgName,
+                    size,
+                });
+            }
+        }
+
+        unreferenced.sort((a, b) => b.size - a.size);
+        return { success: true, images: unreferenced, count: unreferenced.length };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('delete-unreferenced-images', async (_, { paths }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+
+        let deleted = 0;
+        let totalSize = 0;
+        for (const imgPath of paths) {
+            if (!isPathInsideVault(imgPath)) continue;
+            try {
+                const stat = fs.statSync(imgPath);
+                totalSize += stat.size;
+                fs.unlinkSync(imgPath);
+                deleted++;
+            } catch (_) {}
+        }
+
+        return { success: true, deleted, totalSize };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 // ======================================================
 // Feature 5: 空フォルダ検出
 // ======================================================
@@ -6417,12 +6609,31 @@ ipcMain.handle('add-task', async (_, { text, dueDate, priority, targetNote }) =>
     }
 });
 
-ipcMain.handle('get-all-tasks', async () => {
+ipcMain.handle('get-all-tasks', async (_, opts) => {
     try {
         const vaultPath = getCurrentVault();
         if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
 
-        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        const sourceFilter = (opts && opts.source) || 'all'; // 'registered' | 'all'
+        let allFiles;
+        if (sourceFilter === 'registered') {
+            // 登録タスクのみ: タスク保存先ファイルだけをスキャン
+            const taskFiles = [];
+            const defaultTaskFile = path.join(vaultPath, '📋 Tasks.md');
+            if (fs.existsSync(defaultTaskFile)) taskFiles.push(defaultTaskFile);
+            // ユーザーがカスタム保存先を使っている場合もカバー
+            const mdFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+            for (const f of mdFiles) {
+                if (taskFiles.includes(f)) continue;
+                const basename = path.basename(f);
+                if (basename.startsWith('📋')) {
+                    taskFiles.push(f);
+                }
+            }
+            allFiles = taskFiles;
+        } else {
+            allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        }
         const tasks = [];
         // タスク行のパターン: `- [ ] ...` または `- [x] ...`
         const taskLineRe = /^(\s*)-\s*\[([ xX])\]\s*(.+)$/;
@@ -7654,7 +7865,7 @@ async function callAI(prompt, systemPrompt, options = {}) {
     // クラウドAPI（既存のAI設定を使用）
     const aiProvider = config.aiProvider || 'claude';
     const apiKey = config.aiApiKey;
-    if (!apiKey) throw new Error('APIキーが設定されていません。ローカルLLMまたはクラウドAPIを設定してください。');
+    if (!apiKey) throw new Error('APIキーが設定されていません。設定画面でAPIキーを入力するか、ローカルLLM（Ollama等）を有効にしてください。');
 
     if (aiProvider === 'claude') {
         const body = JSON.stringify({ model: config.aiModel || 'claude-sonnet-4-6', max_tokens: options.maxTokens || 2000, system: systemPrompt, messages: [{ role: 'user', content: prompt }] });
@@ -7686,8 +7897,34 @@ async function callAI(prompt, systemPrompt, options = {}) {
             req.write(body);
             req.end();
         });
+    } else if (aiProvider === 'gemini') {
+        const model = config.aiModel || 'gemini-2.0-flash';
+        const geminiUrl = `/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        const body = JSON.stringify({ contents: [{ parts: [{ text: `${systemPrompt}\n\n${prompt}` }] }], generationConfig: { maxOutputTokens: options.maxTokens || 2000 } });
+        return new Promise((resolve, reject) => {
+            const req = https.request({ hostname: 'generativelanguage.googleapis.com', path: geminiUrl, method: 'POST', headers: { 'Content-Type': 'application/json' } }, (res) => {
+                let data = '';
+                res.on('data', chunk => { data += chunk; });
+                res.on('end', () => {
+                    try {
+                        const json = JSON.parse(data);
+                        if (json.candidates && json.candidates[0]) {
+                            resolve(json.candidates[0].content.parts[0].text);
+                        } else if (json.error) {
+                            reject(new Error(`Gemini API エラー: ${json.error.message || JSON.stringify(json.error)}`));
+                        } else {
+                            reject(new Error('Gemini API: 予期しないレスポンス形式'));
+                        }
+                    } catch (e) { reject(e); }
+                });
+            });
+            req.on('error', reject);
+            req.setTimeout(60000, () => { req.destroy(); reject(new Error('タイムアウト')); });
+            req.write(body);
+            req.end();
+        });
     }
-    throw new Error('未対応のAIプロバイダーです');
+    throw new Error(`未対応のAIプロバイダー "${aiProvider}" です。設定画面でClaude / OpenAI / Geminiのいずれかを選択してください。`);
 }
 
 // RAG対応 Vault Q&A
@@ -8236,6 +8473,88 @@ ipcMain.handle('toggle-smart-rule', (_, { ruleId, enabled }) => {
     return { success: true };
 });
 
+// スマートルールプリセット取得
+ipcMain.handle('get-smart-rule-presets', () => {
+    const presets = [
+        {
+            id: 'preset-stale-180',
+            label: '📦 180日放置ノートをアーカイブ',
+            trigger: 'note-stale',
+            condition: { days: 180 },
+            action: 'archive',
+            actionTarget: '99 Archive',
+        },
+        {
+            id: 'preset-stale-30-tag',
+            label: '🏷️ 30日放置ノートに#staleタグを付与',
+            trigger: 'note-stale',
+            condition: { days: 30 },
+            action: 'tag',
+            actionTarget: '#stale',
+        },
+        {
+            id: 'preset-inbox-tag',
+            label: '📂 #inboxタグのノートをMOCに追加',
+            trigger: 'tag-match',
+            condition: { tag: '#inbox' },
+            action: 'add-to-moc',
+            actionTarget: 'Inbox MOC',
+        },
+    ];
+    return { success: true, presets };
+});
+
+// スマートルールドライラン（プレビュー）
+ipcMain.handle('preview-smart-rules', async () => {
+    const VAULT_PATH = getCurrentVault();
+    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
+    const rules = (config.smartRules || []).filter(r => r.enabled);
+    if (rules.length === 0) return { success: true, preview: [], message: '有効なルールがありません' };
+    try {
+        const preview = [];
+        for (const rule of rules) {
+            const matchedFiles = [];
+            if (rule.trigger === 'note-stale') {
+                const staleDays = rule.condition?.days || 180;
+                const cutoff = Date.now() - staleDays * 86400000;
+                const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
+                for (const file of allFiles) {
+                    let stat;
+                    try { stat = fs.statSync(file); } catch (_) { continue; }
+                    if (stat.mtimeMs < cutoff) {
+                        matchedFiles.push(path.basename(file, '.md'));
+                    }
+                }
+            } else if (rule.trigger === 'tag-match') {
+                const rawTag = rule.condition?.tag || '';
+                // #tag 形式と tag 形式の両方に対応
+                const tagWithHash = rawTag.startsWith('#') ? rawTag : `#${rawTag}`;
+                const tagWithout = rawTag.startsWith('#') ? rawTag.slice(1) : rawTag;
+                const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
+                for (const file of allFiles) {
+                    const content = await safeReadFile(file);
+                    if (!content) continue;
+                    // フロントマター内のタグ、インラインタグ両方に対応
+                    const hasTag = content.includes(tagWithHash) ||
+                        new RegExp(`(^|\\s|,)${tagWithout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|,|$)`, 'm').test(content);
+                    if (hasTag) matchedFiles.push(path.basename(file, '.md'));
+                }
+            }
+            preview.push({
+                ruleId: rule.id,
+                trigger: rule.trigger,
+                action: rule.action,
+                actionTarget: rule.actionTarget,
+                matchCount: matchedFiles.length,
+                samples: matchedFiles.slice(0, 5),
+            });
+        }
+        return { success: true, preview };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 ipcMain.handle('execute-smart-rules', async () => {
     const VAULT_PATH = getCurrentVault();
     if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
@@ -8261,8 +8580,14 @@ ipcMain.handle('execute-smart-rules', async () => {
                             if (!fs.existsSync(dest)) { fs.renameSync(file, dest); actionsExecuted++; log.push(`📦 ${path.basename(file)} をアーカイブ`); }
                         } else if (rule.action === 'tag') {
                             let content = fs.readFileSync(file, 'utf-8');
-                            if (!content.includes(rule.actionTarget)) {
-                                content = content.replace(/^(---\n[\s\S]*?\n---)/, `$1\n${rule.actionTarget}`);
+                            const tagToAdd = rule.actionTarget || '#stale';
+                            if (!content.includes(tagToAdd)) {
+                                // フロントマターがある場合はその中に追加、ない場合は先頭に追加
+                                if (/^---\n/.test(content)) {
+                                    content = content.replace(/^(---\n[\s\S]*?\n---)/, `$1\ntags: [${tagToAdd.replace(/^#/, '')}]`);
+                                } else {
+                                    content = `---\ntags: [${tagToAdd.replace(/^#/, '')}]\n---\n\n${content}`;
+                                }
                                 fs.writeFileSync(file, content, 'utf-8');
                                 actionsExecuted++;
                                 log.push(`🏷️ ${path.basename(file, '.md')} にタグ追加`);
@@ -8271,12 +8596,18 @@ ipcMain.handle('execute-smart-rules', async () => {
                     }
                 }
             } else if (rule.trigger === 'tag-match') {
-                const targetTag = rule.condition?.tag;
-                if (!targetTag) continue;
+                const rawTag = rule.condition?.tag;
+                if (!rawTag) continue;
+                // #tag 形式と tag 形式の両方に対応
+                const tagWithHash = rawTag.startsWith('#') ? rawTag : `#${rawTag}`;
+                const tagWithout = rawTag.startsWith('#') ? rawTag.slice(1) : rawTag;
                 const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
                 for (const file of allFiles) {
                     const content = await safeReadFile(file);
-                    if (!content || !content.includes(targetTag)) continue;
+                    if (!content) continue;
+                    const hasTag = content.includes(tagWithHash) ||
+                        new RegExp(`(^|\\s|,)${tagWithout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|,|$)`, 'm').test(content);
+                    if (!hasTag) continue;
                     if (rule.action === 'add-to-moc') {
                         const mocPath = path.join(VAULT_PATH, rule.actionTarget || 'MOC.md');
                         const basename = path.basename(file, '.md');
@@ -8287,6 +8618,11 @@ ipcMain.handle('execute-smart-rules', async () => {
                             actionsExecuted++;
                             log.push(`🗺️ ${basename} をMOCに追加`);
                         }
+                    } else if (rule.action === 'archive') {
+                        const archiveDir = path.join(VAULT_PATH, rule.actionTarget || '99 Archive');
+                        fs.mkdirSync(archiveDir, { recursive: true });
+                        const dest = path.join(archiveDir, path.basename(file));
+                        if (!fs.existsSync(dest)) { fs.renameSync(file, dest); actionsExecuted++; log.push(`📦 ${path.basename(file, '.md')} をアーカイブ`); }
                     }
                 }
             }
@@ -8376,17 +8712,15 @@ ipcMain.handle('scan-secrets', async () => {
         const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
         const findings = [];
         const patterns = [
-            { name: 'APIキー (Generic)', regex: /(?:api[_-]?key|apikey)\s*[:=]\s*['"]?([a-zA-Z0-9_\-]{20,})['"]?/gi },
-            { name: 'AWS Access Key', regex: /AKIA[0-9A-Z]{16}/g },
-            { name: 'GitHub Token', regex: /gh[ps]_[A-Za-z0-9_]{36,}/g },
-            { name: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9]{20,}/g },
-            { name: 'パスワード', regex: /(?:password|passwd|pass)\s*[:=]\s*['"]?([^\s'"]{8,})['"]?/gi },
-            { name: 'Slack Token', regex: /xox[bprs]-[0-9A-Za-z-]+/g },
-            { name: 'メールアドレス', regex: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
-            { name: '電話番号', regex: /(?:0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{4}|(?:\+81|81)\s?\d{1,4}[-\s]?\d{1,4}[-\s]?\d{4})/g },
-            { name: 'クレジットカード', regex: /(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})/g },
-            { name: 'SSH秘密鍵', regex: /-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----/g },
-            { name: 'Bearer Token', regex: /Bearer\s+[a-zA-Z0-9._\-]{20,}/g },
+            { name: 'APIキー (Generic)', regex: /(?:api[_-]?key|apikey)\s*[:=]\s*['"]?([a-zA-Z0-9_\-]{20,})['"]?/gi, sev: 'critical' },
+            { name: 'AWS Access Key', regex: /AKIA[0-9A-Z]{16}/g, sev: 'critical' },
+            { name: 'GitHub Token', regex: /gh[ps]_[A-Za-z0-9_]{36,}/g, sev: 'critical' },
+            { name: 'OpenAI API Key', regex: /sk-[a-zA-Z0-9]{20,}/g, sev: 'critical' },
+            { name: 'パスワード', regex: /(?:password|passwd|pass)\s*[:=]\s*['"]?([^\s'"]{8,})['"]?/gi, sev: 'critical' },
+            { name: 'Slack Token', regex: /xox[bprs]-[0-9A-Za-z-]+/g, sev: 'critical' },
+            { name: 'クレジットカード', regex: /(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})/g, sev: 'critical' },
+            { name: 'SSH秘密鍵', regex: /-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----/g, sev: 'critical' },
+            { name: 'Bearer Token', regex: /Bearer\s+[a-zA-Z0-9._\-]{20,}/g, sev: 'critical' },
         ];
 
         for (const file of allFiles) {
@@ -8405,7 +8739,7 @@ ipcMain.handle('scan-secrets', async () => {
                         line: lineNum,
                         // マスキング: 先頭4文字と末尾4文字のみ表示
                         value: match[0].length > 12 ? match[0].slice(0, 4) + '...' + match[0].slice(-4) : '****',
-                        severity: ['APIキー', 'AWS', 'GitHub', 'OpenAI', 'SSH秘密鍵', 'パスワード', 'Bearer'].some(k => pattern.name.includes(k)) ? 'critical' : 'warning',
+                        severity: pattern.sev || 'critical',
                     });
                 }
             }
@@ -8827,217 +9161,1000 @@ ipcMain.handle('merge-vaults', async (_, { sourceVault, targetVault, skipDuplica
 });
 
 // ======================================================
-// Phase 8: 外部連携
+// Phase 8: 外部連携（v6.0 新連携）
 // ======================================================
 
-// Readwise連携
-ipcMain.handle('connect-readwise', async (_, { token }) => {
+// Obsidian URI接続テスト
+ipcMain.handle('test-obsidian-uri', async () => {
     try {
-        config.readwiseToken = token;
-        saveConfig(config);
-        // テスト接続
-        const result = await new Promise((resolve, reject) => {
-            const req = https.get('https://readwise.io/api/v2/auth/', { headers: { Authorization: `Token ${token}` } }, (res) => {
-                resolve({ status: res.statusCode });
-                res.resume();
-            });
-            req.on('error', (e) => reject(e));
-            req.setTimeout(5000, () => { req.destroy(); reject(new Error('タイムアウト')); });
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        const vaultName = path.basename(vaultPath);
+        const { shell } = require('electron');
+        await shell.openExternal(`obsidian://open?vault=${encodeURIComponent(vaultName)}`);
+        return { success: true, vaultName };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// Vault Gitバックアップ
+// Git利用可能チェック
+function isGitAvailable() {
+    try {
+        const { execSync } = require('child_process');
+        execSync('git --version', { encoding: 'utf-8', timeout: 5000 });
+        return true;
+    } catch (_) { return false; }
+}
+
+ipcMain.handle('git-status', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません。\nMac: Xcode Command Line Tools（ターミナルで xcode-select --install）\nWindows: https://git-scm.com からインストールしてください。' };
+    try {
+        const { execSync } = require('child_process');
+        const isGit = fs.existsSync(path.join(vaultPath, '.git'));
+        if (!isGit) return { success: true, initialized: false, message: 'Gitリポジトリではありません。「Git初期化」をクリックしてください。' };
+        const status = execSync('git status --porcelain', { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+        const lines = status.trim().split('\n').filter(l => l.trim());
+        const branch = execSync('git branch --show-current', { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 }).trim();
+        return { success: true, initialized: true, branch, changedFiles: lines.length, changes: lines.slice(0, 20) };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('git-backup', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません' };
+    try {
+        const { execSync } = require('child_process');
+        if (!fs.existsSync(path.join(vaultPath, '.git'))) return { success: false, error: 'Git初期化が必要です' };
+        // .gitignoreが無ければ作成
+        const gitignorePath = path.join(vaultPath, '.gitignore');
+        if (!fs.existsSync(gitignorePath)) {
+            fs.writeFileSync(gitignorePath, '.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n', 'utf-8');
+        }
+        execSync('git add -A', { cwd: vaultPath, timeout: 30000 });
+        const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
+        execSync(`git commit -m "Vault backup ${timestamp}" --allow-empty`, { cwd: vaultPath, timeout: 30000 });
+        const log = execSync('git log -1 --oneline', { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 }).trim();
+        return { success: true, commit: log };
+    } catch (e) {
+        // コミットするものがない場合
+        if (e.message && e.message.includes('nothing to commit')) {
+            return { success: true, commit: '変更なし（最新の状態です）' };
+        }
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('git-log', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません' };
+    try {
+        const { execSync } = require('child_process');
+        if (!fs.existsSync(path.join(vaultPath, '.git'))) return { success: false, error: 'Gitリポジトリではありません' };
+        const log = execSync('git log --oneline -20', { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+        const entries = log.trim().split('\n').filter(l => l.trim()).map(l => {
+            const [hash, ...rest] = l.split(' ');
+            return { hash, message: rest.join(' ') };
         });
-        return { success: result.status === 204, connected: result.status === 204 };
+        return { success: true, entries };
     } catch (e) {
         return { success: false, error: e.message };
     }
 });
 
-ipcMain.handle('sync-readwise', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
-    const token = config.readwiseToken;
-    if (!token) return { success: false, error: 'Readwiseトークンが設定されていません' };
+ipcMain.handle('git-init', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません。\nMac: ターミナルで xcode-select --install\nWindows: https://git-scm.com からインストール' };
     try {
-        const data = await new Promise((resolve, reject) => {
-            const req = https.get('https://readwise.io/api/v2/highlights/?page_size=100', { headers: { Authorization: `Token ${token}` } }, (res) => {
-                let body = '';
-                res.on('data', chunk => { body += chunk; });
-                res.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
-            });
-            req.on('error', reject);
-            req.setTimeout(15000, () => { req.destroy(); reject(new Error('タイムアウト')); });
+        const { execSync } = require('child_process');
+        if (fs.existsSync(path.join(vaultPath, '.git'))) return { success: true, message: '既にGitリポジトリです' };
+        execSync('git init', { cwd: vaultPath, timeout: 10000 });
+        // .gitignore作成
+        const gitignorePath = path.join(vaultPath, '.gitignore');
+        if (!fs.existsSync(gitignorePath)) {
+            fs.writeFileSync(gitignorePath, '.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n', 'utf-8');
+        }
+        execSync('git add -A', { cwd: vaultPath, timeout: 30000 });
+        execSync('git commit -m "Initial vault backup"', { cwd: vaultPath, timeout: 30000 });
+        return { success: true, message: 'Gitリポジトリを初期化しました' };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ノートエクスポート
+ipcMain.handle('export-notes', async (_, { format, scope }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const { dialog } = require('electron');
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        const ext = format === 'json' ? 'json' : 'html';
+        const result = await dialog.showSaveDialog({
+            title: 'エクスポート先を選択',
+            defaultPath: `vault-export-${new Date().toISOString().slice(0, 10)}.${ext}`,
+            filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
         });
+        if (result.canceled || !result.filePath) return { success: false, error: 'キャンセルされました' };
 
-        const highlights = data.results || [];
-        const readwiseDir = path.join(VAULT_PATH, '90 Readwise');
-        fs.mkdirSync(readwiseDir, { recursive: true });
-        let imported = 0;
-
-        // 書籍ごとにグループ化
-        const byBook = {};
-        for (const h of highlights) {
-            const bookTitle = h.book_title || 'Unknown';
-            if (!byBook[bookTitle]) byBook[bookTitle] = [];
-            byBook[bookTitle].push(h);
-        }
-
-        for (const [bookTitle, bookHighlights] of Object.entries(byBook)) {
-            const safeName = bookTitle.replace(/[/\\?%*:|"<>]/g, '_');
-            const filePath = path.join(readwiseDir, `${safeName}.md`);
-            let content = `---\ntags: [readwise, highlights]\nsource: Readwise\n---\n\n# ${bookTitle}\n\n`;
-            for (const h of bookHighlights) {
-                content += `> ${h.text}\n\n`;
-                if (h.note) content += `**メモ:** ${h.note}\n\n`;
-                content += `---\n\n`;
+        if (format === 'json') {
+            const notes = [];
+            for (const file of allFiles) {
+                try {
+                    const content = fs.readFileSync(file, 'utf-8');
+                    notes.push({ path: path.relative(vaultPath, file), content });
+                } catch (_) {}
             }
-            fs.writeFileSync(filePath, content, 'utf-8');
-            imported++;
+            fs.writeFileSync(result.filePath, JSON.stringify(notes, null, 2), 'utf-8');
+        } else {
+            let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Vault Export</title><style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}article{border-bottom:1px solid #eee;padding:20px 0}h2{color:#7c6cf8}</style></head><body><h1>Vault Export</h1>';
+            for (const file of allFiles) {
+                try {
+                    const content = fs.readFileSync(file, 'utf-8');
+                    const relPath = path.relative(vaultPath, file);
+                    const escaped = content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    html += `<article><h2>${relPath}</h2><pre>${escaped}</pre></article>`;
+                } catch (_) {}
+            }
+            html += '</body></html>';
+            fs.writeFileSync(result.filePath, html, 'utf-8');
         }
-        return { success: true, imported, totalHighlights: highlights.length };
+        return { success: true, path: result.filePath, count: allFiles.length };
     } catch (e) {
         return { success: false, error: e.message };
     }
 });
 
-// Zotero連携
-ipcMain.handle('connect-zotero', async (_, { apiKey, userId }) => {
+// クリップボード→Inboxノート作成
+ipcMain.handle('clipboard-to-inbox', async (_, { text }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
     try {
-        config.zoteroApiKey = apiKey;
-        config.zoteroUserId = userId;
-        saveConfig(config);
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
+        const inboxDir = path.join(vaultPath, '00 Inbox');
+        fs.mkdirSync(inboxDir, { recursive: true });
+        const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
+        const isUrl = /^https?:\/\//.test(text.trim());
+        let title, content;
 
-ipcMain.handle('sync-zotero', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
-    const apiKey = config.zoteroApiKey;
-    const userId = config.zoteroUserId;
-    if (!apiKey || !userId) return { success: false, error: 'Zotero設定が不完全です' };
-    try {
-        const data = await fetchJson(`https://api.zotero.org/users/${userId}/items?limit=50&format=json&key=${apiKey}`);
-        const zoteroDir = path.join(VAULT_PATH, '91 Zotero');
-        fs.mkdirSync(zoteroDir, { recursive: true });
-        let imported = 0;
-
-        for (const item of data) {
-            const d = item.data;
-            if (d.itemType === 'attachment' || d.itemType === 'note') continue;
-            const title = d.title || 'Untitled';
-            const safeName = title.replace(/[/\\?%*:|"<>]/g, '_').slice(0, 100);
-            const filePath = path.join(zoteroDir, `${safeName}.md`);
-            let content = `---\ntags: [zotero, ${d.itemType || 'reference'}]\nauthor: "${(d.creators || []).map(c => `${c.lastName || ''} ${c.firstName || ''}`).join(', ')}"\ndate: "${d.date || ''}"\nurl: "${d.url || ''}"\ndoi: "${d.DOI || ''}"\n---\n\n# ${title}\n\n`;
-            if (d.abstractNote) content += `## 概要\n${d.abstractNote}\n\n`;
-            if (d.url) content += `[原文リンク](${d.url})\n`;
-            fs.writeFileSync(filePath, content, 'utf-8');
-            imported++;
+        if (isUrl) {
+            const url = text.trim();
+            title = `Web Clip ${timestamp}`;
+            content = `---\ntags: [clip, web]\ncreated: ${new Date().toISOString().slice(0, 10)}\nsource: "${url}"\n---\n\n# Web Clip\n\n[元URL](${url})\n\n---\n\n${url}\n`;
+        } else {
+            // テキストの最初の行をタイトルに
+            const firstLine = text.split('\n')[0].replace(/^#*\s*/, '').trim().substring(0, 60);
+            title = firstLine || `Clip ${timestamp}`;
+            content = `---\ntags: [clip]\ncreated: ${new Date().toISOString().slice(0, 10)}\n---\n\n# ${title}\n\n${text}\n`;
         }
-        return { success: true, imported };
+
+        const safeName = title.replace(/[/\\?%*:|"<>]/g, '_');
+        const filePath = path.join(inboxDir, `${safeName}.md`);
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return { success: true, filePath, title };
     } catch (e) {
         return { success: false, error: e.message };
     }
 });
 
-// カレンダー連携（ローカルICSファイル読み込み）
-ipcMain.handle('connect-calendar', async (_, { icsPath }) => {
-    config.calendarIcsPath = icsPath;
-    saveConfig(config);
-    return { success: true };
-});
-
-ipcMain.handle('sync-calendar', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
-    const icsPath = config.calendarIcsPath;
-    if (!icsPath || !fs.existsSync(icsPath)) return { success: false, error: 'ICSファイルが見つかりません' };
+// Phase 5: Vault全体フルテキスト検索
+ipcMain.handle('vault-search', async (_, { query }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
     try {
-        const icsContent = fs.readFileSync(icsPath, 'utf-8');
-        // シンプルなICSパーサー
-        const events = [];
-        const eventBlocks = icsContent.split('BEGIN:VEVENT').slice(1);
-        for (const block of eventBlocks) {
-            const get = (key) => { const m = block.match(new RegExp(`${key}[;:]([^\r\n]+)`)); return m ? m[1].trim() : ''; };
-            const dtStart = get('DTSTART');
-            const summary = get('SUMMARY');
-            if (dtStart && summary) {
-                events.push({ date: dtStart.replace(/T.*/, ''), summary, description: get('DESCRIPTION'), location: get('LOCATION') });
+        if (!query || typeof query !== 'string' || query.trim().length === 0) {
+            return { success: false, error: '検索クエリが空です' };
+        }
+        const MAX_RESULTS = 50;
+        const PREVIEW_CONTEXT = 20;
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        const results = [];
+        const lowerQuery = query.toLowerCase();
+
+        for (const file of allFiles) {
+            if (results.length >= MAX_RESULTS) break;
+            const relPath = path.relative(vaultPath, file);
+            const name = path.basename(file, '.md');
+
+            // ファイル名一致チェック
+            if (name.toLowerCase().includes(lowerQuery)) {
+                results.push({ path: file, relPath, name, matchType: 'filename', preview: name, lineNumber: null });
+            }
+
+            // 本文一致チェック
+            const content = await safeReadFile(file);
+            if (!content) continue;
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                if (results.length >= MAX_RESULTS) break;
+                const idx = lines[i].toLowerCase().indexOf(lowerQuery);
+                if (idx !== -1) {
+                    const start = Math.max(0, idx - PREVIEW_CONTEXT);
+                    const end = Math.min(lines[i].length, idx + query.length + PREVIEW_CONTEXT);
+                    const preview = (start > 0 ? '…' : '') + lines[i].substring(start, end) + (end < lines[i].length ? '…' : '');
+                    results.push({ path: file, relPath, name, matchType: 'content', preview, lineNumber: i + 1 });
+                }
             }
         }
 
-        // 今日のDaily Noteにイベントを追加
-        const today = new Date().toISOString().split('T')[0];
-        const todayEvents = events.filter(e => e.date === today.replace(/-/g, ''));
-        if (todayEvents.length === 0) return { success: true, synced: 0, message: '今日のイベントはありません' };
+        return { success: true, results };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
 
-        const dailyNotePath = path.join(VAULT_PATH, `${today}.md`);
-        let content = fs.existsSync(dailyNotePath) ? fs.readFileSync(dailyNotePath, 'utf-8') : `# ${today}\n\n`;
-        if (!content.includes('## 📅 今日の予定')) {
-            content += `\n## 📅 今日の予定\n`;
-            for (const e of todayEvents) {
-                content += `- ${e.summary}${e.location ? ` @ ${e.location}` : ''}\n`;
+// Phase 5: 重複・類似ノート検出
+ipcMain.handle('find-duplicate-notes', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+
+        // Levenshtein距離の計算
+        const levenshtein = (a, b) => {
+            const m = a.length, n = b.length;
+            const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+            for (let i = 0; i <= m; i++) dp[i][0] = i;
+            for (let j = 0; j <= n; j++) dp[0][j] = j;
+            for (let i = 1; i <= m; i++) {
+                for (let j = 1; j <= n; j++) {
+                    dp[i][j] = a[i - 1] === b[j - 1]
+                        ? dp[i - 1][j - 1]
+                        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+                }
             }
-            fs.writeFileSync(dailyNotePath, content, 'utf-8');
+            return dp[m][n];
+        };
+
+        // ノート情報を収集（性能のため500ファイル上限）
+        const MAX_NOTES = 500;
+        const targetFiles = allFiles.slice(0, MAX_NOTES);
+        const notes = [];
+        for (const file of targetFiles) {
+            const name = path.basename(file, '.md');
+            const content = await safeReadFile(file);
+            const snippet = content ? content.replace(/^---[\s\S]*?---\s*/, '').substring(0, 200) : '';
+            notes.push({ path: file, name, snippet });
         }
-        return { success: true, synced: todayEvents.length };
+
+        const duplicates = [];
+        for (let i = 0; i < notes.length; i++) {
+            for (let j = i + 1; j < notes.length; j++) {
+                const a = notes[i], b = notes[j];
+
+                // タイトル類似度チェック（Levenshtein距離）
+                const maxLen = Math.max(a.name.length, b.name.length);
+                if (maxLen > 0) {
+                    const dist = levenshtein(a.name.toLowerCase(), b.name.toLowerCase());
+                    const titleSimilarity = 1 - dist / maxLen;
+                    if (titleSimilarity >= 0.8) {
+                        duplicates.push({
+                            noteA: { path: a.path, name: a.name },
+                            noteB: { path: b.path, name: b.name },
+                            similarity: Math.round(titleSimilarity * 100),
+                            reason: 'title'
+                        });
+                        continue;
+                    }
+                }
+
+                // 内容の最初の200文字の類似度チェック
+                if (a.snippet.length >= 50 && b.snippet.length >= 50) {
+                    const snippetMaxLen = Math.max(a.snippet.length, b.snippet.length);
+                    const snippetDist = levenshtein(a.snippet, b.snippet);
+                    const contentSimilarity = 1 - snippetDist / snippetMaxLen;
+                    if (contentSimilarity >= 0.8) {
+                        duplicates.push({
+                            noteA: { path: a.path, name: a.name },
+                            noteB: { path: b.path, name: b.name },
+                            similarity: Math.round(contentSimilarity * 100),
+                            reason: 'content'
+                        });
+                    }
+                }
+            }
+        }
+
+        return { success: true, duplicates };
     } catch (e) {
         return { success: false, error: e.message };
     }
 });
 
-// Webhook設定
-ipcMain.handle('get-webhook-config', () => {
-    return { success: true, config: config.webhooks || {} };
-});
-
-ipcMain.handle('save-webhook-config', (_, webhookConfig) => {
-    config.webhooks = webhookConfig;
-    saveConfig(config);
-    return { success: true };
-});
-
-// Anki連携
-ipcMain.handle('connect-anki', async (_, { ankiConnectUrl }) => {
-    config.ankiConnectUrl = ankiConnectUrl || 'http://localhost:8765';
-    saveConfig(config);
+// Phase 5: 一括タグ操作
+ipcMain.handle('batch-tag-operation', async (_, { operation, oldTag, newTag }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
     try {
-        const http = require('http');
-        const result = await new Promise((resolve) => {
-            const body = JSON.stringify({ action: 'version', version: 6 });
-            const req = http.request(config.ankiConnectUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' } }, (res) => {
-                let data = '';
-                res.on('data', chunk => { data += chunk; });
-                res.on('end', () => { resolve({ success: true, response: data }); });
-            });
-            req.on('error', (e) => resolve({ success: false, error: e.message }));
-            req.setTimeout(3000, () => { req.destroy(); resolve({ success: false, error: 'タイムアウト' }); });
-            req.write(body);
-            req.end();
-        });
-        return result;
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
+        if (!operation || !oldTag) {
+            return { success: false, error: 'operation と oldTag は必須です' };
+        }
+        if (operation === 'rename' && !newTag) {
+            return { success: false, error: 'rename操作にはnewTagが必要です' };
+        }
+        if (operation === 'merge' && !newTag) {
+            return { success: false, error: 'merge操作にはnewTagが必要です' };
+        }
 
-ipcMain.handle('sync-anki', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
-    try {
-        // フラッシュカードタグ付きノートを検索
-        const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
-        const cards = [];
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        const cleanOld = oldTag.replace(/^#/, '');
+        const cleanNew = newTag ? newTag.replace(/^#/, '') : '';
+        let affectedFiles = 0;
+
         for (const file of allFiles) {
             const content = await safeReadFile(file);
-            if (!content || !content.includes('#flashcard')) continue;
-            // Q: ... A: ... パターンを抽出
-            const qaRe = /(?:Q|質問|表)\s*[:：]\s*(.+?)(?:\n+)(?:A|回答|裏)\s*[:：]\s*(.+?)(?=\n(?:Q|質問|表)\s*[:：]|\n#|\n---|$)/gs;
-            let m;
-            while ((m = qaRe.exec(content)) !== null) {
-                cards.push({ front: m[1].trim(), back: m[2].trim(), source: path.basename(file, '.md') });
+            if (!content) continue;
+            let modified = content;
+            let changed = false;
+
+            // 本文中の #tag を処理（単語境界を考慮）
+            const tagRegex = new RegExp(`#${cleanOld.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[\\s,;.!?）」』\\]|$])`, 'g');
+            if (tagRegex.test(modified)) {
+                if (operation === 'delete') {
+                    modified = modified.replace(tagRegex, '');
+                } else {
+                    // rename または merge
+                    modified = modified.replace(tagRegex, `#${cleanNew}`);
+                }
+                changed = true;
+            }
+
+            // frontmatter の tags 配列を処理
+            const fmMatch = modified.match(/^---\n([\s\S]*?)\n---/);
+            if (fmMatch) {
+                const fmContent = fmMatch[1];
+                // tags: [tag1, tag2] 形式
+                const tagsArrayMatch = fmContent.match(/^(tags:\s*\[)(.*?)(\])/m);
+                if (tagsArrayMatch) {
+                    const tags = tagsArrayMatch[2].split(/,\s*/).map(t => t.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+                    const idx = tags.indexOf(cleanOld);
+                    if (idx !== -1) {
+                        if (operation === 'delete') {
+                            tags.splice(idx, 1);
+                        } else {
+                            // rename または merge
+                            if (tags.includes(cleanNew)) {
+                                tags.splice(idx, 1); // 既にnewTagが存在する場合は削除のみ
+                            } else {
+                                tags[idx] = cleanNew;
+                            }
+                        }
+                        const newFmContent = fmContent.replace(tagsArrayMatch[0], `${tagsArrayMatch[1]}${tags.join(', ')}${tagsArrayMatch[3]}`);
+                        modified = modified.replace(fmMatch[1], newFmContent);
+                        changed = true;
+                    }
+                }
+                // tags:\n  - tag1\n  - tag2 形式
+                const tagsListRegex = new RegExp(`^(\\s*-\\s*)${cleanOld.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'gm');
+                if (tagsListRegex.test(fmContent)) {
+                    let newFm = fmContent;
+                    if (operation === 'delete') {
+                        newFm = newFm.replace(tagsListRegex, '');
+                    } else {
+                        newFm = newFm.replace(tagsListRegex, `$1${cleanNew}`);
+                    }
+                    modified = modified.replace(fmMatch[1], newFm);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                // 空行の連続を整理
+                modified = modified.replace(/\n{3,}/g, '\n\n');
+                fs.writeFileSync(file, modified, 'utf-8');
+                affectedFiles++;
             }
         }
-        return { success: true, cards, count: cards.length };
+
+        return { success: true, affectedFiles };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// Phase 5: Vault変更トラッカー
+ipcMain.handle('get-vault-changes', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const lastScanDate = config.lastScanDate ? new Date(config.lastScanDate) : new Date(0);
+        const now = new Date();
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+
+        const created = [];
+        const modified = [];
+
+        for (const file of allFiles) {
+            try {
+                const stat = fs.statSync(file);
+                const relPath = path.relative(vaultPath, file);
+                const name = path.basename(file, '.md');
+                const fileInfo = { path: file, relPath, name, date: stat.mtime.toISOString() };
+
+                if (stat.birthtime > lastScanDate) {
+                    created.push(fileInfo);
+                } else if (stat.mtime > lastScanDate) {
+                    modified.push(fileInfo);
+                }
+            } catch (_) {
+                // statが取得できないファイルはスキップ
+            }
+        }
+
+        // スキャン日時を更新
+        config.lastScanDate = now.toISOString();
+        saveConfig(config);
+
+        return {
+            success: true,
+            created,
+            modified,
+            summary: {
+                created: created.length,
+                modified: modified.length,
+                total: created.length + modified.length
+            }
+        };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// タグクラウドデータ取得
+ipcMain.handle('get-tag-cloud', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const allMd = collectAllMdFiles(vaultPath);
+        // タグ名 → { count, files(Set) } のマップ
+        const tagMap = new Map();
+
+        const FRONTMATTER_TAGS_RE = /^tags:\s*\[([^\]]*)\]/m;
+        const FRONTMATTER_TAGS_LIST_RE = /^tags:\s*\n((?:\s*-\s*.+\n?)*)/m;
+        const INLINE_TAG_RE = /(?:^|\s)#([a-zA-Z\u3040-\u9FFF][\w\u3040-\u9FFF/-]*)/g;
+
+        for (const mdPath of allMd) {
+            try {
+                const content = safeReadFile(mdPath);
+                if (!content) continue;
+                const relPath = path.relative(vaultPath, mdPath);
+                const foundTags = new Set();
+
+                // frontmatterからタグを抽出
+                const fm = parseFrontmatter(content);
+                if (fm.exists) {
+                    // tags: [tag1, tag2] 形式
+                    const bracketMatch = fm.raw.match(FRONTMATTER_TAGS_RE);
+                    if (bracketMatch) {
+                        bracketMatch[1].split(',').forEach(t => {
+                            const trimmed = t.trim().replace(/^["']|["']$/g, '');
+                            if (trimmed) foundTags.add(trimmed);
+                        });
+                    }
+                    // tags:\n  - tag1 形式
+                    const listMatch = fm.raw.match(FRONTMATTER_TAGS_LIST_RE);
+                    if (listMatch) {
+                        listMatch[1].split('\n').forEach(line => {
+                            const m = line.match(/^\s*-\s*(.+)/);
+                            if (m) {
+                                const trimmed = m[1].trim().replace(/^["']|["']$/g, '');
+                                if (trimmed) foundTags.add(trimmed);
+                            }
+                        });
+                    }
+                }
+
+                // 本文中のインラインタグを抽出（frontmatter部分を除外）
+                const body = fm.exists ? content.slice(fm.bodyStart) : content;
+                let match;
+                while ((match = INLINE_TAG_RE.exec(body)) !== null) {
+                    foundTags.add(match[1]);
+                }
+
+                // マップに集計
+                for (const tag of foundTags) {
+                    if (!tagMap.has(tag)) {
+                        tagMap.set(tag, { count: 0, files: new Set() });
+                    }
+                    const entry = tagMap.get(tag);
+                    entry.count++;
+                    entry.files.add(relPath);
+                }
+            } catch (_) {
+                // 読み取れないファイルはスキップ
+            }
+        }
+
+        // countの降順でソートし、Setを配列に変換
+        const tags = Array.from(tagMap.entries())
+            .map(([name, data]) => ({ name, count: data.count, files: Array.from(data.files) }))
+            .sort((a, b) => b.count - a.count);
+
+        return { success: true, tags };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ノート健康診断（単一ファイル）
+ipcMain.handle('note-health-check', async (_, { filePath }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        if (!isPathInsideVault(filePath)) {
+            return { success: false, error: 'Vault外のファイルは対象外です' };
+        }
+        const content = safeReadFile(filePath);
+        if (content === null) {
+            return { success: false, error: 'ファイルを読み込めませんでした' };
+        }
+
+        const MAX_SCORE = 100;
+        const details = [];
+        let totalScore = 0;
+
+        // 1. frontmatterの有無（+20点）
+        const fm = parseFrontmatter(content);
+        const fmScore = fm.exists ? 20 : 0;
+        details.push({
+            name: 'Frontmatter',
+            score: fmScore,
+            maxScore: 20,
+            advice: fm.exists ? 'Frontmatterが存在します' : 'Frontmatterを追加してメタデータを管理しましょう'
+        });
+        totalScore += fmScore;
+
+        // 2. タグの有無（+15点）
+        const hasInlineTag = /(?:^|\s)#[a-zA-Z\u3040-\u9FFF][\w\u3040-\u9FFF/-]*/m.test(
+            fm.exists ? content.slice(fm.bodyStart) : content
+        );
+        const hasFmTags = fm.exists && /^tags:/m.test(fm.raw);
+        const tagScore = (hasInlineTag || hasFmTags) ? 15 : 0;
+        details.push({
+            name: 'タグ',
+            score: tagScore,
+            maxScore: 15,
+            advice: tagScore > 0 ? 'タグが設定されています' : 'タグを追加して検索性を向上させましょう'
+        });
+        totalScore += tagScore;
+
+        // 3. 見出し構造（## があれば+15点）
+        const hasHeading = /^##\s+/m.test(content);
+        const headingScore = hasHeading ? 15 : 0;
+        details.push({
+            name: '見出し構造',
+            score: headingScore,
+            maxScore: 15,
+            advice: headingScore > 0 ? '見出しで構造化されています' : '## 見出しを追加してノートを構造化しましょう'
+        });
+        totalScore += headingScore;
+
+        // 4. 被リンク数（1以上で+15点）
+        const noteName = path.basename(filePath, '.md');
+        const allMd = collectAllMdFiles(vaultPath);
+        let backlinks = 0;
+        const backlinkRe = new RegExp(`\\[\\[${noteName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\|[^\\]]*)?\\]\\]`);
+        for (const mdPath of allMd) {
+            if (mdPath === filePath) continue;
+            try {
+                const otherContent = safeReadFile(mdPath);
+                if (otherContent && backlinkRe.test(otherContent)) {
+                    backlinks++;
+                }
+            } catch (_) {
+                // スキップ
+            }
+        }
+        const backlinkScore = backlinks >= 1 ? 15 : 0;
+        details.push({
+            name: '被リンク',
+            score: backlinkScore,
+            maxScore: 15,
+            advice: backlinkScore > 0
+                ? `${backlinks}件の被リンクがあります`
+                : '他のノートからリンクされていません。関連ノートからリンクを張りましょう'
+        });
+        totalScore += backlinkScore;
+
+        // 5. 発リンク数（1以上で+10点）
+        const outgoingLinks = (content.match(/\[\[[^\]]+\]\]/g) || []).length;
+        const outlinkScore = outgoingLinks >= 1 ? 10 : 0;
+        details.push({
+            name: '発リンク',
+            score: outlinkScore,
+            maxScore: 10,
+            advice: outlinkScore > 0
+                ? `${outgoingLinks}件の発リンクがあります`
+                : '他のノートへのリンクを追加してネットワークを広げましょう'
+        });
+        totalScore += outlinkScore;
+
+        // 6. 適切な文字数（200-5000文字で+15点）
+        const MIN_CHARS = 200;
+        const MAX_CHARS = 5000;
+        const charCount = content.length;
+        const charScore = (charCount >= MIN_CHARS && charCount <= MAX_CHARS) ? 15 : 0;
+        details.push({
+            name: '文字数',
+            score: charScore,
+            maxScore: 15,
+            advice: charCount < MIN_CHARS
+                ? `${charCount}文字です。もう少し内容を充実させましょう（${MIN_CHARS}文字以上推奨）`
+                : charCount > MAX_CHARS
+                    ? `${charCount}文字です。ノートの分割を検討しましょう（${MAX_CHARS}文字以下推奨）`
+                    : `${charCount}文字で適切な長さです`
+        });
+        totalScore += charScore;
+
+        // 7. 最終更新日が1年以内（+10点）
+        const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+        const stat = fs.statSync(filePath);
+        const isRecent = (Date.now() - stat.mtime.getTime()) < ONE_YEAR_MS;
+        const recencyScore = isRecent ? 10 : 0;
+        details.push({
+            name: '最終更新',
+            score: recencyScore,
+            maxScore: 10,
+            advice: isRecent
+                ? '1年以内に更新されています'
+                : '1年以上更新されていません。内容を見直しましょう'
+        });
+        totalScore += recencyScore;
+
+        return { success: true, score: totalScore, maxScore: MAX_SCORE, details };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ワンクリック自動整理
+ipcMain.handle('auto-organize', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const steps = [];
+
+        // ステップ1: frontmatterが無いノートに基本frontmatterを追加
+        const allMd = collectAllMdFiles(vaultPath);
+        let fmAddedCount = 0;
+        const fmAddedFiles = [];
+        for (const mdPath of allMd) {
+            try {
+                const content = safeReadFile(mdPath);
+                if (!content) continue;
+                const fm = parseFrontmatter(content);
+                if (!fm.exists) {
+                    const stat = fs.statSync(mdPath);
+                    const createdDate = stat.birthtime.toISOString().split('T')[0];
+                    const newContent = `---\ncreated: ${createdDate}\ntags: []\n---\n\n${content}`;
+                    fs.writeFileSync(mdPath, newContent, 'utf-8');
+                    fmAddedCount++;
+                    fmAddedFiles.push(path.relative(vaultPath, mdPath));
+                }
+            } catch (_) {
+                // 書き込めないファイルはスキップ
+            }
+        }
+        steps.push({
+            name: 'Frontmatter追加',
+            action: 'frontmatterが無いノートに基本frontmatterを追加',
+            count: fmAddedCount,
+            details: fmAddedFiles
+        });
+
+        // ステップ2: 空フォルダを削除（深い階層から順に処理）
+        let emptyRemoved = 0;
+        const removedDirs = [];
+        const removeEmptyDirs = (dir) => {
+            try {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (entry.isDirectory()) {
+                        const fullPath = path.join(dir, entry.name);
+                        // .obsidianフォルダは除外
+                        if (entry.name === '.obsidian' || entry.name === '.trash') continue;
+                        removeEmptyDirs(fullPath);
+                    }
+                }
+                // 再読み込みして空かどうか確認（vaultルートは除外）
+                if (dir !== vaultPath) {
+                    const remaining = fs.readdirSync(dir);
+                    if (remaining.length === 0) {
+                        fs.rmdirSync(dir);
+                        emptyRemoved++;
+                        removedDirs.push(path.relative(vaultPath, dir));
+                    }
+                }
+            } catch (_) {
+                // アクセスできないディレクトリはスキップ
+            }
+        };
+        removeEmptyDirs(vaultPath);
+        steps.push({
+            name: '空フォルダ削除',
+            action: '中身のないフォルダを削除',
+            count: emptyRemoved,
+            details: removedDirs
+        });
+
+        // ステップ3: リンクのcase mismatch修正
+        // 全ノート名のマップを構築（小文字 → 正しいノート名）
+        const noteNameMap = new Map();
+        const currentAllMd = collectAllMdFiles(vaultPath);
+        for (const mdPath of currentAllMd) {
+            const name = path.basename(mdPath, '.md');
+            noteNameMap.set(name.toLowerCase(), name);
+        }
+
+        let linkFixCount = 0;
+        const linkFixFiles = [];
+        const WIKILINK_RE = /\[\[([^\]|#]+)([#|][^\]]*)?]]/g;
+        for (const mdPath of currentAllMd) {
+            try {
+                const content = safeReadFile(mdPath);
+                if (!content) continue;
+                let modified = false;
+                const newContent = content.replace(WIKILINK_RE, (match, linkTarget, rest) => {
+                    const trimmed = linkTarget.trim();
+                    const lower = trimmed.toLowerCase();
+                    const correct = noteNameMap.get(lower);
+                    // 大文字小文字が一致しない場合のみ修正
+                    if (correct && correct !== trimmed) {
+                        modified = true;
+                        return `[[${correct}${rest || ''}]]`;
+                    }
+                    return match;
+                });
+                if (modified) {
+                    fs.writeFileSync(mdPath, newContent, 'utf-8');
+                    linkFixCount++;
+                    linkFixFiles.push(path.relative(vaultPath, mdPath));
+                }
+            } catch (_) {
+                // スキップ
+            }
+        }
+        steps.push({
+            name: 'リンクcase修正',
+            action: 'ウィキリンクの大文字小文字の不一致を修正',
+            count: linkFixCount,
+            details: linkFixFiles
+        });
+
+        return { success: true, steps };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// === Phase 6: 高度なノート管理 ===
+
+// 孤立ノート検出
+ipcMain.handle('find-orphan-notes', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        // 全ノートの名前（拡張子なし）をMapで管理
+        const noteNames = new Map();
+        for (const f of allFiles) {
+            const relPath = path.relative(vaultPath, f);
+            const name = path.basename(f, '.md');
+            noteNames.set(name, { path: f, relPath });
+        }
+        // 全ファイルから [[リンク]] を収集し、リンクされているノート名を集める
+        const linkedNames = new Set();
+        for (const f of allFiles) {
+            const content = safeReadFile(f);
+            if (!content) continue;
+            const linkRegex = /\[\[([^\]|#]+)(?:[|#][^\]]*?)?\]\]/g;
+            let match;
+            while ((match = linkRegex.exec(content)) !== null) {
+                linkedNames.add(match[1].trim());
+            }
+        }
+        // どこからもリンクされていないノートを抽出
+        const orphans = [];
+        for (const [name, info] of noteNames) {
+            if (!linkedNames.has(name)) {
+                const content = safeReadFile(info.path) || '';
+                orphans.push({
+                    path: info.path,
+                    relPath: info.relPath,
+                    name,
+                    charCount: content.length
+                });
+            }
+        }
+        return { success: true, orphans };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// バッチリネーム
+ipcMain.handle('batch-rename-notes', async (_, { pattern, replacement, useRegex, preview }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        const regex = useRegex ? new RegExp(pattern, 'g') : null;
+        const renamed = [];
+        for (const f of allFiles) {
+            const oldName = path.basename(f, '.md');
+            let newName;
+            if (regex) {
+                newName = oldName.replace(regex, replacement);
+            } else {
+                newName = oldName.split(pattern).join(replacement);
+            }
+            if (newName !== oldName && newName.trim() !== '') {
+                renamed.push({ oldName, newName, path: f });
+            }
+        }
+        // プレビューモードならリネーム結果のみ返す
+        if (preview) {
+            return { success: true, renamed, count: renamed.length };
+        }
+        // 実際にリネーム実行
+        for (const item of renamed) {
+            const dir = path.dirname(item.path);
+            const newPath = path.join(dir, `${item.newName}.md`);
+            if (fs.existsSync(newPath)) continue; // 衝突回避
+            fs.renameSync(item.path, newPath);
+            item.path = newPath;
+            // 全ファイル内のリンクを更新
+            const mdFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+            for (const mdFile of mdFiles) {
+                let content = safeReadFile(mdFile);
+                if (!content) continue;
+                const oldLink = `[[${item.oldName}]]`;
+                const newLink = `[[${item.newName}]]`;
+                if (content.includes(oldLink)) {
+                    content = content.split(oldLink).join(newLink);
+                    fs.writeFileSync(mdFile, content, 'utf-8');
+                }
+                // エイリアス付きリンクも更新
+                const escapedOldName = item.oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const aliasRegex = new RegExp(`\\[\\[${escapedOldName}\\|`, 'g');
+                if (aliasRegex.test(content)) {
+                    content = content.replace(aliasRegex, `[[${item.newName}|`);
+                    fs.writeFileSync(mdFile, content, 'utf-8');
+                }
+            }
+        }
+        return { success: true, renamed, count: renamed.length };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// デイリーノート作成
+ipcMain.handle('create-daily-note', async (_, args) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const template = args && args.template ? args.template : null;
+        const today = new Date();
+        const dateStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
+        const dailyDir = path.join(vaultPath, 'Daily Notes');
+        fs.mkdirSync(dailyDir, { recursive: true });
+        const filePath = path.join(dailyDir, `${dateStr}.md`);
+        if (fs.existsSync(filePath)) {
+            return { success: false, error: `デイリーノート ${dateStr} は既に存在します` };
+        }
+        // 前日の未完了タスクを検索
+        const carryOverTasks = [];
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().slice(0, 10);
+        const yesterdayPath = path.join(dailyDir, `${yesterdayStr}.md`);
+        if (fs.existsSync(yesterdayPath)) {
+            const yesterdayContent = safeReadFile(yesterdayPath) || '';
+            const taskRegex = /^- \[ \] (.+)$/gm;
+            let match;
+            while ((match = taskRegex.exec(yesterdayContent)) !== null) {
+                carryOverTasks.push(match[1]);
+            }
+        }
+        // ノート内容を生成
+        let content;
+        if (template) {
+            content = template
+                .replace(/\{\{date\}\}/g, dateStr)
+                .replace(/\{\{today\}\}/g, dateStr);
+        } else {
+            const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+            const dayOfWeek = dayNames[today.getDay()];
+            content = `---\ntags: [daily]\ncreated: ${dateStr}\n---\n\n# ${dateStr} (${dayOfWeek})\n\n## TODO\n\n- [ ] \n\n## メモ\n\n\n\n## ふりかえり\n\n\n`;
+        }
+        // 未完了タスクを引き継ぎ
+        if (carryOverTasks.length > 0) {
+            const taskLines = carryOverTasks.map(t => `- [ ] ${t}`).join('\n');
+            content += `\n## 前日からの引き継ぎ\n\n${taskLines}\n`;
+        }
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return { success: true, filePath, carryOverTasks };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ブックマーク管理
+ipcMain.handle('manage-bookmarks', async (_, { action, filePath }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        if (!config.bookmarks) config.bookmarks = [];
+        if (action === 'add') {
+            if (!filePath) return { success: false, error: 'ファイルパスが必要です' };
+            if (!isPathInsideVault(filePath)) return { success: false, error: 'Vault外のファイルは追加できません' };
+            if (!config.bookmarks.includes(filePath)) {
+                config.bookmarks.push(filePath);
+                saveConfig(config);
+            }
+        } else if (action === 'remove') {
+            if (!filePath) return { success: false, error: 'ファイルパスが必要です' };
+            config.bookmarks = config.bookmarks.filter(b => b !== filePath);
+            saveConfig(config);
+        } else if (action !== 'list') {
+            return { success: false, error: `不明なアクション: ${action}` };
+        }
+        // ブックマーク一覧を返す（存在するファイルのみ）
+        const bookmarks = config.bookmarks
+            .filter(b => fs.existsSync(b))
+            .map(b => ({
+                path: b,
+                relPath: path.relative(vaultPath, b),
+                name: path.basename(b, '.md')
+            }));
+        return { success: true, bookmarks };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// フォルダ構造ビジュアライザー用データ
+ipcMain.handle('get-folder-tree', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const buildTree = (dirPath) => {
+            const name = path.basename(dirPath);
+            const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+            let noteCount = 0;
+            let size = 0;
+            const children = [];
+            for (const entry of entries) {
+                // .obsidianや隠しフォルダをスキップ
+                if (entry.name.startsWith('.')) continue;
+                const fullPath = path.join(dirPath, entry.name);
+                if (entry.isDirectory()) {
+                    const child = buildTree(fullPath);
+                    children.push(child);
+                    noteCount += child.noteCount;
+                    size += child.size;
+                } else if (entry.name.endsWith('.md')) {
+                    noteCount++;
+                    try {
+                        const stat = fs.statSync(fullPath);
+                        size += stat.size;
+                    } catch (_) {
+                        // statに失敗しても続行
+                    }
+                }
+            }
+            return { name, path: dirPath, noteCount, size, children };
+        };
+        const tree = buildTree(vaultPath);
+        return { success: true, tree };
     } catch (e) {
         return { success: false, error: e.message };
     }

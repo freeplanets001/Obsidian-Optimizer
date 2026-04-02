@@ -354,6 +354,14 @@ function bindAllButtons() {
     safe('btn-org-scan-links', orgScanLinks);
     safe('btn-org-normalize-links', orgNormalizeLinks);
     safe('btn-org-scan-all', orgScanAll);
+
+    // カテゴリ全開/全閉
+    safe('btn-org-expand-all', () => {
+        document.querySelectorAll('.org-category').forEach(d => d.open = true);
+    });
+    safe('btn-org-collapse-all', () => {
+        document.querySelectorAll('.org-category').forEach(d => d.open = false);
+    });
 }
 
 function bindTabNav() {
@@ -5978,8 +5986,13 @@ async function orgScanAll() {
     if (btn) { btn.disabled = true; btn.textContent = '⏳ 一括スキャン中...'; }
     const summaryEl = $('org-all-summary');
     const contentEl = $('org-all-summary-content');
+    const progressEl = $('org-scan-progress');
+    const progressBar = $('org-scan-progress-bar');
+    const progressLabel = $('org-scan-progress-label');
+    const progressCount = $('org-scan-progress-count');
     if (summaryEl) summaryEl.style.display = 'block';
-    if (contentEl) contentEl.innerHTML = '<div class="org-loading"><div class="spinner-sm"></div><span>全ツールをスキャン中...</span></div>';
+    if (contentEl) contentEl.innerHTML = '';
+    if (progressEl) progressEl.style.display = '';
 
     const results = [];
     const tools = [
@@ -5992,33 +6005,97 @@ async function orgScanAll() {
         { name: '長文分割', icon: '✂️', fn: orgScanSplit, id: 'split' },
     ];
 
-    for (const tool of tools) {
-        try { await tool.fn(); } catch (_) { /* individual errors handled inside */ }
-        // 各ツールの結果サマリーを収集
+    for (let i = 0; i < tools.length; i++) {
+        const tool = tools[i];
+        const pct = Math.round(((i) / tools.length) * 100);
+        if (progressBar) progressBar.style.width = `${pct}%`;
+        if (progressLabel) progressLabel.textContent = `${tool.icon} ${tool.name}をスキャン中...`;
+        if (progressCount) progressCount.textContent = `${i + 1} / ${tools.length}`;
+        try { await tool.fn(); } catch (_) {}
         const summaryP = $(`org-${tool.id}-summary`);
         const text = summaryP ? summaryP.textContent : '';
         results.push({ ...tool, summary: text });
     }
 
-    // サマリーカード表示
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressLabel) progressLabel.textContent = '完了';
+    setTimeout(() => { if (progressEl) progressEl.style.display = 'none'; }, 1500);
+
+    // ダッシュボード形式サマリー: 優先度順（要対応→推奨→良好）
+    const issueItems = [];
+    const okItems = [];
+    for (const r of results) {
+        const hasIssue = r.summary && !r.summary.includes('✅') && !r.summary.includes('ありません') && !r.summary.includes('0件');
+        if (hasIssue) issueItems.push(r);
+        else okItems.push(r);
+    }
+
+    const dashStats = $('org-dashboard-stats');
+    if (dashStats) dashStats.textContent = `要対応: ${issueItems.length}件 / 良好: ${okItems.length}件`;
+
     if (contentEl) {
-        let html = '<div class="org-summary-items">';
-        for (const r of results) {
-            const hasIssue = r.summary && !r.summary.includes('✅') && !r.summary.includes('ありません') && !r.summary.includes('0件');
-            const status = hasIssue ? '⚠️' : '✅';
-            html += `<div class="org-summary-item ${hasIssue ? 'has-issue' : 'ok'}">
-                <span class="org-summary-icon">${r.icon}</span>
-                <span class="org-summary-name">${r.name}</span>
-                <span class="org-summary-status">${status}</span>
-                <span class="org-summary-text">${esc(r.summary || '完了')}</span>
-            </div>`;
+        let html = '';
+        if (issueItems.length > 0) {
+            html += '<div style="margin-bottom:8px;font-size:.78rem;font-weight:600;color:#fbbf24">⚠️ 要対応 (${issueItems.length}件)</div>'.replace('${issueItems.length}', issueItems.length);
+            html += '<div class="org-summary-items">';
+            for (const r of issueItems) {
+                html += `<div class="org-summary-item has-issue" style="cursor:pointer" onclick="document.querySelector('[id=org-${r.id}-body]')?.scrollIntoView({behavior:'smooth',block:'center'})">
+                    <span class="org-summary-icon">${r.icon}</span>
+                    <span class="org-summary-name">${r.name}</span>
+                    <span class="org-summary-status">⚠️</span>
+                    <span class="org-summary-text">${esc(r.summary || '')}</span>
+                </div>`;
+            }
+            html += '</div>';
         }
-        html += '</div>';
+        if (okItems.length > 0) {
+            html += '<div style="margin-top:12px;margin-bottom:8px;font-size:.78rem;font-weight:600;color:#34d399">✅ 良好 (${okItems.length}件)</div>'.replace('${okItems.length}', okItems.length);
+            html += '<div class="org-summary-items">';
+            for (const r of okItems) {
+                html += `<div class="org-summary-item ok">
+                    <span class="org-summary-icon">${r.icon}</span>
+                    <span class="org-summary-name">${r.name}</span>
+                    <span class="org-summary-status">✅</span>
+                    <span class="org-summary-text">${esc(r.summary || '問題なし')}</span>
+                </div>`;
+            }
+            html += '</div>';
+        }
         contentEl.innerHTML = html;
     }
 
-    if (btn) { btn.disabled = false; btn.textContent = '🔍 全ツールを一括スキャン'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 一括スキャン'; }
+
+    // カードにステータスインジケータを付与
+    for (const r of results) {
+        const card = document.querySelector(`#org-${r.id}-body`)?.closest('.organize-card');
+        if (!card) continue;
+        card.classList.remove('scanned-ok', 'scanned-warn');
+        const hasIssue = r.summary && !r.summary.includes('✅') && !r.summary.includes('ありません') && !r.summary.includes('0件');
+        card.classList.add(hasIssue ? 'scanned-warn' : 'scanned-ok');
+    }
+
     addLog('🧹 整理ツール一括スキャン完了', 'success');
+}
+
+// ── 整理ツール フィルター ──
+function initOrgFilter() {
+    document.querySelectorAll('.org-filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.org-filter-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            const filter = chip.dataset.orgFilter;
+            document.querySelectorAll('.organize-card').forEach(card => {
+                const badge = card.querySelector('.org-recommend-badge');
+                const badgeText = badge ? badge.textContent : '';
+                let show = true;
+                if (filter === 'recommend') show = badgeText.includes('おすすめ');
+                else if (filter === 'v5') show = badgeText.includes('v5.0');
+                else if (filter === 'ai') show = badgeText.includes('AI');
+                card.style.display = show ? '' : 'none';
+            });
+        });
+    });
 }
 
 let orgTitleData = [];
@@ -6074,7 +6151,44 @@ function orgRenderTitles(items) {
             </div>
         </div>
     `).join('');
+
+    // まとめてリネームボタンを表示
+    const renameBtn = $('btn-org-rename-titles');
+    if (renameBtn) renameBtn.style.display = '';
 }
+
+async function renameTitleNotes() {
+    if (!orgTitleData || orgTitleData.length === 0) {
+        showToast('先に「チェックする」を実行してください', 'warn');
+        return;
+    }
+    if (!confirm(`${orgTitleData.length}件のノートを提案タイトルにリネームします。よろしいですか？`)) return;
+    let renamed = 0;
+    let errors = 0;
+    for (let i = 0; i < orgTitleData.length; i++) {
+        const item = orgTitleData[i];
+        const newTitle = item.heuristicTitle;
+        try {
+            const res = await window.api.renameNote({ filePath: item.path, newTitle });
+            if (res.success) {
+                renamed++;
+                const el = $(`org-title-item-${i}`);
+                if (el) el.style.opacity = '0.4';
+            } else errors++;
+        } catch (_) { errors++; }
+    }
+    const reportEl = $('org-title-report');
+    if (reportEl) {
+        reportEl.style.display = '';
+        reportEl.innerHTML = `✅ リネーム完了: ${renamed}件成功${errors > 0 ? `、${errors}件失敗` : ''}`;
+    }
+    const renameBtn = $('btn-org-rename-titles');
+    if (renameBtn) renameBtn.style.display = 'none';
+    showToast(`${renamed}件のノートをリネームしました`, 'success');
+    addLog(`✏️ タイトル一括リネーム: ${renamed}件`, 'info', 'ORGANIZE');
+}
+
+
 
 async function orgRenameNote(idx, type) {
     const item = orgTitleData[idx];
@@ -6256,7 +6370,42 @@ function orgRenderInbox(data) {
             </div>
         </div>
     `).join('');
+
+    // まとめて移動ボタンを表示
+    const moveBtn = $('btn-org-move-inbox');
+    if (moveBtn) moveBtn.style.display = '';
 }
+
+async function moveInboxNotes() {
+    if (!orgInboxData || orgInboxData.length === 0) {
+        showToast('先に「チェックする」を実行してください', 'warn');
+        return;
+    }
+    if (!confirm(`${orgInboxData.length}件のノートを提案先フォルダに移動します。よろしいですか？`)) return;
+    let moved = 0;
+    let errors = 0;
+    for (let i = 0; i < orgInboxData.length; i++) {
+        const item = orgInboxData[i];
+        try {
+            const res = await window.api.moveNoteToFolder({ filePath: item.path, targetFolder: item.suggestedFolder });
+            if (res.success) {
+                moved++;
+                const el = $(`org-inbox-item-${i}`);
+                if (el) el.style.opacity = '0.4';
+            } else errors++;
+        } catch (_) { errors++; }
+    }
+    const reportEl = $('org-inbox-report');
+    if (reportEl) {
+        reportEl.style.display = '';
+        reportEl.innerHTML = `✅ 移動完了: ${moved}件成功${errors > 0 ? `、${errors}件失敗` : ''}`;
+    }
+    const moveBtn = $('btn-org-move-inbox');
+    if (moveBtn) moveBtn.style.display = 'none';
+    showToast(`${moved}件のノートを移動しました`, 'success');
+    addLog(`📂 Inbox整理完了: ${moved}件移動`, 'info', 'ORGANIZE');
+}
+
 
 async function orgMoveNote(idx) {
     const item = orgInboxData[idx];
@@ -6308,12 +6457,14 @@ function orgRenderSplit(notes) {
 
     if (summary) summary.textContent = `${notes.length}件の長文ノートが見つかりました`;
 
-    list.innerHTML = notes.slice(0, 30).map(note => `
+    splitNotesCache = notes;
+    list.innerHTML = notes.slice(0, 30).map((note, idx) => `
         <div class="org-item">
             <div class="org-item-row">
                 <span class="org-item-title" onclick="window.api.openInObsidian('${esc(note.path)}')">${esc(note.name)}</span>
                 <div class="org-item-actions">
                     <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(note.path)}')" title="プレビュー">👁️</button>
+                    <button class="ghost-btn small-btn" onclick="splitSingleNote(${idx})" title="見出し単位で分割">✂️ 分割</button>
                     <span class="org-item-badge warn">${note.charCount.toLocaleString()}文字</span>
                 </div>
             </div>
@@ -6323,6 +6474,110 @@ function orgRenderSplit(notes) {
         </div>
     `).join('');
 }
+
+// ── ノート分割実行 ──
+let splitNotesCache = [];
+
+window.splitSingleNote = async function(idx) {
+    const note = splitNotesCache[idx];
+    if (!note) return;
+    const ok = await showConfirmModal('ノート分割の確認', `「${note.name}」を見出し(##)単位で${note.headings.length}個のノートに分割します。\n元ノートはリンク付きの目次ノートに変換されます。`, '分割する');
+    if (!ok) return;
+    try {
+        const res = await window.api.splitNote({ filePath: note.path, headingLevel: 2 });
+        if (res.success) {
+            showToast(`✂️ ${res.count}個のノートに分割しました`, 'success');
+            addLog(`✂️ ノート分割: ${note.name} → ${res.count}ノート`, 'info', 'ORGANIZE');
+            orgScanSplit();
+        } else {
+            showToast(`エラー: ${res.error}`, 'error');
+        }
+    } catch (e) { showToast(`エラー: ${e.message}`, 'error'); }
+};
+
+// ── 機密情報マスク実行 ──
+let secretFindingsCache = [];
+
+window.maskAllSecrets = async function() {
+    if (secretFindingsCache.length === 0) return;
+    const ok = await showConfirmModal('機密情報マスクの確認', `${secretFindingsCache.length}件の機密情報を "***REDACTED***" に置換します。\nこの操作は元に戻せません。バックアップを推奨します。`, 'マスクする');
+    if (!ok) return;
+    try {
+        // ファイルごとにグループ化してマスク実行
+        const byFile = {};
+        for (const f of secretFindingsCache) {
+            const fullPath = f.fullPath;
+            if (!byFile[fullPath]) byFile[fullPath] = [];
+            byFile[fullPath].push(f);
+        }
+        let totalMasked = 0;
+        for (const [filePath, findings] of Object.entries(byFile)) {
+            const res = await window.api.maskSecrets({ filePath, findings });
+            if (res.success) totalMasked += res.maskedCount;
+        }
+        showToast(`🛡️ ${totalMasked}件の機密情報をマスクしました`, 'success');
+        addLog(`🛡️ 機密情報マスク: ${totalMasked}件`, 'info', 'ORGANIZE');
+        runScanSecrets();
+    } catch (e) { showToast(`エラー: ${e.message}`, 'error'); }
+};
+
+// ── 未参照画像検出・削除 ──
+let unreferencedImagesCache = [];
+
+async function findUnreferencedImages() {
+    const loading = $('org-images-loading');
+    const results = $('org-images-results');
+    const summary = $('org-images-summary');
+    const list = $('org-images-list');
+    const deleteBtn = $('btn-delete-unreferenced');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const res = await window.api.findUnreferencedImages();
+        if (loading) loading.style.display = 'none';
+        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (results) results.style.display = '';
+        unreferencedImagesCache = res.images;
+        const formatSize = (b) => b > 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : (b / 1024).toFixed(0) + ' KB';
+        const totalSize = res.images.reduce((sum, img) => sum + img.size, 0);
+        if (summary) summary.textContent = res.count === 0
+            ? '✅ 未参照の画像はありません'
+            : `⚠️ ${res.count}件の未参照画像を検出 (合計 ${formatSize(totalSize)})`;
+        if (list) {
+            list.innerHTML = res.images.slice(0, 30).map((img, i) => `
+                <div class="scan-row" style="padding:6px 10px;display:flex;align-items:center;gap:8px">
+                    <input type="checkbox" class="unreferenced-img-check" data-idx="${i}" checked style="margin:0">
+                    <span style="flex:1">${esc(img.relPath)}</span>
+                    <span style="font-size:.78rem;color:var(--muted)">${formatSize(img.size)}</span>
+                </div>
+            `).join('');
+        }
+        if (deleteBtn) deleteBtn.style.display = res.count > 0 ? '' : 'none';
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+window.deleteUnreferencedImages = async function() {
+    const checkboxes = document.querySelectorAll('.unreferenced-img-check:checked');
+    const paths = [];
+    checkboxes.forEach(cb => {
+        const idx = parseInt(cb.dataset.idx, 10);
+        if (unreferencedImagesCache[idx]) paths.push(unreferencedImagesCache[idx].path);
+    });
+    if (paths.length === 0) { showToast('削除する画像を選択してください', 'warning'); return; }
+    const ok = await showConfirmModal('未参照画像の削除', `${paths.length}件の未参照画像を完全に削除します。\nこの操作は元に戻せません。`, '削除する');
+    if (!ok) return;
+    try {
+        const res = await window.api.deleteUnreferencedImages({ paths });
+        if (res.success) {
+            const formatSize = (b) => b > 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : (b / 1024).toFixed(0) + ' KB';
+            showToast(`🗑️ ${res.deleted}件削除 (${formatSize(res.totalSize)}解放)`, 'success');
+            addLog(`🗑️ 未参照画像削除: ${res.deleted}件`, 'info', 'ORGANIZE');
+            findUnreferencedImages();
+        } else {
+            showToast(`エラー: ${res.error}`, 'error');
+        }
+    } catch (e) { showToast(`エラー: ${e.message}`, 'error'); }
+};
 
 // ── Feature 5: 空フォルダ検出 ──
 
@@ -6438,7 +6693,57 @@ function orgRenderTodos(results) {
         }
     }
     list.innerHTML = html;
+
+    // TODO一覧ノート作成ボタンを表示
+    const createBtn = $('btn-org-create-todo-note');
+    if (createBtn && totalTodos > 0) createBtn.style.display = '';
+
+    // グローバルに結果を保持
+    window._orgTodoResults = results;
 }
+
+async function createTodoNote() {
+    const results = window._orgTodoResults;
+    if (!results || results.length === 0) {
+        showToast('先に「チェックする」を実行してください', 'warn');
+        return;
+    }
+    // TODO一覧のMarkdownを作成
+    const today = new Date().toISOString().slice(0, 10);
+    let content = `# やり残しTODO一覧\n\n作成日: ${today}\n\n`;
+    for (const day of results) {
+        if (day.todos.length === 0) continue;
+        content += `## ${day.date}\n\n`;
+        for (const todo of day.todos) {
+            content += `- [ ] ${todo.text}\n`;
+        }
+        content += '\n';
+    }
+
+    try {
+        // write-file IPCを使って Vault に保存（patch-block経由でなく直接ファイル作成）
+        const result = await window.api.aiCreateNoteFromPrompt({
+            title: `やり残しTODO一覧 ${today}`,
+            content,
+            folder: '00 Inbox',
+        });
+        const reportEl = $('org-todo-report');
+        if (result.success || result.created) {
+            if (reportEl) {
+                reportEl.style.display = '';
+                reportEl.textContent = `✅ TODO一覧ノートを作成しました`;
+            }
+            const createBtn = $('btn-org-create-todo-note');
+            if (createBtn) createBtn.style.display = 'none';
+            showToast(`TODO一覧ノートを作成しました`, 'success');
+            addLog(`📝 TODO一覧ノート作成完了`, 'info', 'ORGANIZE');
+        } else {
+            showToast(result.error || 'ノートの作成に失敗しました', 'error');
+        }
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+
 
 // ── Feature 8: リンク正規化 ──
 
@@ -6521,6 +6826,7 @@ async function orgNormalizeLinks() {
 // ============================================================
 let allTasksCache = [];
 let currentTaskFilter = 'all';
+let currentTaskSource = 'registered'; // 'registered' | 'all'
 
 async function loadTaskTab() {
     // 保存先ドロップダウンを取得
@@ -6577,6 +6883,16 @@ function bindTaskEvents() {
             btn.classList.add('active');
             currentTaskFilter = btn.dataset.filter;
             renderTaskList(allTasksCache, currentTaskFilter);
+        });
+    });
+
+    // ソース切替ボタン（登録タスクのみ / Vault全体）
+    document.querySelectorAll('.task-source-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.task-source-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentTaskSource = btn.dataset.source;
+            refreshTaskList();
         });
     });
 }
@@ -6671,7 +6987,7 @@ async function refreshTaskList() {
     container.innerHTML = '<div class="task-empty">読み込み中...</div>';
 
     try {
-        const res = await window.api.getAllTasks();
+        const res = await window.api.getAllTasks({ source: currentTaskSource });
         if (!res.success) {
             container.innerHTML = `<div class="task-empty">${esc(res.error)}</div>`;
             return;
@@ -6797,6 +7113,457 @@ function renderTaskList(tasks, filter) {
     });
 }
 
+
+// ============================================================
+// v6.0 新整理ツール: 自動整理・タグクラウド・健康診断
+// ============================================================
+
+async function runAutoOrganize() {
+    const loading = $('org-auto-loading');
+    const results = $('org-auto-results');
+    const list = $('org-auto-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    const ok = await showConfirmModal('ワンクリック自動整理', 'メタデータ補完・空フォルダ削除・リンク修正を一括実行します。\n安全な操作のみですが、念のためGitバックアップを推奨します。', '実行する');
+    if (!ok) { if (loading) loading.style.display = 'none'; return; }
+    try {
+        const res = await window.api.autoOrganize();
+        if (loading) loading.style.display = 'none';
+        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (results) results.style.display = '';
+        const totalActions = res.steps.reduce((sum, s) => sum + s.count, 0);
+        if (list) {
+            list.innerHTML = res.steps.map(s => `
+                <div class="org-item" style="border-left:3px solid ${s.count > 0 ? '#34d399' : 'var(--border)'}">
+                    <div class="org-item-row">
+                        <span style="font-weight:600">${esc(s.name)}</span>
+                        <span class="org-item-badge ${s.count > 0 ? 'green' : ''}">${s.count}件</span>
+                    </div>
+                    ${s.count > 0 ? `<div class="org-item-detail">${esc(s.action)}</div>` : ''}
+                </div>
+            `).join('');
+            if (totalActions > 0) {
+                list.innerHTML += `<div style="margin-top:8px;padding:8px 12px;background:rgba(52,211,153,.08);border-radius:8px;font-size:.82rem;color:#34d399">✅ 合計 ${totalActions}件の自動整理を実行しました</div>`;
+            } else {
+                list.innerHTML += `<div style="margin-top:8px;padding:8px 12px;background:rgba(52,211,153,.08);border-radius:8px;font-size:.82rem;color:#34d399">✅ Vaultは既に整理されています</div>`;
+            }
+        }
+        addLog(`🚀 自動整理完了: ${totalActions}件`, 'success', 'ORGANIZE');
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runTagCloud() {
+    const loading = $('org-tagcloud-loading');
+    const results = $('org-tagcloud-results');
+    const summary = $('org-tagcloud-summary');
+    const cloud = $('org-tagcloud-cloud');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const res = await window.api.getTagCloud();
+        if (loading) loading.style.display = 'none';
+        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (summary) summary.textContent = `${res.tags.length}種類のタグを検出`;
+        if (cloud) {
+            const maxCount = Math.max(...res.tags.map(t => t.count), 1);
+            cloud.innerHTML = res.tags.slice(0, 60).map(t => {
+                const size = 0.7 + (t.count / maxCount) * 0.8; // 0.7rem〜1.5rem
+                const opacity = 0.5 + (t.count / maxCount) * 0.5;
+                const colors = ['#7c6cf8', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#fb923c'];
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                return `<span style="font-size:${size}rem;opacity:${opacity};color:${color};padding:2px 6px;cursor:pointer;transition:transform .15s" title="${t.count}件のノートで使用" onclick="this.style.transform=this.style.transform?'':'scale(1.2)'">#${esc(t.name)} <sup style="font-size:.6rem;opacity:.6">${t.count}</sup></span>`;
+            }).join('');
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function runHealthCheck() {
+    const pathInput = $('health-check-path');
+    const loading = $('org-health-loading');
+    const results = $('org-health-results');
+    const content = $('org-health-content');
+    const filePath = pathInput?.value?.trim();
+    if (!filePath) { showToast('ノートのパスを入力してください', 'warning'); if (pathInput) pathInput.focus(); return; }
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const res = await window.api.noteHealthCheck({ filePath });
+        if (loading) loading.style.display = 'none';
+        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (content) {
+            const scoreColor = res.score >= 80 ? '#34d399' : res.score >= 50 ? '#fbbf24' : '#f87171';
+            const grade = res.score >= 90 ? 'S' : res.score >= 80 ? 'A' : res.score >= 60 ? 'B' : res.score >= 40 ? 'C' : 'D';
+            content.innerHTML = `
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
+                    <div style="width:60px;height:60px;border-radius:50%;border:3px solid ${scoreColor};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                        <span style="font-size:1.3rem;font-weight:800;color:${scoreColor}">${res.score}</span>
+                    </div>
+                    <div>
+                        <div style="font-size:1rem;font-weight:700">ランク: <span style="color:${scoreColor}">${grade}</span></div>
+                        <div style="font-size:.78rem;color:var(--muted)">${res.score}/100点</div>
+                    </div>
+                </div>
+                <div style="display:grid;gap:4px">
+                    ${res.details.map(d => `
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.02)">
+                            <span style="font-size:.78rem;min-width:100px">${esc(d.name)}</span>
+                            <div style="flex:1;height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+                                <div style="height:100%;width:${(d.score / d.maxScore) * 100}%;background:${d.score === d.maxScore ? '#34d399' : d.score > 0 ? '#fbbf24' : '#f87171'};border-radius:2px"></div>
+                            </div>
+                            <span style="font-size:.72rem;color:var(--muted);min-width:40px;text-align:right">${d.score}/${d.maxScore}</span>
+                            ${d.score < d.maxScore ? `<span style="font-size:.7rem;color:#fbbf24" title="${esc(d.advice)}">💡</span>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+                ${res.details.filter(d => d.score < d.maxScore).length > 0 ? `
+                    <div style="margin-top:10px;padding:8px;border-radius:6px;background:rgba(251,191,36,.06);font-size:.78rem">
+                        <strong>改善アドバイス:</strong>
+                        <ul style="margin:4px 0 0;padding-left:18px;line-height:1.6">
+                            ${res.details.filter(d => d.score < d.maxScore).map(d => `<li>${esc(d.advice)}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : '<div style="margin-top:8px;color:#34d399;font-size:.82rem">🎉 このノートは完璧です！</div>'}
+            `;
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+// ============================================================
+// Phase 5: グローバル検索 ⌘K
+// ============================================================
+
+let searchDebounceTimer = null;
+
+function openGlobalSearch() {
+    const overlay = $('global-search-overlay');
+    const input = $('global-search-input');
+    if (overlay) overlay.style.display = 'flex';
+    if (input) { input.value = ''; input.focus(); }
+    const results = $('global-search-results');
+    if (results) results.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:.82rem">ノート名・タグ・本文で検索</div>';
+}
+
+function closeGlobalSearch() {
+    const overlay = $('global-search-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function initGlobalSearch() {
+    const overlay = $('global-search-overlay');
+    const input = $('global-search-input');
+
+    if (overlay) {
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) closeGlobalSearch(); });
+    }
+
+    if (input) {
+        input.addEventListener('input', () => {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(async () => {
+                const query = input.value.trim();
+                if (query.length < 2) return;
+                try {
+                    const res = await window.api.vaultSearch({ query });
+                    if (!res.success) return;
+                    renderSearchResults(res.results);
+                } catch (_) {}
+            }, 300);
+        });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeGlobalSearch();
+        });
+    }
+
+    // ⌘K / Ctrl+K ショートカット
+    document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            e.preventDefault();
+            openGlobalSearch();
+        }
+    });
+}
+
+function renderSearchResults(results) {
+    const container = $('global-search-results');
+    if (!container) return;
+    if (results.length === 0) {
+        container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:.82rem">結果なし</div>';
+        return;
+    }
+    container.innerHTML = results.map(r => `
+        <div class="command-item" style="cursor:pointer" onclick="window.api.openInObsidian('${esc(r.path)}');closeGlobalSearch()">
+            <span style="margin-right:8px">${r.matchType === 'filename' ? '📄' : '📝'}</span>
+            <div style="flex:1;overflow:hidden">
+                <div style="font-weight:600;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div>
+                ${r.preview ? `<div style="font-size:.75rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.preview)}</div>` : ''}
+            </div>
+            <span style="font-size:.7rem;color:var(--muted)">${esc(r.relPath)}</span>
+        </div>
+    `).join('');
+}
+
+// グローバルに公開
+window.closeGlobalSearch = closeGlobalSearch;
+
+// ============================================================
+// Phase 5: 重複ノート検出
+// ============================================================
+
+async function findDuplicateNotes() {
+    const loading = $('org-duplicates-loading');
+    const results = $('org-duplicates-results');
+    const summary = $('org-duplicates-summary');
+    const list = $('org-duplicates-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const res = await window.api.findDuplicateNotes();
+        if (loading) loading.style.display = 'none';
+        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (summary) summary.textContent = res.duplicates.length === 0 ? '✅ 重複ノートは見つかりませんでした' : `⚠️ ${res.duplicates.length}組の重複候補を検出`;
+        if (list) {
+            list.innerHTML = res.duplicates.slice(0, 20).map(d => `
+                <div class="org-item" style="display:flex;align-items:center;gap:8px;padding:8px">
+                    <span class="org-item-title" style="cursor:pointer;flex:1" onclick="window.api.openInObsidian('${esc(d.noteA.path)}')">${esc(d.noteA.name)}</span>
+                    <span style="color:var(--muted);font-size:.78rem">↔</span>
+                    <span class="org-item-title" style="cursor:pointer;flex:1" onclick="window.api.openInObsidian('${esc(d.noteB.path)}')">${esc(d.noteB.name)}</span>
+                    <span class="org-item-badge ${d.reason === 'content' ? 'warn' : ''}" style="font-size:.72rem">${d.reason === 'title' ? 'タイトル類似' : '内容類似'} ${Math.round(d.similarity * 100)}%</span>
+                </div>
+            `).join('');
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+// ============================================================
+// Phase 5: 一括タグ操作
+// ============================================================
+
+function openBatchTagModal() {
+    const modal = $('batch-tag-modal');
+    if (modal) modal.style.display = 'flex';
+    // 操作変更時のUI制御
+    const opEl = $('tag-operation');
+    const newRow = $('tag-new-name-row');
+    if (opEl && newRow) {
+        opEl.onchange = () => { newRow.style.display = opEl.value === 'delete' ? 'none' : ''; };
+    }
+}
+
+async function execBatchTagOp() {
+    const operation = $('tag-operation')?.value;
+    const oldTag = $('tag-old-name')?.value?.trim();
+    const newTag = $('tag-new-name')?.value?.trim();
+    const resultEl = $('tag-op-result');
+    if (!oldTag) { showToast('対象タグを入力してください', 'warning'); return; }
+    if (operation !== 'delete' && !newTag) { showToast('新しいタグ名を入力してください', 'warning'); return; }
+    try {
+        const res = await window.api.batchTagOperation({ operation, oldTag, newTag: newTag || '' });
+        if (res.success) {
+            if (resultEl) resultEl.innerHTML = `<span style="color:#34d399">✅ ${res.affectedFiles}件のファイルを更新しました</span>`;
+            addLog(`🏷️ タグ${operation}: #${oldTag} → ${newTag ? '#' + newTag : '(削除)'} (${res.affectedFiles}件)`, 'info', 'TAG');
+        } else {
+            if (resultEl) resultEl.innerHTML = `<span style="color:#f87171">❌ ${esc(res.error)}</span>`;
+        }
+    } catch (e) { if (resultEl) resultEl.innerHTML = `<span style="color:#f87171">❌ ${esc(e.message)}</span>`; }
+}
+
+// ============================================================
+// Phase 5: Vault変更トラッカー
+// ============================================================
+
+async function refreshChangeTracker() {
+    const content = $('change-tracker-content');
+    if (!content) return;
+    try {
+        const res = await window.api.getVaultChanges();
+        if (!res.success) { content.textContent = res.error; return; }
+        const s = res.summary;
+        if (s.created === 0 && s.modified === 0) {
+            content.innerHTML = '<span style="color:#34d399">✅ 前回スキャン以降、変更はありません</span>';
+            return;
+        }
+        let html = `<div style="display:flex;gap:16px;margin-bottom:8px">`;
+        if (s.created > 0) html += `<span style="color:#34d399">📄 新規: ${s.created}件</span>`;
+        if (s.modified > 0) html += `<span style="color:#fbbf24">✏️ 更新: ${s.modified}件</span>`;
+        html += `</div>`;
+        const items = [...res.created.slice(0, 5).map(f => ({ ...f, type: '新規' })), ...res.modified.slice(0, 5).map(f => ({ ...f, type: '更新' }))];
+        if (items.length > 0) {
+            html += items.map(f => `<div style="padding:2px 0;font-size:.78rem"><span style="color:${f.type === '新規' ? '#34d399' : '#fbbf24'}">${f.type}</span> ${esc(f.relPath || f.name)}</div>`).join('');
+        }
+        content.innerHTML = html;
+    } catch (e) { content.textContent = `エラー: ${e.message}`; }
+}
+
+// ============================================================
+// Phase 6: 孤立ノート救済
+// ============================================================
+
+async function findOrphanNotes() {
+    const loading = $('org-orphans-loading');
+    const results = $('org-orphans-results');
+    const summary = $('org-orphans-summary');
+    const list = $('org-orphans-list');
+    if (loading) loading.style.display = '';
+    if (results) results.style.display = 'none';
+    try {
+        const res = await window.api.findOrphanNotes();
+        if (loading) loading.style.display = 'none';
+        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (results) results.style.display = '';
+        if (summary) summary.textContent = res.orphans.length === 0 ? '✅ 孤立ノートはありません' : `🏝️ ${res.orphans.length}件の孤立ノートを検出`;
+        if (list) {
+            list.innerHTML = res.orphans.slice(0, 30).map(n => `
+                <div class="org-item">
+                    <div class="org-item-row">
+                        <span class="org-item-title" style="cursor:pointer" onclick="window.api.openInObsidian('${esc(n.path)}')">${esc(n.name)}</span>
+                        <div class="org-item-actions">
+                            <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(n.path)}')" title="プレビュー">👁️</button>
+                            <span class="org-item-badge" style="font-size:.72rem">${n.charCount.toLocaleString()}文字</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+// ============================================================
+// Phase 6: バッチリネーム
+// ============================================================
+
+function openBatchRenameModal() {
+    const modal = $('batch-rename-modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+async function previewBatchRename() {
+    const pattern = $('rename-pattern')?.value?.trim();
+    const replacement = $('rename-replacement')?.value ?? '';
+    const useRegex = $('rename-use-regex')?.checked || false;
+    const previewList = $('rename-preview-list');
+    if (!pattern) { showToast('パターンを入力してください', 'warning'); return; }
+    try {
+        const res = await window.api.batchRenameNotes({ pattern, replacement, useRegex, preview: true });
+        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (previewList) {
+            previewList.innerHTML = res.renamed.length === 0
+                ? '<div style="padding:8px;color:var(--muted)">一致するノートはありません</div>'
+                : res.renamed.map(r => `<div style="padding:4px 0"><span style="color:#f87171;text-decoration:line-through">${esc(r.oldName)}</span> → <span style="color:#34d399">${esc(r.newName)}</span></div>`).join('');
+        }
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function execBatchRename() {
+    const pattern = $('rename-pattern')?.value?.trim();
+    const replacement = $('rename-replacement')?.value ?? '';
+    const useRegex = $('rename-use-regex')?.checked || false;
+    if (!pattern) { showToast('パターンを入力してください', 'warning'); return; }
+    const ok = await showConfirmModal('バッチリネーム', 'プレビューで確認した内容でリネームを実行しますか？', 'リネーム実行');
+    if (!ok) return;
+    try {
+        const res = await window.api.batchRenameNotes({ pattern, replacement, useRegex, preview: false });
+        if (res.success) {
+            showToast(`✏️ ${res.count}件のノートをリネームしました`, 'success');
+            addLog(`✏️ バッチリネーム: ${res.count}件`, 'info', 'RENAME');
+            $('batch-rename-modal').style.display = 'none';
+        } else {
+            showToast(res.error, 'error');
+        }
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ============================================================
+// Phase 6: デイリーノート・ブックマーク・フォルダビジュアライザー
+// ============================================================
+
+async function createDailyNote() {
+    try {
+        const res = await window.api.createDailyNote({});
+        if (res.success) {
+            showToast(`📅 デイリーノートを作成しました${res.carryOverTasks > 0 ? ` (${res.carryOverTasks}件の未完了タスクを引き継ぎ)` : ''}`, 'success');
+            addLog(`📅 デイリーノート作成`, 'info', 'DAILY');
+            window.api.openInObsidian(res.filePath).catch(() => {});
+        } else {
+            showToast(res.error, 'error');
+        }
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function loadBookmarks() {
+    const container = $('bookmarks-list');
+    if (!container) return;
+    try {
+        const res = await window.api.manageBookmarks({ action: 'list' });
+        if (!res.success || res.bookmarks.length === 0) {
+            container.innerHTML = '<span style="color:var(--muted)">ブックマークはまだありません</span>';
+            return;
+        }
+        container.innerHTML = res.bookmarks.map(b => `
+            <div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+                <span style="cursor:pointer;flex:1" onclick="window.api.openInObsidian('${esc(b.path)}')">${esc(b.name)}</span>
+                <button class="ghost-btn" style="font-size:.7rem;padding:2px 6px" onclick="removeBookmark('${esc(b.path)}')">✕</button>
+            </div>
+        `).join('');
+    } catch (_) {}
+}
+
+async function addBookmark() {
+    try {
+        const res = await window.api.selectFavoriteNote();
+        if (!res || !res.filePath) return;
+        await window.api.manageBookmarks({ action: 'add', filePath: res.filePath });
+        showToast('📌 ブックマークに追加しました', 'success');
+        loadBookmarks();
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+window.removeBookmark = async function(filePath) {
+    try {
+        await window.api.manageBookmarks({ action: 'remove', filePath });
+        loadBookmarks();
+    } catch (_) {}
+};
+
+// ============================================================
+// Phase 5&6 イベント初期化
+// ============================================================
+
+function initPhase5And6() {
+    const safe = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+
+    // グローバル検索
+    initGlobalSearch();
+    safe('btn-quick-search', openGlobalSearch);
+
+    // ダッシュボード
+    safe('btn-refresh-changes', refreshChangeTracker);
+    safe('btn-quick-daily', createDailyNote);
+    safe('btn-quick-clipboard', clipboardToInbox);
+    safe('btn-quick-backup', gitBackup);
+    safe('btn-quick-tags', openBatchTagModal);
+    safe('btn-quick-rename', openBatchRenameModal);
+
+    // ブックマーク
+    safe('btn-add-bookmark', addBookmark);
+    loadBookmarks();
+
+    // 整理ツール
+    safe('btn-find-duplicates', findDuplicateNotes);
+    safe('btn-find-orphans', findOrphanNotes);
+
+    // タグ操作モーダル
+    safe('btn-exec-tag-op', execBatchTagOp);
+
+    // バッチリネームモーダル
+    safe('btn-preview-rename', previewBatchRename);
+    safe('btn-exec-rename', execBatchRename);
+
+    // 変更トラッカー初期化
+    refreshChangeTracker();
+}
 
 // ============================================================
 // オンボーディングウィザード
@@ -7519,6 +8286,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     // v5.0 初期化
     initV5Features();
+    // v6.0 Phase 5&6 初期化
+    setTimeout(() => initPhase5And6(), 600);
 });
 
 // ============================================================
@@ -7555,14 +8324,21 @@ function initV5Features() {
     safe('btn-load-review-queue', runLoadReviewQueue);
 
     // Phase 6: ツール拡充
+    safe('btn-auto-organize', runAutoOrganize);
+    safe('btn-tag-cloud', runTagCloud);
+    safe('btn-health-check', runHealthCheck);
     safe('btn-scan-secrets', runScanSecrets);
+    safe('btn-mask-secrets', () => window.maskAllSecrets());
     safe('btn-optimize-images', runOptimizeImages);
+    safe('btn-find-unreferenced-images', findUnreferencedImages);
+    safe('btn-delete-unreferenced', () => window.deleteUnreferencedImages());
     safe('btn-lint-check', () => runLintMarkdown(false));
     safe('btn-lint-autofix', () => runLintMarkdown(true));
     safe('btn-validate-schema', runValidateSchema);
     safe('btn-load-spreadsheet', runLoadSpreadsheet);
     safe('btn-build-dv-query', runBuildDataviewQuery);
     safe('btn-copy-dv-query', () => { const el = $('dv-query-output'); if (el) { navigator.clipboard.writeText(el.textContent); showToast('コピーしました', 'success'); } });
+    initDvPresets();
     safe('btn-ai-note-coach', runNoteCoach);
     safe('btn-ai-knowledge-gaps', runKnowledgeGaps);
     safe('btn-check-publish', runCheckPublish);
@@ -7571,21 +8347,29 @@ function initV5Features() {
     safe('btn-save-local-llm', saveLocalLlmConfig);
     safe('btn-test-local-llm', testLocalLlm);
     safe('btn-add-smart-rule', addSmartRule);
+    safe('btn-preview-smart-rules', previewSmartRules);
     safe('btn-execute-smart-rules', executeSmartRules);
-    safe('btn-connect-readwise', connectReadwise);
-    safe('btn-sync-readwise', syncReadwise);
-    safe('btn-connect-zotero', connectZotero);
-    safe('btn-sync-zotero', syncZotero);
-    safe('btn-connect-anki', connectAnki);
-    safe('btn-sync-anki', syncAnki);
-    safe('btn-sync-calendar', syncCalendar);
+    // v6.0 新連携
+    safe('btn-test-obsidian-uri', testObsidianUri);
+    safe('btn-git-status', gitStatusCheck);
+    safe('btn-git-backup', gitBackup);
+    safe('btn-git-log', gitShowLog);
+    safe('btn-git-init', gitInitVault);
+    safe('btn-export-notes', exportNotesAction);
+    safe('btn-clipboard-to-inbox', clipboardToInbox);
     safe('btn-export-preset', exportPreset);
     safe('btn-import-preset', importPreset);
+
+    // 整理ツール アクションボタン
+    safe('btn-org-move-inbox', moveInboxNotes);
+    safe('btn-org-rename-titles', renameTitleNotes);
+    safe('btn-org-create-todo-note', createTodoNote);
 
     // プリセット読み込み
     setTimeout(loadPresets, 800);
     // スマートルール読み込み
     setTimeout(loadSmartRules, 800);
+    setTimeout(loadSmartRulePresets, 800);
 
     // リンクヘルスカードの表示
     const linkHealthCard = $('link-health-card');
@@ -7671,6 +8455,82 @@ async function runPageRank() {
         html += `</div></div>`;
         container.innerHTML = html;
     } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function runBuildDataviewQuery() {
+    try {
+        const queryType = $('dv-query-type')?.value;
+        const source = $('dv-source')?.value;
+        const fields = $('dv-fields')?.value?.split(',').map(s => s.trim()).filter(Boolean);
+        const filterBy = $('dv-filter')?.value;
+        const sortBy = $('dv-sort')?.value;
+        const limitStr = $('dv-limit')?.value;
+        const limit = limitStr ? parseInt(limitStr) : null;
+
+        const result = await window.api.buildDataviewQuery({ queryType, source, fields, filterBy, sortBy, limit });
+        if (result.success) {
+            const out = $('dv-query-output');
+            const resEl = $('dv-query-result');
+            if (out && resEl) {
+                out.textContent = result.query;
+                resEl.style.display = '';
+            }
+        } else {
+            showToast(result.error, 'error');
+        }
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+// Dataviewプリセット定義
+const DV_PRESETS = {
+    recent: { type: 'table', source: '', fields: 'file.mtime AS "更新日", file.folder AS "フォルダ"', filter: '', sort: 'file.mtime DESC', limit: '10' },
+    tag: { type: 'list', source: '', fields: '', filter: 'contains(tags, "#タグ名")', sort: 'file.name ASC', limit: '50' },
+    todo: { type: 'task', source: '', fields: '', filter: '!completed', sort: '', limit: '' },
+    long: { type: 'table', source: '', fields: 'file.size AS "サイズ", file.folder AS "フォルダ", length(file.content) AS "文字数"', filter: 'length(file.content) > 3000', sort: 'file.size DESC', limit: '20' },
+    orphan: { type: 'table', source: '', fields: 'file.inlinks AS "被リンク", file.mtime AS "更新日"', filter: 'length(file.inlinks) = 0', sort: 'file.mtime DESC', limit: '30' },
+};
+
+function applyDvPreset(presetName) {
+    const p = DV_PRESETS[presetName];
+    if (!p) return;
+    const set = (id, val) => { const el = $(id); if (el) el.value = val; };
+    set('dv-query-type', p.type);
+    set('dv-source', p.source);
+    set('dv-fields', p.fields);
+    set('dv-filter', p.filter);
+    set('dv-sort', p.sort);
+    set('dv-limit', p.limit);
+    // フィールド行の表示切替
+    const fieldsLabel = $('dv-fields-label');
+    if (fieldsLabel) fieldsLabel.closest('div')?.style && (fieldsLabel.parentElement.style.display = p.type === 'table' ? '' : '');
+    // 自動生成
+    runBuildDataviewQuery();
+}
+
+function clearDvForm() {
+    ['dv-source', 'dv-fields', 'dv-filter', 'dv-limit'].forEach(id => { const el = $(id); if (el) el.value = ''; });
+    const typeEl = $('dv-query-type'); if (typeEl) typeEl.value = 'table';
+    const sortEl = $('dv-sort'); if (sortEl) sortEl.value = '';
+    const resEl = $('dv-query-result'); if (resEl) resEl.style.display = 'none';
+}
+
+function initDvPresets() {
+    document.querySelectorAll('.dv-preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => applyDvPreset(btn.dataset.preset));
+    });
+    const clearBtn = $('btn-clear-dv');
+    if (clearBtn) clearBtn.addEventListener('click', clearDvForm);
+    // 表示形式変更時にフィールド行のヒントを更新
+    const typeEl = $('dv-query-type');
+    if (typeEl) {
+        typeEl.addEventListener('change', () => {
+            const fieldsInput = $('dv-fields');
+            if (fieldsInput) {
+                if (typeEl.value === 'table') fieldsInput.placeholder = 'カンマ区切り 例: file.name, file.mtime, tags';
+                else fieldsInput.placeholder = '(LIST/TASKでは不要)';
+            }
+        });
+    }
 }
 
 // --- Phase 1: リンク予測 ---
@@ -7989,6 +8849,12 @@ async function runScanSecrets() {
         if (!result.success) { showToast(result.error, 'error'); return; }
         if (results) results.style.display = '';
         if (summary) summary.textContent = result.count === 0 ? '✅ 機密情報は検出されませんでした' : `⚠️ ${result.count}件の機密情報を検出`;
+        // マスク可能な機密情報をキャッシュ（メール・電話・クレカは除外）
+        const maskableTypes = ['APIキー', 'AWS', 'GitHub', 'OpenAI', 'パスワード', 'Slack', 'Bearer', 'SSH秘密鍵'];
+        secretFindingsCache = result.findings.filter(f => maskableTypes.some(t => f.type.includes(t))).map(f => ({ ...f, fullPath: f.file }));
+        // fullPathにはVault相対パスが入っているのでそのまま使う
+        const maskBtn = $('btn-mask-secrets');
+        if (maskBtn) maskBtn.style.display = secretFindingsCache.length > 0 ? '' : 'none';
         if (list) {
             let html = '';
             for (const f of result.findings) {
@@ -8094,31 +8960,76 @@ async function runLoadSpreadsheet() {
         if (results) results.style.display = '';
         if (!container) return;
         const cols = result.columns.slice(0, 10);
-        let html = `<p style="font-size:.78rem;opacity:.6;margin-bottom:8px">${result.totalFiles}ファイル / ${cols.length}フィールド</p>`;
-        html += `<table class="help-table" style="font-size:.75rem"><thead><tr><th>ノート</th>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`;
-        for (const row of result.rows.slice(0, 50)) {
-            html += `<tr><td>${esc(row.basename)}</td>${cols.map(c => `<td>${esc(row.frontmatter[c] || '')}</td>`).join('')}</tr>`;
+        // 変更追跡用
+        window._spreadsheetData = result.rows.slice(0, 50);
+        window._spreadsheetCols = cols;
+        window._spreadsheetEdits = {};
+
+        let html = `<p style="font-size:.78rem;opacity:.6;margin-bottom:8px">${result.totalFiles}ファイル / ${cols.length}フィールド — <span style="color:var(--accent)">セルをクリックして編集</span></p>`;
+        html += `<table class="help-table" style="font-size:.75rem" id="spreadsheet-table"><thead><tr><th>ノート</th>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`;
+        for (let rowIdx = 0; rowIdx < window._spreadsheetData.length; rowIdx++) {
+            const row = window._spreadsheetData[rowIdx];
+            html += `<tr><td style="white-space:nowrap;color:var(--text-muted)">${esc(row.basename)}</td>`;
+            for (const c of cols) {
+                const val = row.frontmatter[c] || '';
+                html += `<td contenteditable="true" data-row="${rowIdx}" data-col="${esc(c)}" data-original="${esc(val)}" style="min-width:80px;cursor:text;outline:none" oninput="markSpreadsheetEdit(this)">${esc(val)}</td>`;
+            }
+            html += `</tr>`;
         }
         html += `</tbody></table>`;
+        html += `<div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+            <button class="primary-btn small-btn" id="btn-save-spreadsheet">💾 変更を保存</button>
+            <span id="spreadsheet-edit-count" style="font-size:.78rem;color:var(--text-muted)"></span>
+        </div>`;
         container.innerHTML = html;
+
+        // 保存ボタンのイベントを動的にバインド
+        const saveBtn = $('btn-save-spreadsheet');
+        if (saveBtn) saveBtn.addEventListener('click', saveSpreadsheetEdits);
     } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
 }
 
-async function runBuildDataviewQuery() {
+function markSpreadsheetEdit(cell) {
+    const rowIdx = parseInt(cell.dataset.row);
+    const col = cell.dataset.col;
+    const newVal = cell.textContent.trim();
+    const original = cell.dataset.original;
+    if (!window._spreadsheetEdits) window._spreadsheetEdits = {};
+    const key = `${rowIdx}__${col}`;
+    if (newVal !== original) {
+        window._spreadsheetEdits[key] = { rowIdx, col, newVal };
+        cell.style.background = 'rgba(99,102,241,.15)';
+    } else {
+        delete window._spreadsheetEdits[key];
+        cell.style.background = '';
+    }
+    const editCount = Object.keys(window._spreadsheetEdits).length;
+    const countEl = $('spreadsheet-edit-count');
+    if (countEl) countEl.textContent = editCount > 0 ? `${editCount}件の変更あり` : '';
+}
+
+async function saveSpreadsheetEdits() {
+    if (!window._spreadsheetEdits || Object.keys(window._spreadsheetEdits).length === 0) {
+        showToast('変更がありません', 'warn');
+        return;
+    }
+    const edits = [];
+    for (const [, edit] of Object.entries(window._spreadsheetEdits)) {
+        const row = window._spreadsheetData[edit.rowIdx];
+        if (!row) continue;
+        edits.push({ file: row.file, key: edit.col, value: edit.newVal });
+    }
     try {
-        const result = await window.api.buildDataviewQuery({
-            queryType: $('dv-query-type')?.value || 'table',
-            source: $('dv-source')?.value || '""',
-            fields: ($('dv-fields')?.value || '').split(',').map(f => f.trim()).filter(Boolean),
-            filterBy: $('dv-filter')?.value || '',
-            sortBy: $('dv-sort')?.value || '',
-            limit: parseInt($('dv-limit')?.value) || undefined,
-        });
+        const result = await window.api.batchEditFrontmatter({ edits });
         if (result.success) {
-            const output = $('dv-query-output');
-            const resultDiv = $('dv-query-result');
-            if (output) output.textContent = result.query;
-            if (resultDiv) resultDiv.style.display = '';
+            showToast(`${result.modified}件のfrontmatterを更新しました`, 'success');
+            window._spreadsheetEdits = {};
+            const countEl = $('spreadsheet-edit-count');
+            if (countEl) countEl.textContent = '';
+            // ハイライトをリセット
+            document.querySelectorAll('#spreadsheet-table [contenteditable]').forEach(cell => { cell.style.background = ''; });
+        } else {
+            showToast(result.error, 'error');
         }
     } catch (e) { showToast(e.message, 'error'); }
 }
@@ -8209,6 +9120,15 @@ async function runCheckPublish() {
 }
 
 // --- 設定: v5連携 ---
+
+async function toggleSmartRule(ruleId, enabled) {
+    try { await window.api.toggleSmartRule({ ruleId, enabled }); } catch (_) {}
+}
+
+async function deleteSmartRule(ruleId) {
+    try { await window.api.deleteSmartRule(ruleId); loadSmartRules(); } catch (_) {}
+}
+
 async function saveLocalLlmConfig() {
     try {
         await window.api.configureLocalLlm({
@@ -8243,13 +9163,35 @@ async function loadSmartRules() {
         const result = await window.api.getSmartRules();
         const list = $('smart-rules-list');
         if (!list || !result.success) return;
-        if (result.rules.length === 0) { list.innerHTML = '<div class="list-empty" style="font-size:.78rem">ルールが設定されていません</div>'; return; }
+        if (result.rules.length === 0) { list.innerHTML = '<div class="list-empty" style="font-size:.78rem">ルールが設定されていません。上の「プリセットから始める」をクリックして追加してください</div>'; return; }
         let html = '';
         for (const r of result.rules) {
-            html += `<div class="scan-row" style="padding:6px 10px"><label style="display:flex;align-items:center;gap:6px"><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleSmartRule('${r.id}', this.checked)"><span style="flex:1">${esc(r.trigger)}: ${esc(r.condition?.tag || r.condition?.days || '')} → ${esc(r.action)} (${esc(r.actionTarget || '')})</span></label><button class="ghost-btn small-btn danger-btn" onclick="deleteSmartRule('${r.id}')" style="font-size:.72rem">🗑️</button></div>`;
+            const condLabel = r.condition?.days ? `${r.condition.days}日放置` : (r.condition?.tag || '条件なし');
+            const actionLabel = { archive: 'アーカイブ', tag: 'タグ追加', 'add-to-moc': 'MOC追加' }[r.action] || r.action;
+            html += `<div class="scan-row" style="padding:6px 10px;display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleSmartRule('${r.id}', this.checked)"><span style="flex:1;font-size:.82rem">${esc(r.trigger === 'note-stale' ? '▶ ノートが' : '▶ タグ')} <strong>${esc(condLabel)}</strong> → ${esc(actionLabel)} <span style="opacity:.6">(${esc(r.actionTarget || '')})</span></span></label><button class="ghost-btn small-btn danger-btn" onclick="deleteSmartRule('${r.id}')" style="font-size:.72rem">🗑️</button></div>`;
         }
         list.innerHTML = html;
     } catch (_) {}
+}
+
+async function loadSmartRulePresets() {
+    try {
+        const result = await window.api.getSmartRulePresets();
+        const container = $('smart-rule-presets');
+        if (!container || !result.success) return;
+        container.innerHTML = result.presets.map(p =>
+            `<button class="ghost-btn small-btn" style="font-size:.76rem" onclick="applySmartRulePreset(${JSON.stringify(p)})">${esc(p.label)}</button>`
+        ).join('');
+    } catch (_) {}
+}
+
+async function applySmartRulePreset(preset) {
+    try {
+        const rule = { trigger: preset.trigger, condition: preset.condition, action: preset.action, actionTarget: preset.actionTarget, enabled: true };
+        await window.api.saveSmartRule(rule);
+        loadSmartRules();
+        showToast(`プリセット「${preset.label}」を追加しました`, 'success');
+    } catch (e) { showToast(e.message, 'error'); }
 }
 
 async function addSmartRule() {
@@ -8258,7 +9200,7 @@ async function addSmartRule() {
     const action = $('smart-rule-action')?.value;
     const target = $('smart-rule-target')?.value?.trim();
     if (!trigger || !action) return;
-    const condition = trigger === 'note-stale' ? { days: parseInt(conditionVal) || 180 } : { tag: conditionVal };
+    const condition = trigger === 'note-stale' ? { days: parseInt(conditionVal) || 180 } : { tag: conditionVal || '#inbox' };
     try {
         await window.api.saveSmartRule({ trigger, condition, action, actionTarget: target, enabled: true });
         loadSmartRules();
@@ -8266,90 +9208,146 @@ async function addSmartRule() {
     } catch (e) { showToast(e.message, 'error'); }
 }
 
-async function toggleSmartRule(ruleId, enabled) {
-    try { await window.api.toggleSmartRule({ ruleId, enabled }); } catch (_) {}
-}
-
-async function deleteSmartRule(ruleId) {
-    try { await window.api.deleteSmartRule(ruleId); loadSmartRules(); } catch (_) {}
+async function previewSmartRules() {
+    showLoading('ドライラン実行中...');
+    try {
+        const result = await window.api.previewSmartRules();
+        hideLoading();
+        const msg = $('smart-rules-result');
+        if (!result.success) { if (msg) msg.textContent = result.error; return; }
+        if (result.preview.length === 0) {
+            if (msg) msg.innerHTML = '<span style="color:var(--text-muted)">ℹ️ 有効なルールがありません。まずプリセットからルールを追加してください</span>';
+            return;
+        }
+        let html = '<div style="font-size:.82rem">🔍 ドライラン結果（実際には変更されません）：</div>';
+        for (const p of result.preview) {
+            const actionLabel = { archive: 'アーカイブ移動', tag: 'タグ追加', 'add-to-moc': 'MOC追加' }[p.action] || p.action;
+            const samples = p.samples.length > 0 ? `（例: ${p.samples.slice(0,3).map(s => esc(s)).join(', ')}${p.samples.length > 3 ? '...' : ''}）` : '';
+            const color = p.matchCount === 0 ? '#6b7280' : '#34d399';
+            html += `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+                <span style="color:${color};font-size:.82rem">● ${p.matchCount}件がヒット → ${esc(actionLabel)}</span>
+                <span style="font-size:.75rem;color:var(--text-muted)">${samples}</span>
+            </div>`;
+        }
+        if (msg) msg.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
 }
 
 async function executeSmartRules() {
+    const previewEl = $('smart-rules-result');
+    const hasPreview = previewEl && previewEl.textContent.includes('ドライラン');
+    if (!hasPreview && !confirm('実行前に「対象を確認（ドライラン）」で対象件数を確認することをお勧めします。そのまま実行しますか？')) return;
     showLoading('スマートルールを実行中...');
     try {
         const result = await window.api.executeSmartRules();
         hideLoading();
         const msg = $('smart-rules-result');
-        if (msg) msg.textContent = result.success ? `✅ ${result.executed}件のアクションを実行${result.log ? ': ' + result.log.slice(0, 3).join(', ') : ''}` : result.error;
+        if (msg) {
+            if (result.success) {
+                const logStr = result.log?.length ? `<div style="font-size:.78rem;margin-top:6px;color:var(--text-muted)">${result.log.slice(0,5).map(l => esc(l)).join('<br>')}</div>` : '';
+                msg.innerHTML = `<span style="color:#34d399">✅ ${result.executed}件のアクションを実行しました</span>${logStr}`;
+            } else {
+                msg.textContent = result.error || 'エラーが発生しました';
+            }
+        }
         if (result.success) showToast(`${result.executed}件実行`, 'success');
     } catch (e) { hideLoading(); showToast(e.message, 'error'); }
 }
 
-async function connectReadwise() {
-    const token = $('readwise-token')?.value?.trim();
-    if (!token) return;
+// ── v6.0 新連携 ──
+async function testObsidianUri() {
+    const status = $('obsidian-uri-status');
     try {
-        const result = await window.api.connectReadwise({ token });
-        const status = $('readwise-status');
-        if (status) status.textContent = result.connected ? '✅ 接続成功' : '❌ 接続失敗';
+        const res = await window.api.testObsidianUri();
+        if (status) status.textContent = res.success ? `✅ Obsidianに接続 (Vault: ${res.vaultName})` : `❌ ${res.error}`;
+    } catch (e) { if (status) status.textContent = `❌ ${e.message}`; }
+}
+
+async function gitStatusCheck() {
+    const status = $('git-status-text');
+    try {
+        const res = await window.api.gitStatus();
+        if (!res.success) { if (status) status.textContent = `❌ ${res.error}`; return; }
+        if (!res.initialized) { if (status) status.textContent = res.message; return; }
+        if (status) status.innerHTML = `ブランチ: <strong>${esc(res.branch)}</strong> / 変更ファイル: <strong>${res.changedFiles}件</strong>`;
+    } catch (e) { if (status) status.textContent = `❌ ${e.message}`; }
+}
+
+async function gitBackup() {
+    const status = $('git-status-text');
+    try {
+        if (status) status.textContent = '💾 バックアップ中...';
+        const res = await window.api.gitBackup();
+        if (res.success) {
+            showToast(`💾 バックアップ完了: ${res.commit}`, 'success');
+            addLog(`💾 Gitバックアップ: ${res.commit}`, 'info', 'GIT');
+            if (status) status.textContent = `✅ ${res.commit}`;
+        } else {
+            if (status) status.textContent = `❌ ${res.error}`;
+            showToast(res.error, 'error');
+        }
+    } catch (e) { if (status) status.textContent = `❌ ${e.message}`; }
+}
+
+async function gitShowLog() {
+    const logList = $('git-log-list');
+    try {
+        const res = await window.api.gitLog();
+        if (!res.success || !logList) { showToast(res.error || 'エラー', 'error'); return; }
+        logList.style.display = '';
+        logList.innerHTML = res.entries.map(e => `<div style="padding:4px 8px;font-size:.78rem;border-bottom:1px solid var(--border)"><code style="color:var(--accent)">${esc(e.hash)}</code> ${esc(e.message)}</div>`).join('');
     } catch (e) { showToast(e.message, 'error'); }
 }
 
-async function syncReadwise() {
-    showLoading('Readwise同期中...');
+async function gitInitVault() {
+    const ok = await showConfirmModal('Git初期化', 'VaultをGitリポジトリとして初期化します。初回コミットも自動作成されます。', '初期化する');
+    if (!ok) return;
+    const status = $('git-status-text');
     try {
-        const result = await window.api.syncReadwise();
-        hideLoading();
-        if (result.success) showToast(`${result.imported}書籍のハイライトをインポートしました (${result.totalHighlights}件)`, 'success');
-        else showToast(result.error, 'error');
-    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+        const res = await window.api.gitInit();
+        if (res.success) {
+            showToast(`✅ ${res.message}`, 'success');
+            if (status) status.textContent = `✅ ${res.message}`;
+        } else {
+            if (status) status.textContent = `❌ ${res.error}`;
+        }
+    } catch (e) { if (status) status.textContent = `❌ ${e.message}`; }
 }
 
-async function connectZotero() {
-    const apiKey = $('zotero-api-key')?.value?.trim();
-    const userId = $('zotero-user-id')?.value?.trim();
-    if (!apiKey || !userId) return;
+async function exportNotesAction() {
+    const format = $('export-notes-format')?.value || 'html';
+    const scope = $('export-notes-scope')?.value || 'all';
+    const status = $('export-notes-status');
     try {
-        await window.api.connectZotero({ apiKey, userId });
-        showToast('Zotero設定を保存しました', 'success');
-    } catch (e) { showToast(e.message, 'error'); }
+        if (status) status.textContent = '📤 エクスポート中...';
+        const res = await window.api.exportNotes({ format, scope });
+        if (res.success) {
+            showToast(`📤 ${res.count}件のノートをエクスポートしました`, 'success');
+            if (status) status.textContent = `✅ ${res.count}件エクスポート完了`;
+            addLog(`📤 ノートエクスポート: ${res.count}件 (${format})`, 'info', 'EXPORT');
+        } else {
+            if (status) status.textContent = res.error === 'キャンセルされました' ? '' : `❌ ${res.error}`;
+        }
+    } catch (e) { if (status) status.textContent = `❌ ${e.message}`; }
 }
 
-async function syncZotero() {
-    showLoading('Zotero同期中...');
+async function clipboardToInbox() {
+    const status = $('clipboard-status');
     try {
-        const result = await window.api.syncZotero();
-        hideLoading();
-        if (result.success) showToast(`${result.imported}件の文献をインポートしました`, 'success');
-        else showToast(result.error, 'error');
-    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
-}
-
-async function connectAnki() {
-    const url = $('anki-url')?.value?.trim() || 'http://localhost:8765';
-    try {
-        const result = await window.api.connectAnki({ ankiConnectUrl: url });
-        showToast(result.success ? 'Anki接続成功' : result.error, result.success ? 'success' : 'error');
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-async function syncAnki() {
-    try {
-        const result = await window.api.syncAnki();
-        if (result.success) showToast(`${result.count}枚のフラッシュカードを検出しました`, 'success');
-        else showToast(result.error, 'error');
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-async function syncCalendar() {
-    const icsPath = $('calendar-ics-path')?.value?.trim();
-    if (!icsPath) return;
-    try {
-        await window.api.connectCalendar({ icsPath });
-        const result = await window.api.syncCalendar();
-        if (result.success) showToast(`${result.synced}件のイベントを同期しました`, 'success');
-        else showToast(result.error || result.message, result.synced === 0 ? 'warn' : 'error');
-    } catch (e) { showToast(e.message, 'error'); }
+        const text = await navigator.clipboard.readText();
+        if (!text || !text.trim()) { showToast('クリップボードが空です', 'warning'); return; }
+        const res = await window.api.clipboardToInbox({ text: text.trim() });
+        if (res.success) {
+            showToast(`📋 「${res.title}」をInboxに作成しました`, 'success');
+            if (status) status.textContent = `✅ 「${res.title}」を作成`;
+            addLog(`📋 クリップボード→Inbox: ${res.title}`, 'info', 'CLIP');
+        } else {
+            if (status) status.textContent = `❌ ${res.error}`;
+        }
+    } catch (e) {
+        showToast('クリップボードの読み取りに失敗しました', 'error');
+        if (status) status.textContent = '❌ クリップボード読み取りエラー';
+    }
 }
 
 async function loadPresets() {
