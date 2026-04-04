@@ -13,7 +13,10 @@
     "dist:mac:x64": "COPYFILE_DISABLE=1 electron-builder --mac --x64",
     "dist:win": "COPYFILE_DISABLE=1 electron-builder --win --x64",
     "dist:all": "COPYFILE_DISABLE=1 electron-builder --mac --win --x64",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:renderer": "node scripts/build-renderer.js",
+    "build:renderer:dev": "node scripts/build-renderer.js --dev"
   },
   "build": {
     "appId": "com.aiterakoya-craftlab.obsidian-optimizer",
@@ -100,6 +103,8 @@
     "electron": "^40.8.0",
     "electron-builder": "^25.1.8",
     "electron-packager": "^17.1.2",
-    "playwright": "^1.58.2"
+    "esbuild": "^0.27.7",
+    "playwright": "^1.58.2",
+    "vitest": "^4.1.2"
   }
 }

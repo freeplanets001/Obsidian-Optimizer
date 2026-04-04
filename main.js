@@ -874,7 +874,15 @@ async function doScanVault(sender) {
             staleList: [], heatmap: {}, // YYYY-MM-DD -> count
             // Feature 7: 孤立画像/添付ファイル検出
             orphanImages: [], orphanImageCount: 0, totalImages: 0,
+            // 拡張スタッツ（ダッシュボード強化用）
+            untaggedCount: 0,    // タグなしノート数
+            avgWordsPerNote: 0,  // 平均単語数/ノート（スキャン後計算）
+            recentlyEdited: [],  // [{name, path, mtime, days}] Top 5
+            thisWeekCreated: 0,  // 今週作成ノート数（birthtimeMs近似）
+            linkDensity: 0,      // totalLinks / totalMDFiles（スキャン後計算）
+            noteList: [],        // 品質ボード用: [{name, path, outlinks, tags, words, mtime, incoming}]
         };
+        const _noteDetailsMap = {}; // fileKey → noteDetail (scanData.noteListの構築用)
 
         const links = {};
         const allFiles = {};
@@ -892,6 +900,8 @@ async function doScanVault(sender) {
 
         const nowMs = Date.now();
         const staleLimitMs = (config.staleDays ?? 180) * 24 * 60 * 60 * 1000;
+        const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+        const allNotesMtime = []; // recentlyEdited集計用
 
         // ファイル解析の共通処理（非同期: iCloud evicted対策）
         async function processFile(file, folderName) {
@@ -920,6 +930,10 @@ async function doScanVault(sender) {
 
             let fileStat;
             try { fileStat = fs.statSync(file); } catch (_) { return; }
+
+            // 最近編集・今週作成の集計
+            allNotesMtime.push({ name: basename, path: file, mtime: fileStat.mtimeMs });
+            if (nowMs - fileStat.birthtimeMs < WEEK_MS) stats.thisWeekCreated++;
 
             // ヒートマップ集計
             const dKey = new Date(fileStat.mtimeMs).toISOString().split('T')[0];
@@ -968,21 +982,30 @@ async function doScanVault(sender) {
             }
 
             // タグ
+            let fileTagCount = 0;
             const tr = new RegExp(TAG_RE.source, 'gm');
             while ((m = tr.exec(content)) !== null) {
+                fileTagCount++;
                 const tag = m[1];
                 stats.tagStats[tag] = (stats.tagStats[tag] || 0) + 1;
             }
             const fmMatch = FRONTMATTER_TAG_RE.exec(content);
             if (fmMatch) {
-                fmMatch[1].split(',').map(t => t.trim().replace(/['"]/g, '')).forEach(tag => {
-                    if (tag) stats.tagStats[tag] = (stats.tagStats[tag] || 0) + 1;
+                const fmTags = fmMatch[1].split(',').map(t => t.trim().replace(/['"]/g, '')).filter(Boolean);
+                fileTagCount += fmTags.length;
+                fmTags.forEach(tag => {
+                    stats.tagStats[tag] = (stats.tagStats[tag] || 0) + 1;
                 });
             }
+            if (fileTagCount === 0) stats.untaggedCount++;
 
             // 文字数（フロントマターはファイル先頭のみ除去）
             const plainText = content.replace(/^\s*---\n[\s\S]*?\n---/, '').replace(/[#*\[\]]/g, '');
-            stats.totalWords += plainText.trim().split(/\s+/).filter(Boolean).length;
+            const noteWords = plainText.trim().split(/\s+/).filter(Boolean).length;
+            stats.totalWords += noteWords;
+
+            // 品質ボード用ノートデータ収集
+            _noteDetailsMap[fileKey] = { name: basename, path: file, outlinks: (links[fileKey] || []).length, tags: fileTagCount, words: noteWords, mtime: fileStat.mtimeMs, incoming: 0 };
 
             if (basename.includes('MOC') || basename.startsWith('_MOC')) stats.mocsCount++;
 
@@ -1004,14 +1027,20 @@ async function doScanVault(sender) {
         }
 
         // Vault内の全フォルダを動的に取得してスキャン
+        // setImmediate でイベントループを定期的に解放 → Main Thread ブロッキング防止
+        const BATCH_SIZE = 20; // 20ファイルごとにイベントループを譲る
         const scanFolders = getScanFolders(VAULT_PATH);
         for (const folder of scanFolders) {
             if (scanCancelFlag) return { success: false, error: 'スキャンがキャンセルされました' };
             const folderPath = path.join(VAULT_PATH, folder);
             const files = getFilesRecursively(folderPath);
-            for (const file of files) {
+            for (let i = 0; i < files.length; i++) {
                 if (scanCancelFlag) return { success: false, error: 'スキャンがキャンセルされました' };
-                await processFile(file, folder);
+                await processFile(files[i], folder);
+                // BATCH_SIZE ごとにイベントループを解放してUIの応答性を維持
+                if (i % BATCH_SIZE === BATCH_SIZE - 1) {
+                    await new Promise(resolve => setImmediate(resolve));
+                }
             }
         }
 
@@ -1090,6 +1119,25 @@ async function doScanVault(sender) {
         }
         stats.orphanImageCount = stats.orphanImages.length;
 
+        // 拡張スタッツのポスト計算
+        allNotesMtime.sort((a, b) => b.mtime - a.mtime);
+        stats.recentlyEdited = allNotesMtime.slice(0, 5).map(n => ({
+            name: n.name,
+            path: n.path,
+            mtime: new Date(n.mtime).toISOString(),
+            days: Math.floor((nowMs - n.mtime) / (1000 * 60 * 60 * 24)),
+        }));
+        stats.avgWordsPerNote = stats.totalMDFiles > 0
+            ? Math.round(stats.totalWords / stats.totalMDFiles) : 0;
+        stats.linkDensity = stats.totalMDFiles > 0
+            ? Math.round(stats.totalLinks / stats.totalMDFiles * 10) / 10 : 0;
+
+        // 品質ボード用: 被リンク数を各ノートに付与してnoteListを構築
+        for (const f in incoming) {
+            if (_noteDetailsMap[f]) _noteDetailsMap[f].incoming = incoming[f] || 0;
+        }
+        stats.noteList = Object.values(_noteDetailsMap);
+
         return { success: true, stats };
     } catch (error) {
         console.error('scan error:', error.code, error.message, error.stack);
@@ -1137,112 +1185,20 @@ ipcMain.handle('undo-last-operation', async () => {
     }
 });
 
-ipcMain.handle('scan-vault', async (event) => {
-    scanCancelFlag = false;
-    return await doScanVault(event.sender);
-});
-
-ipcMain.handle('cancel-scan', () => {
-    scanCancelFlag = true;
-    return { success: true };
-});
-
-// ======================================================
-// ドライラン
-// ======================================================
-ipcMain.handle('dry-run', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH || !fs.existsSync(VAULT_PATH)) {
-        return { success: false, error: 'Vault が設定されていません。「追加」ボタンから Vault フォルダを選択してください。' };
-    }
-    try {
-        const preview = { junkToDelete: [], orphansToLink: [] };
-        const rules = config.rules || DEFAULT_RULES;
-        const junkRules = config.junkRules || DEFAULT_JUNK_RULES;
-        const LINK_RE = /\[\[(.*?)\]\]/g;
-
-        if (config.enableJunk !== false) {
-            const dryRunFolders = getScanFolders(VAULT_PATH);
-            for (const folder of dryRunFolders) {
-                const folderPath = path.join(VAULT_PATH, folder);
-                const files = getFilesRecursively(folderPath);
-                for (const file of files) {
-                    if (!file.endsWith('.md')) continue;
-                    const content = safeReadFileSync(file);
-                    if (content === null) continue;
-                    const result = isJunkFile(file, content, junkRules);
-                    if (result.junk) {
-                        preview.junkToDelete.push({ name: path.basename(file, '.md'), path: file, reason: result.reason });
-                    }
-                }
-            }
-            // ルート直下のmdファイルもチェック
-            const rootMds = fs.readdirSync(VAULT_PATH).filter(f => f.endsWith('.md')).map(f => path.join(VAULT_PATH, f));
-            for (const file of rootMds) {
-                const content = safeReadFileSync(file);
-                if (content === null) continue;
-                const result = isJunkFile(file, content, junkRules);
-                if (result.junk) {
-                    preview.junkToDelete.push({ name: path.basename(file, '.md'), path: file, reason: result.reason });
-                }
-            }
-        }
-
-        const links = {};
-        const allFiles = {};
-        // フォルダ内 + ルート直下の全mdファイルを解析
-        const allDryRunLinkTargets = [];
-        const dryRunLinkFolders = getScanFolders(VAULT_PATH);
-        for (const folder of dryRunLinkFolders) {
-            const folderPath = path.join(VAULT_PATH, folder);
-            const files = getFilesRecursively(folderPath);
-            allDryRunLinkTargets.push(...files);
-        }
-        const rootMdsForDryLinks = fs.readdirSync(VAULT_PATH).filter(f => f.endsWith('.md')).map(f => path.join(VAULT_PATH, f));
-        allDryRunLinkTargets.push(...rootMdsForDryLinks);
-
-        for (const file of allDryRunLinkTargets) {
-            if (!file.endsWith('.md')) continue;
-            const basename = path.basename(file, '.md');
-            allFiles[basename] = file;
-            const content = safeReadFileSync(file);
-            if (content === null) continue;
-            links[basename] = [];
-            let m;
-            const lr = new RegExp(LINK_RE.source, 'g');
-            while ((m = lr.exec(content)) !== null) {
-                const dest = m[1].split('|')[0].split('#')[0].trim();
-                if (dest) links[basename].push(dest);
-            }
-        }
-        const incoming = {};
-        for (const f in allFiles) incoming[f] = 0;
-        for (const src in links) {
-            for (const dest of links[src]) {
-                if (incoming[dest] !== undefined) incoming[dest]++;
-            }
-        }
-        const excludePatterns = ['MOC', 'Template', 'Dashboard', 'Inbox', 'Archive'];
-        if (config.enableMoc !== false) {
-            for (const f in allFiles) {
-                const outLinks = links[f] || [];
-                const isExcluded = excludePatterns.some(p => f.includes(p)) || f.startsWith('_') || f.startsWith('00 ');
-                if (outLinks.length === 0 && incoming[f] === 0 && !isExcluded) {
-                    let cat = 'その他';
-                    const lk = f.toLowerCase();
-                    for (const [catName, rule] of Object.entries(rules)) {
-                        if (rule.keywords.some(kw => lk.includes(kw.toLowerCase()))) { cat = catName; break; }
-                    }
-                    const targetMoc = (rules[cat] && rules[cat].moc) || '_Uncategorized Orphans';
-                    preview.orphansToLink.push({ name: f, path: allFiles[f], category: cat, targetMoc });
-                }
-            }
-        }
-
-        return { success: true, preview };
-    } catch (error) {
-        return { success: false, error: error.message };
-    }
+// スキャン系ハンドラ → src/handlers/scan.handler.js に移動済み
+require('./src/handlers/scan.handler').register(ipcMain, {
+    getCurrentVault,
+    getFilesRecursively,
+    doScanVault,
+    getScanCancelFlag: () => scanCancelFlag,
+    setScanCancelFlag: (val) => { scanCancelFlag = val; },
+    isJunkFile,
+    config,
+    DEFAULT_JUNK_RULES,
+    DEFAULT_RULES,
+    getScanFolders,
+    safeReadFileSync,
+    dialog,
 });
 
 // ======================================================
@@ -1961,77 +1917,15 @@ function renderMocTemplate(templateBody, params) {
     return result;
 }
 
-// --- IPCハンドラ: テンプレート一覧 ---
-ipcMain.handle('get-moc-templates', () => {
-    try {
-        const vaultPath = getCurrentVault();
-        const vaultTemplates = vaultPath ? loadVaultTemplates(vaultPath) : [];
-        const configTemplates = (config.mocTemplates || []).map(t => ({
-            ...t,
-            source: 'config',
-        }));
-        return {
-            success: true,
-            templates: [...DEFAULT_MOC_TEMPLATES, ...vaultTemplates, ...configTemplates],
-        };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// --- IPCハンドラ: テンプレート保存 ---
-ipcMain.handle('save-moc-template', (_, template) => {
-    try {
-        if (!config.mocTemplates) config.mocTemplates = [];
-        const id = `custom-${Date.now()}`;
-        const newTemplate = {
-            id,
-            name: template.name || '無題テンプレート',
-            description: template.description || '',
-            body: template.body || '',
-        };
-        config.mocTemplates.push(newTemplate);
-        saveConfig(config);
-        return { success: true, id };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// --- IPCハンドラ: テンプレート削除 ---
-ipcMain.handle('delete-moc-template', (_, id) => {
-    try {
-        if (!config.mocTemplates) return { success: true };
-        config.mocTemplates = config.mocTemplates.filter(t => t.id !== id);
-        saveConfig(config);
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// --- IPCハンドラ: Vaultフォルダ一覧 ---
-ipcMain.handle('get-vault-folders', () => {
-    try {
-        const vaultPath = getCurrentVault();
-        if (!vaultPath) return { success: true, folders: [] };
-        const folders = getVaultFolders(vaultPath);
-        return { success: true, folders };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// --- IPCハンドラ: 既存MOC一覧 ---
-ipcMain.handle('get-existing-mocs', () => {
-    try {
-        const vaultPath = getCurrentVault();
-        if (!vaultPath) return { success: true, mocs: [] };
-        const mocs = getExistingMocs(vaultPath);
-        return { success: true, mocs };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+// MOC系ハンドラ → src/handlers/moc.handler.js に移動済み
+require('./src/handlers/moc.handler').register(ipcMain, {
+    getCurrentVault,
+    getFilesRecursively,
+    config,
+    saveConfig,
+    DEFAULT_MOC_TEMPLATES,
+    fs,
+    path,
 });
 
 // --- IPCハンドラ: テンプレートからMOC作成 ---
@@ -2488,105 +2382,20 @@ ipcMain.handle('preview-moc', (_, params) => {
     }
 });
 
-// ======================================================
-// Feature 1: バックアップ一覧 & 復元
-// ======================================================
-const SCAN_HISTORY_PATH = path.join(os.homedir(), '.obsidian-optimizer-scan-history.json');
-
-ipcMain.handle('list-backups', () => {
-    try {
-        if (!fs.existsSync(BACKUP_DIR)) return { success: true, backups: [] };
-        const entries = fs.readdirSync(BACKUP_DIR, { withFileTypes: true })
-            .filter(d => d.isDirectory())
-            .map(d => {
-                const fullPath = path.join(BACKUP_DIR, d.name);
-                let fileCount = 0;
-                let totalSize = 0;
-                try {
-                    const files = getFilesRecursively(fullPath);
-                    fileCount = files.length;
-                    for (const f of files) {
-                        try { totalSize += fs.statSync(f).size; } catch (_) { }
-                    }
-                } catch (_) { }
-                // タイムスタンプをフォルダ名からパース（backup-2024-03-15T10-30-00 形式）
-                const tsMatch = d.name.match(/(\d{4}-\d{2}-\d{2})T(\d{2}-\d{2}-\d{2})/);
-                const dateStr = tsMatch ? `${tsMatch[1]} ${tsMatch[2].replace(/-/g, ':')}` : d.name;
-                return { name: d.name, path: fullPath, dateStr, fileCount, totalSize };
-            })
-            .sort((a, b) => b.name.localeCompare(a.name)); // 新しい順
-        return { success: true, backups: entries };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+// バックアップ・スキャン履歴ハンドラ → src/handlers/backup.handler.js に移動済み
+const { SCAN_HISTORY_PATH } = require('./src/handlers/backup.handler');
+require('./src/handlers/backup.handler').register(ipcMain, {
+    getCurrentVault,
+    getFilesRecursively,
+    getWin,
+    dialog,
+    getConfig: () => config,
+    saveConfig,
+    startBackupSchedule,
+    doVaultBackup,
 });
 
-ipcMain.handle('restore-backup', async (event, backupName) => {
-    try {
-        const vaultPath = getCurrentVault();
-        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
-        const backupPath = path.join(BACKUP_DIR, backupName);
-        if (!backupPath.startsWith(BACKUP_DIR)) return { success: false, error: '不正なバックアップパスです' };
-        if (!fs.existsSync(backupPath)) return { success: false, error: 'バックアップが見つかりません' };
-
-        const win = getWin(event);
-        const confirm = await dialog.showMessageBox(win, {
-            type: 'warning',
-            buttons: ['復元する', 'キャンセル'],
-            defaultId: 1,
-            title: 'バックアップ復元',
-            message: `バックアップ「${backupName}」をVaultに復元します。同名ファイルは上書きされます。続行しますか？`,
-        });
-        if (confirm.response !== 0) return { success: false, canceled: true };
-
-        const files = getFilesRecursively(backupPath);
-        let restored = 0;
-        for (const file of files) {
-            const rel = path.relative(backupPath, file);
-            const dest = path.join(vaultPath, rel);
-            fs.mkdirSync(path.dirname(dest), { recursive: true });
-            fs.copyFileSync(file, dest);
-            restored++;
-        }
-        return { success: true, restored };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('delete-backup', async (event, backupName) => {
-    try {
-        const backupPath = path.join(BACKUP_DIR, backupName);
-        if (!backupPath.startsWith(BACKUP_DIR)) return { success: false, error: '不正なパスです' };
-        if (!fs.existsSync(backupPath)) return { success: false, error: '見つかりません' };
-        fs.rmSync(backupPath, { recursive: true, force: true });
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// ======================================================
-// Feature 2: スキャン履歴 (前回比較)
-// ======================================================
-ipcMain.handle('get-last-scan', () => {
-    try {
-        if (!fs.existsSync(SCAN_HISTORY_PATH)) return { success: true, lastScan: null };
-        const data = JSON.parse(fs.readFileSync(SCAN_HISTORY_PATH, 'utf-8'));
-        return { success: true, lastScan: data };
-    } catch (_) {
-        return { success: true, lastScan: null };
-    }
-});
-
-ipcMain.handle('save-scan-snapshot', (_, snapshot) => {
-    try {
-        fs.writeFileSync(SCAN_HISTORY_PATH, JSON.stringify(snapshot, null, 2), 'utf-8');
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
+// Feature 1/2: バックアップ・スキャン履歴 → src/handlers/backup.handler.js 参照
 
 // ======================================================
 // Feature 3: ノートプレビュー
@@ -4547,30 +4356,14 @@ ipcMain.handle('import-moc-template', async (event) => {
 // AI統合機能: LLM呼び出し抽象化レイヤー
 // ======================================================
 
-// AIモデル定義
-const AI_MODELS = {
-    claude: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
-    openai: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4o'],
-    gemini: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
-};
+// AIモデル定義・コストレートを外部設定ファイルから読み込む
+// 新モデル追加時は src/config/ai-models.js のみ編集すればよい
+const { AI_MODELS, AI_COST_RATES, getDefaultModel, getCostRate } = require('./src/config/ai-models');
 
 /**
  * LLMプロバイダーに応じたHTTPSリクエストを送信して応答テキストを取得する
  * SDK不使用・Node.js組み込みhttpsモジュールのみ使用
  */
-// コスト計算用のレート定義 (USD per 1M tokens: [input, output])
-const AI_COST_RATES = {
-    'claude-opus-4-6':            [15, 75],
-    'claude-sonnet-4-6':          [3, 15],
-    'claude-haiku-4-5-20251001':  [0.80, 4],
-    'gpt-5.4':                    [2.50, 10],
-    'gpt-5.4-mini':               [0.40, 1.60],
-    'gpt-5.4-nano':               [0.10, 0.40],
-    'gpt-4o':                     [2.50, 10],
-    'gemini-2.5-flash':           [0.15, 0.60],
-    'gemini-2.5-pro':             [1.25, 10],
-    'gemini-2.0-flash':           [0.10, 0.40],
-};
 
 // LLMレスポンスからJSONを安全に抽出するヘルパー
 // ```json ... ``` コードブロック、生JSON配列、生JSONオブジェクトに対応
@@ -4619,7 +4412,7 @@ function trackAiUsage(featureName, inputText, outputText, model) {
         // 概算: 1トークン ≈ 4文字（日本語は約2文字だが平均値として）
         const inputTokens = Math.ceil(inputText.length / 4);
         const outputTokens = Math.ceil(outputText.length / 4);
-        const rates = AI_COST_RATES[model] || [3, 15]; // デフォルトはSonnetレート
+        const rates = getCostRate(model);
         const costUsd = (inputTokens * rates[0] / 1000000) + (outputTokens * rates[1] / 1000000);
 
         config.aiUsage.totalCalls += 1;
@@ -4792,26 +4585,12 @@ async function callGemini(prompt, systemPrompt, apiKey, model) {
 // AI IPC ハンドラー
 // ======================================================
 
-ipcMain.handle('save-ai-config', (_, { provider, apiKey, model }) => {
-    try {
-        if (provider) config.aiProvider = provider;
-        // APIキーが空文字の場合は既存値を維持（ユーザーが変更しなかった場合）
-        if (apiKey && apiKey.trim().length > 0) config.aiApiKey = apiKey;
-        if (model) config.aiModel = model;
-        saveConfig(config);
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('test-ai-connection', async () => {
-    try {
-        const result = await callLLM('「接続成功」と返してください。他の言葉は不要です。', '', '接続テスト');
-        return { success: true, message: result.trim() };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
+// AI設定ハンドラ（save-ai-config, test-ai-connection, get-ai-models）
+// → src/handlers/ai-config.handler.js に移動済み（get-ai-usage/reset-ai-usageも含む）
+require('./src/handlers/ai-config.handler').register(ipcMain, {
+    getConfig: () => config,
+    saveConfig,
+    callLLM,
 });
 
 ipcMain.handle('ai-summarize-note', async (_, filePath) => {
@@ -5661,24 +5440,7 @@ ipcMain.handle('ai-detect-gaps', async () => {
 });
 
 // Feature 8: Cost Tracking - Get/Reset AI Usage
-ipcMain.handle('get-ai-usage', () => {
-    try {
-        const usage = config.aiUsage || { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalEstimatedCost: 0, history: [] };
-        return { success: true, usage };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('reset-ai-usage', () => {
-    try {
-        config.aiUsage = { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalEstimatedCost: 0, history: [] };
-        saveConfig(config);
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
+// get-ai-usage / reset-ai-usage → src/handlers/ai-config.handler.js に移動済み
 
 // ======================================================
 // 整理ツール: 共通ヘルパー
@@ -6778,52 +6540,295 @@ ipcMain.handle('get-task-targets', async () => {
 });
 
 // ======================================================
-// Feature 1: ライセンス認証 IPC ハンドラ
+// プロジェクト管理機能
 // ======================================================
-ipcMain.handle('verify-license', (_, key) => {
-    if (!key || typeof key !== 'string') return { success: false, error: 'ライセンスキーを入力してください' };
-    const normalized = key.trim().toUpperCase();
-    if (!/^OPT-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalized)) {
-        return { success: false, error: 'キーの形式が正しくありません（OPT-XXXX-XXXX-XXXX-XXXX）' };
+
+const { v4: uuidv4 } = (() => {
+    try { return require('uuid'); } catch (_) {
+        // uuid未インストール時は簡易UUID生成
+        return { v4: () => Date.now().toString(36) + Math.random().toString(36).slice(2) };
     }
-    if (!isValidLicenseKey(normalized)) {
-        return { success: false, error: 'ライセンスキーが無効です。正しいキーを入力してください。' };
-    }
-    config.licenseKey = normalized;
-    saveConfig(config);
-    return { success: true, key: normalized };
-});
+})();
 
-ipcMain.handle('get-license-status', () => {
-    const key = config.licenseKey || '';
-    const isLicensed = isValidLicenseKey(key);
-    const maskedKey = isLicensed ? key.slice(0, 8) + '-****-****' : '';
-    return { isLicensed, maskedKey };
-});
+function getProjects() {
+    return config.projects || [];
+}
 
-ipcMain.handle('generate-license-key', () => {
-    const key = generateLicenseKey();
-    return { key };
-});
+function saveProjects(projects) {
+    config.projects = projects;
+    saveConfig();
+}
 
-// ======================================================
-// Feature 2: アップデートチェック IPC ハンドラ
-// ======================================================
-ipcMain.handle('check-for-updates', async () => {
+// プロジェクト一覧取得
+ipcMain.handle('get-projects', () => {
     try {
-        const release = await fetchJson(GITHUB_RELEASES_URL);
-        const latestVersion = (release.tag_name || '').replace(/^v/, '');
-        const updateAvailable = compareVersions(latestVersion, APP_VERSION) > 0;
-        return {
-            updateAvailable,
-            latestVersion,
-            currentVersion: APP_VERSION,
-            downloadUrl: release.html_url || '',
-            releaseNotes: release.body || '',
-        };
+        return { success: true, projects: getProjects() };
     } catch (e) {
-        return { updateAvailable: false, currentVersion: APP_VERSION, latestVersion: APP_VERSION, error: e.message };
+        return { success: false, error: e.message };
     }
+});
+
+// プロジェクト保存（新規 or 更新）
+ipcMain.handle('save-project', (_, project) => {
+    try {
+        const projects = getProjects();
+        const now = new Date().toISOString();
+        if (project.id) {
+            const idx = projects.findIndex(p => p.id === project.id);
+            if (idx === -1) return { success: false, error: 'プロジェクトが見つかりません' };
+            projects[idx] = { ...projects[idx], ...project, updatedAt: now };
+        } else {
+            projects.push({
+                id: uuidv4(),
+                name: project.name || '無題のプロジェクト',
+                description: project.description || '',
+                status: project.status || 'active',
+                priority: project.priority || 'medium',
+                color: project.color || '#6366f1',
+                startDate: project.startDate || now.slice(0, 10),
+                dueDate: project.dueDate || null,
+                tags: project.tags || [],
+                tasks: [],
+                milestones: [],
+                notes: project.notes || '',
+                vaultNotePath: project.vaultNotePath || null,
+                createdAt: now,
+                updatedAt: now,
+            });
+        }
+        saveProjects(projects);
+        return { success: true, projects };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// プロジェクト削除
+ipcMain.handle('delete-project', (_, { id }) => {
+    try {
+        const projects = getProjects().filter(p => p.id !== id);
+        saveProjects(projects);
+        return { success: true, projects };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// プロジェクトステータス更新
+ipcMain.handle('update-project-status', (_, { id, status }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === id);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        p.status = status;
+        p.updatedAt = new Date().toISOString();
+        if (status === 'completed') p.completedAt = p.updatedAt;
+        saveProjects(projects);
+        return { success: true, project: p };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// プロジェクトのサブタスク追加
+ipcMain.handle('add-project-task', (_, { projectId, text, dueDate, priority }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        const task = {
+            id: uuidv4(),
+            text: text.trim(),
+            done: false,
+            dueDate: dueDate || null,
+            priority: priority || null,
+            createdAt: new Date().toISOString(),
+        };
+        p.tasks.push(task);
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true, task, project: p };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// プロジェクトのサブタスク完了切替
+ipcMain.handle('toggle-project-task', (_, { projectId, taskId }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        const task = p.tasks.find(t => t.id === taskId);
+        if (!task) return { success: false, error: 'タスクが見つかりません' };
+        task.done = !task.done;
+        task.doneAt = task.done ? new Date().toISOString() : null;
+        p.updatedAt = new Date().toISOString();
+        // 全タスク完了でプロジェクトを自動完了
+        if (p.tasks.length > 0 && p.tasks.every(t => t.done) && p.status === 'active') {
+            p.status = 'completed';
+            p.completedAt = p.updatedAt;
+        } else if (p.status === 'completed' && p.tasks.some(t => !t.done)) {
+            p.status = 'active'; // タスクを未完了に戻したら再開
+        }
+        saveProjects(projects);
+        return { success: true, project: p };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// プロジェクトのサブタスク削除
+ipcMain.handle('delete-project-task', (_, { projectId, taskId }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        p.tasks = p.tasks.filter(t => t.id !== taskId);
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true, project: p };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// マイルストーン追加
+ipcMain.handle('add-project-milestone', (_, { projectId, name, dueDate }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        const ms = { id: uuidv4(), name: name.trim(), dueDate: dueDate || null, done: false };
+        p.milestones.push(ms);
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true, milestone: ms, project: p };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// マイルストーン完了切替
+ipcMain.handle('toggle-project-milestone', (_, { projectId, milestoneId }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        const ms = p.milestones.find(m => m.id === milestoneId);
+        if (!ms) return { success: false, error: 'マイルストーンが見つかりません' };
+        ms.done = !ms.done;
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true, project: p };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// マイルストーン削除
+ipcMain.handle('delete-project-milestone', (_, { projectId, milestoneId }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        p.milestones = p.milestones.filter(m => m.id !== milestoneId);
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true, project: p };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// プロジェクトメモ更新
+ipcMain.handle('update-project-notes', (_, { projectId, notes }) => {
+    try {
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+        p.notes = notes;
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// VaultにプロジェクトノートをMarkdown形式で生成
+ipcMain.handle('generate-project-note', async (_, { projectId }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+
+        const doneTasks = p.tasks.filter(t => t.done).length;
+        const progress = p.tasks.length > 0 ? Math.round(doneTasks / p.tasks.length * 100) : 0;
+        const statusLabel = { active: '進行中', completed: '完了', 'on-hold': '保留中', archived: 'アーカイブ' }[p.status] || p.status;
+        const priorityLabel = { high: '🔴 高', medium: '🟡 中', low: '🔵 低' }[p.priority] || p.priority;
+
+        const taskLines = p.tasks.map(t => {
+            const check = t.done ? '[x]' : '[ ]';
+            const due = t.dueDate ? ` 📅 ${t.dueDate}` : '';
+            return `- ${check} ${t.text}${due}`;
+        }).join('\n') || '（タスクなし）';
+
+        const msLines = p.milestones.map(m => {
+            const check = m.done ? '[x]' : '[ ]';
+            const due = m.dueDate ? ` 📅 ${m.dueDate}` : '';
+            return `- ${check} ${m.name}${due}`;
+        }).join('\n') || '（マイルストーンなし）';
+
+        const content = [
+            '---',
+            `project: "${p.name}"`,
+            `status: ${p.status}`,
+            `priority: ${p.priority}`,
+            p.dueDate ? `due: ${p.dueDate}` : null,
+            `tags: [project${p.tags.length ? ', ' + p.tags.join(', ') : ''}]`,
+            `progress: ${progress}`,
+            `created: ${p.createdAt.slice(0, 10)}`,
+            `updated: ${p.updatedAt.slice(0, 10)}`,
+            '---',
+            '',
+            `# 📁 ${p.name}`,
+            '',
+            `> **ステータス**: ${statusLabel} | **優先度**: ${priorityLabel} | **進捗**: ${progress}%`,
+            '',
+            p.description ? `## 概要\n\n${p.description}\n` : '',
+            `## タスク (${doneTasks}/${p.tasks.length})\n\n${taskLines}\n`,
+            p.milestones.length > 0 ? `## マイルストーン\n\n${msLines}\n` : '',
+            p.notes ? `## メモ\n\n${p.notes}\n` : '',
+        ].filter(l => l !== null).join('\n');
+
+        const safeFileName = p.name.replace(/[/\\:*?"<>|]/g, '-');
+        const notePath = path.join(vaultPath, `📁 ${safeFileName}.md`);
+        fs.writeFileSync(notePath, content, 'utf-8');
+
+        // vaultNotePathを更新
+        p.vaultNotePath = notePath;
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+
+        return { success: true, notePath };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ライセンス認証・アップデートチェック → src/handlers/license.handler.js に移動済み
+require('./src/handlers/license.handler').register(ipcMain, {
+    getConfig: () => config,
+    saveConfig,
+    isValidLicenseKey,
+    generateLicenseKey,
+    fetchJson,
+    APP_VERSION,
+    GITHUB_RELEASES_URL,
+    compareVersions,
 });
 
 // ======================================================
@@ -7117,29 +7122,7 @@ async function doVaultBackup() {
     return { success: true, backupDir, copiedCount, totalFiles: files.length };
 }
 
-ipcMain.handle('set-backup-schedule', (_, { schedule }) => {
-    try {
-        if (!['off', 'daily', 'weekly'].includes(schedule)) return { success: false, error: '無効なスケジュール' };
-        config.backupSchedule = schedule;
-        saveConfig(config);
-        startBackupSchedule();
-        return { success: true, schedule };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('run-vault-backup', async () => {
-    try {
-        return await doVaultBackup();
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('get-backup-schedule', () => {
-    return { success: true, schedule: config.backupSchedule || 'off' };
-});
+// set-backup-schedule / run-vault-backup / get-backup-schedule → src/handlers/backup.handler.js 参照
 
 // ======================================================
 // v5.0 新機能 IPC ハンドラー群
@@ -8442,262 +8425,13 @@ ipcMain.handle('profile-vault-performance', async () => {
 // ======================================================
 // Phase 5: ワークフロー自動化
 // ======================================================
-
-// スマートルールエンジン
-ipcMain.handle('get-smart-rules', () => {
-    return { success: true, rules: config.smartRules || [] };
-});
-
-ipcMain.handle('save-smart-rule', (_, rule) => {
-    if (!config.smartRules) config.smartRules = [];
-    const existing = config.smartRules.findIndex(r => r.id === rule.id);
-    if (existing >= 0) {
-        config.smartRules[existing] = rule;
-    } else {
-        rule.id = rule.id || crypto.randomUUID();
-        config.smartRules.push(rule);
-    }
-    saveConfig(config);
-    return { success: true, rule };
-});
-
-ipcMain.handle('delete-smart-rule', (_, ruleId) => {
-    config.smartRules = (config.smartRules || []).filter(r => r.id !== ruleId);
-    saveConfig(config);
-    return { success: true };
-});
-
-ipcMain.handle('toggle-smart-rule', (_, { ruleId, enabled }) => {
-    const rule = (config.smartRules || []).find(r => r.id === ruleId);
-    if (rule) { rule.enabled = enabled; saveConfig(config); }
-    return { success: true };
-});
-
-// スマートルールプリセット取得
-ipcMain.handle('get-smart-rule-presets', () => {
-    const presets = [
-        {
-            id: 'preset-stale-180',
-            label: '📦 180日放置ノートをアーカイブ',
-            trigger: 'note-stale',
-            condition: { days: 180 },
-            action: 'archive',
-            actionTarget: '99 Archive',
-        },
-        {
-            id: 'preset-stale-30-tag',
-            label: '🏷️ 30日放置ノートに#staleタグを付与',
-            trigger: 'note-stale',
-            condition: { days: 30 },
-            action: 'tag',
-            actionTarget: '#stale',
-        },
-        {
-            id: 'preset-inbox-tag',
-            label: '📂 #inboxタグのノートをMOCに追加',
-            trigger: 'tag-match',
-            condition: { tag: '#inbox' },
-            action: 'add-to-moc',
-            actionTarget: 'Inbox MOC',
-        },
-    ];
-    return { success: true, presets };
-});
-
-// スマートルールドライラン（プレビュー）
-ipcMain.handle('preview-smart-rules', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
-    const rules = (config.smartRules || []).filter(r => r.enabled);
-    if (rules.length === 0) return { success: true, preview: [], message: '有効なルールがありません' };
-    try {
-        const preview = [];
-        for (const rule of rules) {
-            const matchedFiles = [];
-            if (rule.trigger === 'note-stale') {
-                const staleDays = rule.condition?.days || 180;
-                const cutoff = Date.now() - staleDays * 86400000;
-                const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
-                for (const file of allFiles) {
-                    let stat;
-                    try { stat = fs.statSync(file); } catch (_) { continue; }
-                    if (stat.mtimeMs < cutoff) {
-                        matchedFiles.push(path.basename(file, '.md'));
-                    }
-                }
-            } else if (rule.trigger === 'tag-match') {
-                const rawTag = rule.condition?.tag || '';
-                // #tag 形式と tag 形式の両方に対応
-                const tagWithHash = rawTag.startsWith('#') ? rawTag : `#${rawTag}`;
-                const tagWithout = rawTag.startsWith('#') ? rawTag.slice(1) : rawTag;
-                const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
-                for (const file of allFiles) {
-                    const content = await safeReadFile(file);
-                    if (!content) continue;
-                    // フロントマター内のタグ、インラインタグ両方に対応
-                    const hasTag = content.includes(tagWithHash) ||
-                        new RegExp(`(^|\\s|,)${tagWithout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|,|$)`, 'm').test(content);
-                    if (hasTag) matchedFiles.push(path.basename(file, '.md'));
-                }
-            }
-            preview.push({
-                ruleId: rule.id,
-                trigger: rule.trigger,
-                action: rule.action,
-                actionTarget: rule.actionTarget,
-                matchCount: matchedFiles.length,
-                samples: matchedFiles.slice(0, 5),
-            });
-        }
-        return { success: true, preview };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('execute-smart-rules', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
-    const rules = (config.smartRules || []).filter(r => r.enabled);
-    if (rules.length === 0) return { success: true, executed: 0, message: '有効なルールがありません' };
-    try {
-        let actionsExecuted = 0;
-        const log = [];
-        for (const rule of rules) {
-            // IF条件: tag-added, note-created, note-stale, folder-match
-            if (rule.trigger === 'note-stale') {
-                const staleDays = rule.condition?.days || 180;
-                const cutoff = Date.now() - staleDays * 86400000;
-                const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
-                for (const file of allFiles) {
-                    let stat;
-                    try { stat = fs.statSync(file); } catch (_) { continue; }
-                    if (stat.mtimeMs < cutoff) {
-                        if (rule.action === 'archive') {
-                            const archiveDir = path.join(VAULT_PATH, rule.actionTarget || '99 Archive');
-                            fs.mkdirSync(archiveDir, { recursive: true });
-                            const dest = path.join(archiveDir, path.basename(file));
-                            if (!fs.existsSync(dest)) { fs.renameSync(file, dest); actionsExecuted++; log.push(`📦 ${path.basename(file)} をアーカイブ`); }
-                        } else if (rule.action === 'tag') {
-                            let content = fs.readFileSync(file, 'utf-8');
-                            const tagToAdd = rule.actionTarget || '#stale';
-                            if (!content.includes(tagToAdd)) {
-                                // フロントマターがある場合はその中に追加、ない場合は先頭に追加
-                                if (/^---\n/.test(content)) {
-                                    content = content.replace(/^(---\n[\s\S]*?\n---)/, `$1\ntags: [${tagToAdd.replace(/^#/, '')}]`);
-                                } else {
-                                    content = `---\ntags: [${tagToAdd.replace(/^#/, '')}]\n---\n\n${content}`;
-                                }
-                                fs.writeFileSync(file, content, 'utf-8');
-                                actionsExecuted++;
-                                log.push(`🏷️ ${path.basename(file, '.md')} にタグ追加`);
-                            }
-                        }
-                    }
-                }
-            } else if (rule.trigger === 'tag-match') {
-                const rawTag = rule.condition?.tag;
-                if (!rawTag) continue;
-                // #tag 形式と tag 形式の両方に対応
-                const tagWithHash = rawTag.startsWith('#') ? rawTag : `#${rawTag}`;
-                const tagWithout = rawTag.startsWith('#') ? rawTag.slice(1) : rawTag;
-                const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
-                for (const file of allFiles) {
-                    const content = await safeReadFile(file);
-                    if (!content) continue;
-                    const hasTag = content.includes(tagWithHash) ||
-                        new RegExp(`(^|\\s|,)${tagWithout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|,|$)`, 'm').test(content);
-                    if (!hasTag) continue;
-                    if (rule.action === 'add-to-moc') {
-                        const mocPath = path.join(VAULT_PATH, rule.actionTarget || 'MOC.md');
-                        const basename = path.basename(file, '.md');
-                        let mocContent = fs.existsSync(mocPath) ? fs.readFileSync(mocPath, 'utf-8') : `# ${rule.actionTarget || 'MOC'}\n\n`;
-                        if (!mocContent.includes(`[[${basename}]]`)) {
-                            mocContent += `\n- [[${basename}]]`;
-                            fs.writeFileSync(mocPath, mocContent, 'utf-8');
-                            actionsExecuted++;
-                            log.push(`🗺️ ${basename} をMOCに追加`);
-                        }
-                    } else if (rule.action === 'archive') {
-                        const archiveDir = path.join(VAULT_PATH, rule.actionTarget || '99 Archive');
-                        fs.mkdirSync(archiveDir, { recursive: true });
-                        const dest = path.join(archiveDir, path.basename(file));
-                        if (!fs.existsSync(dest)) { fs.renameSync(file, dest); actionsExecuted++; log.push(`📦 ${path.basename(file, '.md')} をアーカイブ`); }
-                    }
-                }
-            }
-        }
-        return { success: true, executed: actionsExecuted, log };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-// スケジュールワークフロー
-ipcMain.handle('get-scheduled-workflows', () => {
-    return { success: true, workflows: config.scheduledWorkflows || [] };
-});
-
-ipcMain.handle('save-scheduled-workflow', (_, workflow) => {
-    if (!config.scheduledWorkflows) config.scheduledWorkflows = [];
-    workflow.id = workflow.id || crypto.randomUUID();
-    const existing = config.scheduledWorkflows.findIndex(w => w.id === workflow.id);
-    if (existing >= 0) config.scheduledWorkflows[existing] = workflow;
-    else config.scheduledWorkflows.push(workflow);
-    saveConfig(config);
-    return { success: true, workflow };
-});
-
-ipcMain.handle('delete-scheduled-workflow', (_, id) => {
-    config.scheduledWorkflows = (config.scheduledWorkflows || []).filter(w => w.id !== id);
-    saveConfig(config);
-    return { success: true };
-});
-
-// スマート復習キュー
-ipcMain.handle('get-review-queue', async () => {
-    const VAULT_PATH = getCurrentVault();
-    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
-    try {
-        const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
-        const now = Date.now();
-        const queue = [];
-        const dismissed = config.dismissedReviews || {};
-
-        for (const file of allFiles) {
-            const basename = path.basename(file, '.md');
-            if (dismissed[basename] && now - dismissed[basename] < 30 * 86400000) continue; // 30日以内にdismissed
-
-            let stat;
-            try { stat = fs.statSync(file); } catch (_) { continue; }
-            const daysSinceAccess = Math.floor((now - stat.atimeMs) / 86400000);
-            const daysSinceModify = Math.floor((now - stat.mtimeMs) / 86400000);
-
-            // 復習対象: 30-180日前にアクセスしたが最近触れていないノート
-            if (daysSinceAccess >= 30 && daysSinceAccess <= 365 && daysSinceModify >= 30) {
-                const content = await safeReadFile(file);
-                const linkCount = content ? (content.match(/\[\[(.*?)\]\]/g) || []).length : 0;
-                const charCount = content ? content.length : 0;
-                // 優先度: リンクが多くコンテンツが充実しているほど高い
-                const priority = Math.min(linkCount * 2 + Math.floor(charCount / 500), 100);
-                queue.push({
-                    name: basename, file, daysSinceAccess, daysSinceModify,
-                    priority, preview: content ? content.slice(0, 200) : '',
-                });
-            }
-        }
-        queue.sort((a, b) => b.priority - a.priority);
-        return { success: true, queue: queue.slice(0, 30), totalEligible: queue.length };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('dismiss-review-item', (_, { noteName }) => {
-    if (!config.dismissedReviews) config.dismissedReviews = {};
-    config.dismissedReviews[noteName] = Date.now();
-    saveConfig(config);
-    return { success: true };
+// スマートルール・スケジュール・復習キュー → src/handlers/smart-rules.handler.js に移動済み
+require('./src/handlers/smart-rules.handler').register(ipcMain, {
+    getCurrentVault,
+    getConfig: () => config,
+    saveConfig,
+    getFilesRecursively,
+    safeReadFile,
 });
 
 // ======================================================
@@ -9178,97 +8912,8 @@ ipcMain.handle('test-obsidian-uri', async () => {
     }
 });
 
-// Vault Gitバックアップ
-// Git利用可能チェック
-function isGitAvailable() {
-    try {
-        const { execSync } = require('child_process');
-        execSync('git --version', { encoding: 'utf-8', timeout: 5000 });
-        return true;
-    } catch (_) { return false; }
-}
-
-ipcMain.handle('git-status', async () => {
-    const vaultPath = getCurrentVault();
-    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
-    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません。\nMac: Xcode Command Line Tools（ターミナルで xcode-select --install）\nWindows: https://git-scm.com からインストールしてください。' };
-    try {
-        const { execSync } = require('child_process');
-        const isGit = fs.existsSync(path.join(vaultPath, '.git'));
-        if (!isGit) return { success: true, initialized: false, message: 'Gitリポジトリではありません。「Git初期化」をクリックしてください。' };
-        const status = execSync('git status --porcelain', { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
-        const lines = status.trim().split('\n').filter(l => l.trim());
-        const branch = execSync('git branch --show-current', { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 }).trim();
-        return { success: true, initialized: true, branch, changedFiles: lines.length, changes: lines.slice(0, 20) };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('git-backup', async () => {
-    const vaultPath = getCurrentVault();
-    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
-    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません' };
-    try {
-        const { execSync } = require('child_process');
-        if (!fs.existsSync(path.join(vaultPath, '.git'))) return { success: false, error: 'Git初期化が必要です' };
-        // .gitignoreが無ければ作成
-        const gitignorePath = path.join(vaultPath, '.gitignore');
-        if (!fs.existsSync(gitignorePath)) {
-            fs.writeFileSync(gitignorePath, '.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n', 'utf-8');
-        }
-        execSync('git add -A', { cwd: vaultPath, timeout: 30000 });
-        const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
-        execSync(`git commit -m "Vault backup ${timestamp}" --allow-empty`, { cwd: vaultPath, timeout: 30000 });
-        const log = execSync('git log -1 --oneline', { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 }).trim();
-        return { success: true, commit: log };
-    } catch (e) {
-        // コミットするものがない場合
-        if (e.message && e.message.includes('nothing to commit')) {
-            return { success: true, commit: '変更なし（最新の状態です）' };
-        }
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('git-log', async () => {
-    const vaultPath = getCurrentVault();
-    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
-    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません' };
-    try {
-        const { execSync } = require('child_process');
-        if (!fs.existsSync(path.join(vaultPath, '.git'))) return { success: false, error: 'Gitリポジトリではありません' };
-        const log = execSync('git log --oneline -20', { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
-        const entries = log.trim().split('\n').filter(l => l.trim()).map(l => {
-            const [hash, ...rest] = l.split(' ');
-            return { hash, message: rest.join(' ') };
-        });
-        return { success: true, entries };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
-
-ipcMain.handle('git-init', async () => {
-    const vaultPath = getCurrentVault();
-    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
-    if (!isGitAvailable()) return { success: false, error: 'Gitがインストールされていません。\nMac: ターミナルで xcode-select --install\nWindows: https://git-scm.com からインストール' };
-    try {
-        const { execSync } = require('child_process');
-        if (fs.existsSync(path.join(vaultPath, '.git'))) return { success: true, message: '既にGitリポジトリです' };
-        execSync('git init', { cwd: vaultPath, timeout: 10000 });
-        // .gitignore作成
-        const gitignorePath = path.join(vaultPath, '.gitignore');
-        if (!fs.existsSync(gitignorePath)) {
-            fs.writeFileSync(gitignorePath, '.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n', 'utf-8');
-        }
-        execSync('git add -A', { cwd: vaultPath, timeout: 30000 });
-        execSync('git commit -m "Initial vault backup"', { cwd: vaultPath, timeout: 30000 });
-        return { success: true, message: 'Gitリポジトリを初期化しました' };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-});
+// Git 統合ハンドラ → src/handlers/git.handler.js に移動済み
+require('./src/handlers/git.handler').register(ipcMain, { getCurrentVault });
 
 // ノートエクスポート
 ipcMain.handle('export-notes', async (_, { format, scope }) => {

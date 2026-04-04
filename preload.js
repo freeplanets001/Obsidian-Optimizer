@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+    // AIモデル一覧取得（src/config/ai-models.js が唯一の真実ソース）
+    getAiModels: () => ipcRenderer.invoke('get-ai-models'),
     getConfig: () => ipcRenderer.invoke('get-config'),
     saveConfigPartial: (p) => ipcRenderer.invoke('save-config-partial', p),
     checkVault: () => ipcRenderer.invoke('check-vault'),
@@ -119,6 +121,19 @@ contextBridge.exposeInMainWorld('api', {
     toggleTask: (params) => ipcRenderer.invoke('toggle-task', params),
     deleteTask: (params) => ipcRenderer.invoke('delete-task', params),
     getTaskTargets: () => ipcRenderer.invoke('get-task-targets'),
+    // プロジェクト管理機能
+    getProjects: () => ipcRenderer.invoke('get-projects'),
+    saveProject: (p) => ipcRenderer.invoke('save-project', p),
+    deleteProject: (params) => ipcRenderer.invoke('delete-project', params),
+    updateProjectStatus: (params) => ipcRenderer.invoke('update-project-status', params),
+    addProjectTask: (params) => ipcRenderer.invoke('add-project-task', params),
+    toggleProjectTask: (params) => ipcRenderer.invoke('toggle-project-task', params),
+    deleteProjectTask: (params) => ipcRenderer.invoke('delete-project-task', params),
+    addProjectMilestone: (params) => ipcRenderer.invoke('add-project-milestone', params),
+    toggleProjectMilestone: (params) => ipcRenderer.invoke('toggle-project-milestone', params),
+    deleteProjectMilestone: (params) => ipcRenderer.invoke('delete-project-milestone', params),
+    updateProjectNotes: (params) => ipcRenderer.invoke('update-project-notes', params),
+    generateProjectNote: (params) => ipcRenderer.invoke('generate-project-note', params),
     // AI統合機能
     saveAiConfig: (params) => ipcRenderer.invoke('save-ai-config', params),
     testAiConnection: () => ipcRenderer.invoke('test-ai-connection'),

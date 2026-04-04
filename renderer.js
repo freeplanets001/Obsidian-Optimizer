@@ -318,7 +318,9 @@ function bindAllButtons() {
                 case '4': e.preventDefault(); activateTab('analytics'); break;
                 case '5': e.preventDefault(); activateTab('tools'); break;
                 case '6': e.preventDefault(); activateTab('tasks'); break;
+                case '7': e.preventDefault(); activateTab('projects'); break;
                 case ',': e.preventDefault(); activateTab('settings'); break;
+                case 'p': e.preventDefault(); activateTab('projects'); break;
                 case 'o': e.preventDefault(); activateTab('scan-optimize'); break;
                 case 't': e.preventDefault(); activateTab('tasks'); break;
                 case 'r': e.preventDefault(); runScan(); break;
@@ -413,6 +415,9 @@ async function initAsync() {
     if (logCount === 0) addLog('アプリを起動しました (v4.3 — AI寺子屋 CraftLab)', 'info');
     checkUndoAvailability();
 
+    // AIモデル一覧を main プロセス（src/config/ai-models.js）から動的ロード
+    initAiModelOptions();
+
     // Feature 4: テーマ復元
     try {
         const cfg2 = await window.api.getConfig();
@@ -432,6 +437,42 @@ async function initAsync() {
             showOnboarding();
         }
     } catch (e) { /* ignore */ }
+
+    // 初心者向けガイドカード: Vault未設定 or 初回起動時に表示
+    initBeginnerGuide();
+}
+
+function initBeginnerGuide() {
+    const guideCard = $('beginner-guide-card');
+    if (!guideCard) return;
+
+    // localStorage で「閉じた」状態を記憶
+    const dismissed = localStorage.getItem('beginner-guide-dismissed');
+    if (dismissed) return;
+
+    // Vault が未設定の場合に表示
+    const vs = $('vault-switcher');
+    const hasVault = vs && vs.options.length > 0;
+    if (!hasVault) {
+        guideCard.style.display = 'block';
+    }
+
+    // 閉じるボタン
+    $('btn-dismiss-guide')?.addEventListener('click', () => {
+        guideCard.style.display = 'none';
+        localStorage.setItem('beginner-guide-dismissed', '1');
+    });
+
+    // Vault追加ショートカット
+    $('btn-guide-add-vault')?.addEventListener('click', () => {
+        $('btn-add-vault')?.click();
+    });
+
+    // 設定ページリンク
+    $('link-guide-settings')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        activateTab('settings');
+    });
 }
 
 // ============================================================
@@ -811,6 +852,12 @@ async function runScan() {
     set('h-links', scanData.totalLinks);
     set('h-broken', scanData.brokenLinksCount || 0);
     set('h-stale', scanData.staleList ? scanData.staleList.length : 0);
+    // 拡張KPI
+    set('h-words', scanData.avgWordsPerNote ?? '-');
+    set('h-untagged', scanData.untaggedCount ?? '-');
+    set('h-this-week', scanData.thisWeekCreated ?? '-');
+    set('h-link-density', scanData.linkDensity ?? '-');
+    set('h-images', scanData.totalImages ?? '-');
 
     const dupCount = (scanData.duplicateList || []).length;
     const staleCount = (scanData.staleList || []).length;
@@ -869,6 +916,9 @@ async function runScan() {
     renderOrphanImages(scanData.orphanImages || []);
     renderRecommendedActions(scanData);
     renderScanDiff(scanData);
+    // v5.0 拡張ダッシュボード
+    renderRecentlyEdited(scanData.recentlyEdited || []);
+    renderSmartInsights(scanData);
 
     // Feature 5: スナップショット保存 & 推移グラフ
     saveVaultSnapshotAndRenderTrends(scanData);
@@ -2816,6 +2866,82 @@ function renderRecommendedActions(data) {
 }
 
 // ============================================================
+// v5.0 拡張ダッシュボード: 最近の編集
+// ============================================================
+function renderRecentlyEdited(list) {
+    const container = $('recently-edited-list');
+    if (!container) return;
+    if (!list || list.length === 0) {
+        container.innerHTML = '<div class="list-empty" style="font-size:.75rem">データがありません</div>';
+        return;
+    }
+    container.innerHTML = list.map(n => {
+        const daysLabel = n.days === 0 ? '今日' : n.days === 1 ? '昨日' : `${n.days}日前`;
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.78rem">
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(n.path)}">${esc(n.name)}</span>
+            <span style="opacity:.5;white-space:nowrap">${daysLabel}</span>
+        </div>`;
+    }).join('');
+}
+
+// ============================================================
+// v5.0 拡張ダッシュボード: スマートインサイト
+// ============================================================
+function renderSmartInsights(data) {
+    const container = $('smart-insights-list');
+    if (!container) return;
+
+    const insights = [];
+    const total = data.totalMDFiles || 1;
+
+    // タグなし率が高い
+    const untaggedRate = Math.round((data.untaggedCount || 0) / total * 100);
+    if (untaggedRate >= 30) {
+        insights.push({ icon: '🏷️', level: 'warn', text: `ノートの ${untaggedRate}% にタグがありません。タグを付けると検索性が向上します。` });
+    }
+
+    // 孤立ノートが多い
+    const orphanRate = Math.round((data.orphanNotes || 0) / total * 100);
+    if (orphanRate >= 20) {
+        insights.push({ icon: '🔗', level: 'warn', text: `孤立ノートが ${orphanRate}% と多めです。MOCや[[リンク]]で接続しましょう。` });
+    }
+
+    // リンク密度が低い
+    if ((data.linkDensity || 0) < 1 && total >= 10) {
+        insights.push({ icon: '🕸️', level: 'info', text: `リンク密度が低めです（${data.linkDensity}/ノート）。ノート間のリンクを増やすと知識グラフが強化されます。` });
+    }
+
+    // 今週作成が活発
+    if ((data.thisWeekCreated || 0) >= 5) {
+        insights.push({ icon: '🚀', level: 'success', text: `今週 ${data.thisWeekCreated} 件のノートを作成しました。素晴らしいペースです！` });
+    }
+
+    // ゴミファイルが多い
+    const junkRate = Math.round((data.junkFiles || 0) / total * 100);
+    if (junkRate >= 10) {
+        insights.push({ icon: '🗑️', level: 'danger', text: `ゴミファイルが ${data.junkFiles} 件（${junkRate}%）あります。整理ツールで一括削除できます。` });
+    }
+
+    // 平均単語数が少ない（ノートが薄い）
+    if ((data.avgWordsPerNote || 0) < 50 && total >= 10) {
+        insights.push({ icon: '✍️', level: 'info', text: `平均単語数が ${data.avgWordsPerNote} 語と少なめです。各ノートをもう少し肉付けしてみましょう。` });
+    }
+
+    // 健全な状態
+    if (insights.length === 0) {
+        insights.push({ icon: '✅', level: 'success', text: 'Vault は非常に健全です！引き続き良い習慣を維持しましょう。' });
+    }
+
+    const colorMap = { success: 'var(--green)', warn: '#f59e0b', danger: '#f87171', info: 'var(--accent)' };
+    container.innerHTML = insights.map(ins =>
+        `<div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.78rem;align-items:flex-start">
+            <span>${ins.icon}</span>
+            <span style="color:${colorMap[ins.level] || '#fff'};line-height:1.4">${esc(ins.text)}</span>
+        </div>`
+    ).join('');
+}
+
+// ============================================================
 // v4.3 Feature 2: スキャンDiff（前回比較）
 // ============================================================
 async function renderScanDiff(currentData) {
@@ -3348,6 +3474,276 @@ async function analyzeVaultStructure() {
 // ============================================================
 // Feature H: Force-directed グラフビュー
 // ============================================================
+// ============================================================
+// AIバッチ処理機能
+// ============================================================
+let batchTargetNotes = [];
+let batchTargetType = '';
+
+function initAiBatchTab() {
+    // 対象ノート選択ボタン
+    const targetBtns = [
+        { id: 'btn-batch-target-orphans', type: 'orphans', label: '孤立ノート' },
+        { id: 'btn-batch-target-untagged', type: 'untagged', label: 'タグなし' },
+        { id: 'btn-batch-target-stale', type: 'stale', label: '放置ノート' },
+        { id: 'btn-batch-target-all', type: 'all', label: '全ノート' },
+    ];
+    targetBtns.forEach(({ id, type, label }) => {
+        $(id)?.addEventListener('click', () => {
+            if (!scanData) { showToast('先にスキャンを実行してください', 'warning'); return; }
+            batchTargetType = type;
+            if (type === 'orphans') batchTargetNotes = (scanData.orphanList || []).map(n => n.path);
+            else if (type === 'untagged') batchTargetNotes = []; // スキャンデータから取得できないためスキャン後に判定
+            else if (type === 'stale') batchTargetNotes = (scanData.staleList || []).map(n => n.path);
+            else batchTargetNotes = []; // all: main.js側で処理
+
+            const count = type === 'all'
+                ? (scanData.totalMDFiles || 0)
+                : batchTargetNotes.length;
+            const countEl = $('batch-target-count');
+            const descEl = $('batch-target-desc');
+            if (countEl) countEl.textContent = count;
+            if (descEl) descEl.textContent = `（${label}）`;
+            document.querySelectorAll('[id^="btn-batch-target-"]').forEach(b => b.classList.remove('active'));
+            $(id)?.classList.add('active');
+        });
+    });
+
+    // コスト試算ボタン
+    $('btn-batch-estimate')?.addEventListener('click', () => {
+        const ops = Array.from(document.querySelectorAll('.batch-op:checked')).map(cb => cb.value);
+        const count = parseInt($('batch-target-count')?.textContent || '0');
+        if (ops.length === 0) { showToast('操作を1つ以上選択してください', 'warning'); return; }
+        if (count === 0) { showToast('対象ノートを選択してください', 'warning'); return; }
+
+        // 操作ごとのトークン概算（入力/出力）
+        const tokenEstimates = {
+            'summarize':     { input: 800, output: 200 },
+            'suggest-tags':  { input: 600, output: 50  },
+            'suggest-links': { input: 700, output: 100 },
+            'auto-title':    { input: 600, output: 30  },
+            'review':        { input: 900, output: 300 },
+            'flashcards':    { input: 800, output: 400 },
+        };
+        let totalInput = 0, totalOutput = 0;
+        ops.forEach(op => {
+            const est = tokenEstimates[op] || { input: 600, output: 150 };
+            totalInput  += est.input  * count;
+            totalOutput += est.output * count;
+        });
+        const costUsd = (totalInput / 1_000_000 * 3) + (totalOutput / 1_000_000 * 15); // Sonnet概算
+        const costJpy = Math.round(costUsd * 150);
+
+        const el = $('batch-cost-estimate');
+        if (el) el.innerHTML = `
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+                <div style="background:rgba(255,255,255,.04);padding:10px;border-radius:8px;text-align:center">
+                    <div style="font-size:1rem;font-weight:700">${count}</div>
+                    <div style="font-size:.68rem;opacity:.5">対象ノート</div>
+                </div>
+                <div style="background:rgba(255,255,255,.04);padding:10px;border-radius:8px;text-align:center">
+                    <div style="font-size:1rem;font-weight:700">${ops.length}</div>
+                    <div style="font-size:.68rem;opacity:.5">AI操作数</div>
+                </div>
+                <div style="background:rgba(255,255,255,.04);padding:10px;border-radius:8px;text-align:center">
+                    <div style="font-size:1rem;font-weight:700;color:#f59e0b">≈ ¥${costJpy}</div>
+                    <div style="font-size:.68rem;opacity:.5">推定コスト（Sonnet）</div>
+                </div>
+            </div>
+            <p style="font-size:.72rem;opacity:.5;margin:8px 0 0">※入力${Math.round(totalInput/1000)}K・出力${Math.round(totalOutput/1000)}Kトークンの概算（実際のコストは異なる場合があります）</p>
+        `;
+        const runBtn = $('btn-batch-run');
+        if (runBtn) runBtn.disabled = false;
+    });
+
+    // バッチ実行
+    $('btn-batch-run')?.addEventListener('click', async () => {
+        const ops = Array.from(document.querySelectorAll('.batch-op:checked')).map(cb => cb.value);
+        const count = parseInt($('batch-target-count')?.textContent || '0');
+        if (ops.length === 0 || count === 0) return;
+
+        if (!await showConfirmModal('バッチ処理の確認', `${count}件のノートに ${ops.length} 種類のAI操作を実行します。\nAPIコストが発生します。実行しますか？`, '実行する')) return;
+
+        const progressArea = $('batch-progress-area');
+        const progressBar = $('batch-progress-bar');
+        const progressLog = $('batch-progress-log');
+        if (progressArea) progressArea.style.display = 'block';
+
+        const opLabels = { summarize: '要約生成', 'suggest-tags': 'タグ提案', 'suggest-links': 'リンク提案', 'auto-title': 'タイトル改善', review: '品質レビュー', flashcards: 'フラッシュカード' };
+        const apiMap = { summarize: 'aiSummarizeNote', 'suggest-tags': 'aiSuggestTags', 'suggest-links': 'aiSuggestLinks', 'auto-title': 'aiAutoTitles', review: 'aiReviewNote', flashcards: 'aiGenerateFlashcards' };
+
+        let done = 0, errors = 0;
+        const total = count * ops.length;
+
+        const log = (msg) => {
+            if (progressLog) {
+                progressLog.innerHTML = `<div>${msg}</div>` + progressLog.innerHTML;
+            }
+        };
+
+        for (const op of ops) {
+            const apiFn = apiMap[op];
+            if (!apiFn || !window.api[apiFn]) { log(`⚠️ ${opLabels[op] || op}: API未対応`); continue; }
+            log(`▶ ${opLabels[op] || op} 開始...`);
+            try {
+                const res = await window.api[apiFn]();
+                if (res && res.success) {
+                    log(`✅ ${opLabels[op] || op}: 完了`);
+                } else {
+                    log(`⚠️ ${opLabels[op] || op}: ${res?.error || '不明エラー'}`);
+                    errors++;
+                }
+            } catch (e) {
+                log(`❌ ${opLabels[op] || op}: ${e.message}`);
+                errors++;
+            }
+            done += count;
+            if (progressBar) progressBar.style.width = `${Math.min(100, Math.round(done / total * 100))}%`;
+        }
+
+        if (progressBar) progressBar.style.width = '100%';
+        showToast(errors === 0 ? `バッチ処理完了（${ops.length}操作）` : `完了（エラー ${errors}件）`, errors === 0 ? 'success' : 'warning');
+    });
+
+    // リセット
+    $('btn-batch-clear')?.addEventListener('click', () => {
+        batchTargetNotes = [];
+        batchTargetType = '';
+        document.querySelectorAll('.batch-op').forEach(cb => cb.checked = false);
+        document.querySelectorAll('[id^="btn-batch-target-"]').forEach(b => b.classList.remove('active'));
+        const countEl = $('batch-target-count'); if (countEl) countEl.textContent = '0';
+        const descEl = $('batch-target-desc'); if (descEl) descEl.textContent = '';
+        const costEl = $('batch-cost-estimate'); if (costEl) costEl.textContent = '操作を選択するとコストを試算します';
+        const runBtn = $('btn-batch-run'); if (runBtn) runBtn.disabled = true;
+        const progressArea = $('batch-progress-area'); if (progressArea) progressArea.style.display = 'none';
+    });
+}
+
+// ============================================================
+// ノート品質スコアボード
+// ============================================================
+let qualityBoardNotes = []; // 最後に計算したスコア済みリスト
+
+function calcNoteQualityScore(note, nowMs) {
+    // リンクスコア(40%): 発信+受信リンクの合計。10本以上で満点
+    const linkTotal = (note.outlinks || 0) + (note.incoming || 0);
+    const linkScore = Math.min(linkTotal / 10, 1) * 100;
+
+    // タグスコア(20%): 0→0, 1→50, 3+→100
+    const tagScore = note.tags === 0 ? 0 : note.tags === 1 ? 50 : note.tags >= 3 ? 100 : 75;
+
+    // 文章量スコア(20%): 0→0, 300語以上→100
+    const wordScore = Math.min((note.words || 0) / 300, 1) * 100;
+
+    // 新鮮さスコア(20%): 30日以内→100, 180日以上→0
+    const ageDays = Math.floor((nowMs - (note.mtime || 0)) / (1000 * 60 * 60 * 24));
+    const freshnessScore = ageDays <= 30 ? 100
+        : ageDays <= 60  ? 80
+        : ageDays <= 90  ? 60
+        : ageDays <= 180 ? 30
+        : 0;
+
+    const total = Math.round(linkScore * 0.4 + tagScore * 0.2 + wordScore * 0.2 + freshnessScore * 0.2);
+    return { total, linkScore: Math.round(linkScore), tagScore, wordScore: Math.round(wordScore), freshnessScore, ageDays };
+}
+
+function initQualityBoard() {
+    const nowMs = Date.now();
+
+    const calcBtn = $('btn-calc-quality');
+    const searchEl = $('quality-search');
+    const filterEl = $('quality-filter');
+    const sortEl   = $('quality-sort');
+
+    function applyFilters() {
+        if (qualityBoardNotes.length === 0) return;
+        const query  = (searchEl?.value || '').toLowerCase();
+        const tier   = filterEl?.value || 'all';
+        const sortBy = sortEl?.value || 'score-desc';
+
+        let list = qualityBoardNotes.filter(n => {
+            if (query && !n.name.toLowerCase().includes(query)) return false;
+            if (tier === 'A' && n.score.total < 80) return false;
+            if (tier === 'B' && (n.score.total < 50 || n.score.total >= 80)) return false;
+            if (tier === 'C' && n.score.total >= 50) return false;
+            return true;
+        });
+
+        list = list.slice().sort((a, b) => {
+            if (sortBy === 'score-desc')  return b.score.total - a.score.total;
+            if (sortBy === 'score-asc')   return a.score.total - b.score.total;
+            if (sortBy === 'name-asc')    return a.name.localeCompare(b.name);
+            if (sortBy === 'recent')      return b.note.mtime - a.note.mtime;
+            if (sortBy === 'words-desc')  return (b.note.words || 0) - (a.note.words || 0);
+            return 0;
+        });
+
+        renderQualityBoard(list);
+    }
+
+    calcBtn?.addEventListener('click', () => {
+        if (!scanData || !scanData.noteList || scanData.noteList.length === 0) {
+            showToast('先にスキャンを実行してください', 'warning');
+            return;
+        }
+        qualityBoardNotes = scanData.noteList.map(note => ({
+            note,
+            name: note.name,
+            score: calcNoteQualityScore(note, nowMs),
+        })).sort((a, b) => b.score.total - a.score.total);
+
+        applyFilters();
+        showToast(`${qualityBoardNotes.length}件のノートをスコア化しました`, 'success');
+    });
+
+    searchEl?.addEventListener('input', applyFilters);
+    filterEl?.addEventListener('change', applyFilters);
+    sortEl?.addEventListener('change', applyFilters);
+}
+
+function renderQualityBoard(list) {
+    const container = $('quality-board-list');
+    if (!container) return;
+
+    if (list.length === 0) {
+        container.innerHTML = '<div class="list-empty">条件に一致するノートがありません</div>';
+        return;
+    }
+
+    const tierLabel = { A: '⭐ A', B: '🔶 B', C: '🔴 C' };
+    const tierClass = { A: 'quality-tier-a', B: 'quality-tier-b', C: 'quality-tier-c' };
+
+    container.innerHTML = list.map(({ note, name, score }) => {
+        const tier = score.total >= 80 ? 'A' : score.total >= 50 ? 'B' : 'C';
+        const barWidth = score.total;
+        const barColor = tier === 'A' ? 'var(--green)' : tier === 'B' ? 'var(--warn)' : 'var(--danger)';
+
+        return `
+        <div class="quality-row ${tierClass[tier]}">
+            <div class="quality-row-header">
+                <span class="quality-tier-badge tier-${tier.toLowerCase()}">${tierLabel[tier]}</span>
+                <span class="quality-note-name">${escHtml(name)}</span>
+                <span class="quality-score-num">${score.total}<span style="opacity:.5;font-size:.8em">/100</span></span>
+            </div>
+            <div class="quality-score-bar-wrap">
+                <div class="quality-score-bar" style="width:${barWidth}%;background:${barColor}"></div>
+            </div>
+            <div class="quality-breakdown">
+                <span data-tooltip="リンク(40%)">🔗 ${score.linkScore}</span>
+                <span data-tooltip="タグ(20%)">🏷️ ${score.tagScore}</span>
+                <span data-tooltip="文章量(20%)">📝 ${score.wordScore}</span>
+                <span data-tooltip="新鮮さ(20%)">🕐 ${score.freshnessScore}</span>
+                <span style="opacity:.45;margin-left:auto;font-size:.72rem">${score.ageDays}日前に更新 · ${note.words || 0}語 · 発信${note.outlinks || 0}/受信${note.incoming || 0}リンク</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// 分析タブ初期化時にAIバッチも初期化
+let aiBatchInitialized = false;
+let qualityBoardInitialized = false;
+const _origLoadFullGraph = typeof loadFullGraph !== 'undefined' ? loadFullGraph : null;
+
 let graphTabInitialized = false;
 let graphAnimationId = null;
 // グラフ状態を外部から操作するためのハンドル
@@ -4124,8 +4520,9 @@ async function generateReportNote() {
     } catch (e) { hideLoading(); addLog(`エラー: ${e.message}`, 'error'); }
 }
 
-// activateTabをオーバーライドして構造/グラフ/タスクタブの遅延初期化
+// activateTabをオーバーライドして構造/グラフ/タスク/プロジェクトタブの遅延初期化
 let taskTabInitialized = false;
+let projectTabInitialized = false;
 const _origActivateTab = activateTab;
 window.activateTab = function(tab) {
     _origActivateTab(tab);
@@ -4133,7 +4530,10 @@ window.activateTab = function(tab) {
     if ((tab === 'structure' || tab === 'tools') && !structureTabInitialized) { structureTabInitialized = true; loadStructureTemplates(); }
     // analytics タブにはgraphサブタブが含まれる
     if ((tab === 'graph' || tab === 'analytics') && !graphTabInitialized) { graphTabInitialized = true; loadFullGraph(); }
+    if ((tab === 'analytics') && !aiBatchInitialized) { aiBatchInitialized = true; initAiBatchTab(); }
+    if ((tab === 'analytics') && !qualityBoardInitialized) { qualityBoardInitialized = true; initQualityBoard(); }
     if (tab === 'tasks' && !taskTabInitialized) { taskTabInitialized = true; loadTaskTab(); }
+    if (tab === 'projects' && !projectTabInitialized) { projectTabInitialized = true; loadProjectTab(); }
 };
 
 // ============================================================
@@ -4436,12 +4836,27 @@ window.createMocFromTag = createMocFromTag;
 // AI統合機能
 // ============================================================
 
-// AI設定のモデル定義
-const AI_MODEL_OPTIONS = {
-    claude: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
-    openai: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4o'],
-    gemini: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
-};
+// AIモデル一覧: 起動時に main プロセスから動的取得（src/config/ai-models.js が唯一の真実ソース）
+// ハードコードを避けるため、初期値は空にして initAiModelOptions() で非同期充填する
+let AI_MODEL_OPTIONS = { claude: [], openai: [], gemini: [] };
+
+async function initAiModelOptions() {
+    try {
+        const result = await window.api.getAiModels();
+        if (result && result.models) {
+            AI_MODEL_OPTIONS = result.models;
+            // AI_PRICING_PER_1M も同期する
+            if (result.rates) {
+                for (const [model, rateArr] of Object.entries(result.rates)) {
+                    AI_PRICING_PER_1M[model] = { input: rateArr[0], output: rateArr[1] };
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('AIモデル一覧の取得に失敗 (フォールバック値を使用):', e.message);
+    }
+    updateAiModelOptions();
+}
 
 // プロバイダー変更時にモデルリストを更新
 function updateAiModelOptions() {
@@ -5344,17 +5759,18 @@ window.createNoteFromPrompt = async function(idx) {
 // ============================================================
 // APIコスト追跡用ローカルストレージ
 const AI_COST_STORAGE_KEY = 'obsidian-optimizer-ai-cost-history';
-const AI_PRICING_PER_1M = {
-    'claude-opus-4-6': { input: 15, output: 75 },
-    'claude-sonnet-4-6': { input: 3, output: 15 },
-    'claude-haiku-4-5-20251001': { input: 0.80, output: 4 },
-    'gpt-5.4': { input: 2.50, output: 10 },
-    'gpt-5.4-mini': { input: 0.40, output: 1.60 },
-    'gpt-5.4-nano': { input: 0.10, output: 0.40 },
-    'gpt-4o': { input: 2.50, output: 10 },
-    'gemini-2.5-flash': { input: 0.15, output: 0.60 },
-    'gemini-2.5-pro': { input: 1.25, output: 10 },
-    'gemini-2.0-flash': { input: 0.10, output: 0.40 },
+// 初期値（フォールバック用）— 起動時に initAiModelOptions() が src/config/ai-models.js の値で上書きする
+let AI_PRICING_PER_1M = {
+    'claude-opus-4-6':           { input: 15,   output: 75   },
+    'claude-sonnet-4-6':         { input: 3,    output: 15   },
+    'claude-haiku-4-5-20251001': { input: 0.80, output: 4    },
+    'gpt-5.4':                   { input: 2.50, output: 10   },
+    'gpt-5.4-mini':              { input: 0.40, output: 1.60 },
+    'gpt-5.4-nano':              { input: 0.10, output: 0.40 },
+    'gpt-4o':                    { input: 2.50, output: 10   },
+    'gemini-2.5-flash':          { input: 0.15, output: 0.60 },
+    'gemini-2.5-pro':            { input: 1.25, output: 10   },
+    'gemini-2.0-flash':          { input: 0.10, output: 0.40 },
 };
 const JPY_RATE = 150;
 
@@ -6822,6 +7238,577 @@ async function orgNormalizeLinks() {
 }
 
 // ============================================================
+// ============================================================
+// プロジェクト管理機能
+// ============================================================
+
+let allProjects = [];
+let currentProjectId = null; // 詳細パネルで開いているプロジェクトID
+let currentProjectFilter = 'all';
+let currentProjectView = 'kanban'; // 'cards' | 'list' | 'kanban'
+let projectSelectedColor = '#6366f1';
+
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+const PRIORITY_LABEL = { high: '🔴 高', medium: '🟡 中', low: '🔵 低' };
+const STATUS_LABEL = { active: '🔥 進行中', 'on-hold': '⏸ 保留中', completed: '✅ 完了', archived: '📦 アーカイブ' };
+
+function calcProjectProgress(p) {
+    if (!p.tasks || p.tasks.length === 0) return 0;
+    return Math.round(p.tasks.filter(t => t.done).length / p.tasks.length * 100);
+}
+
+function isProjectOverdue(p) {
+    if (!p.dueDate || p.status === 'completed' || p.status === 'archived') return false;
+    return new Date(p.dueDate) < new Date(new Date().toISOString().slice(0, 10));
+}
+
+function getDaysUntilDue(dueDate) {
+    if (!dueDate) return null;
+    const diff = Math.ceil((new Date(dueDate) - new Date(new Date().toISOString().slice(0, 10))) / 86400000);
+    return diff;
+}
+
+async function loadProjectTab() {
+    bindProjectEvents();
+    await refreshProjects();
+}
+
+function bindProjectEvents() {
+    // 新規プロジェクトボタン
+    $('btn-new-project')?.addEventListener('click', () => openProjectModal(null));
+
+    // ビュー切替
+    $('btn-project-view-cards')?.addEventListener('click', () => { currentProjectView = 'cards'; renderProjectList(); });
+    $('btn-project-view-list')?.addEventListener('click', () => { currentProjectView = 'list'; renderProjectList(); });
+    $('btn-project-view-kanban')?.addEventListener('click', () => { currentProjectView = 'kanban'; renderProjectList(); });
+
+    // フィルターボタン
+    document.querySelectorAll('[data-pfilter]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-pfilter]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentProjectFilter = btn.dataset.pfilter;
+            renderProjectList();
+        });
+    });
+
+    // 検索
+    $('project-search')?.addEventListener('input', () => renderProjectList());
+
+    // ソート
+    $('project-sort')?.addEventListener('change', () => renderProjectList());
+
+    // モーダル閉じる
+    $('btn-project-modal-close')?.addEventListener('click', closeProjectModal);
+    $('btn-project-modal-cancel')?.addEventListener('click', closeProjectModal);
+
+    // モーダル保存
+    $('btn-project-modal-save')?.addEventListener('click', saveProjectFromModal);
+
+    // カラーピッカー
+    document.querySelectorAll('.proj-color-dot').forEach(dot => {
+        dot.addEventListener('click', () => {
+            document.querySelectorAll('.proj-color-dot').forEach(d => d.style.outline = 'none');
+            dot.style.outline = '2px solid #fff';
+            projectSelectedColor = dot.dataset.color;
+            const input = $('project-edit-color');
+            if (input) input.value = projectSelectedColor;
+        });
+    });
+
+    // 詳細パネル 閉じる
+    $('btn-proj-detail-close')?.addEventListener('click', closeProjectDetail);
+    $('project-detail-overlay')?.addEventListener('click', closeProjectDetail);
+
+    // 詳細パネル ステータス変更
+    $('proj-detail-status')?.addEventListener('change', async (e) => {
+        if (!currentProjectId) return;
+        await window.api.updateProjectStatus({ id: currentProjectId, status: e.target.value });
+        await refreshProjects();
+        const p = allProjects.find(p => p.id === currentProjectId);
+        if (p) renderProjectDetail(p);
+    });
+
+    // 詳細パネル 編集
+    $('btn-proj-edit')?.addEventListener('click', () => {
+        const p = allProjects.find(p => p.id === currentProjectId);
+        if (p) { closeProjectDetail(); openProjectModal(p); }
+    });
+
+    // 詳細パネル Vaultノート生成
+    $('btn-proj-gen-note')?.addEventListener('click', async () => {
+        if (!currentProjectId) return;
+        showToast('Vaultノートを生成中...', 'info');
+        const res = await window.api.generateProjectNote({ projectId: currentProjectId });
+        if (res.success) { showToast('Vaultノートを生成しました', 'success'); }
+        else { showToast(`エラー: ${res.error}`, 'error'); }
+    });
+
+    // 詳細パネル 削除
+    $('btn-proj-delete')?.addEventListener('click', async () => {
+        const p = allProjects.find(p => p.id === currentProjectId);
+        if (!p) return;
+        if (!await showConfirmModal('削除確認', `「${p.name}」を削除しますか？この操作は取り消せません。`, '削除')) return;
+        await window.api.deleteProject({ id: currentProjectId });
+        closeProjectDetail();
+        await refreshProjects();
+        showToast('プロジェクトを削除しました', 'success');
+    });
+
+    // タスク追加
+    $('btn-proj-add-task')?.addEventListener('click', addProjectTaskFromPanel);
+    $('proj-new-task-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') addProjectTaskFromPanel(); });
+
+    // マイルストーン追加
+    $('btn-proj-add-ms')?.addEventListener('click', addProjectMilestoneFromPanel);
+    $('proj-new-ms-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') addProjectMilestoneFromPanel(); });
+
+    // メモ保存
+    $('btn-proj-save-notes')?.addEventListener('click', async () => {
+        if (!currentProjectId) return;
+        const notes = $('proj-detail-notes')?.value || '';
+        await window.api.updateProjectNotes({ projectId: currentProjectId, notes });
+        showToast('メモを保存しました', 'success');
+        await refreshProjects();
+    });
+}
+
+async function refreshProjects() {
+    const res = await window.api.getProjects();
+    if (res.success) {
+        allProjects = res.projects || [];
+        renderProjectList();
+        renderProjectStats();
+    }
+}
+
+function renderProjectStats() {
+    const today = new Date().toISOString().slice(0, 10);
+    const active = allProjects.filter(p => p.status === 'active').length;
+    const done = allProjects.filter(p => p.status === 'completed').length;
+    const overdue = allProjects.filter(p => isProjectOverdue(p)).length;
+    const avgProgress = allProjects.length > 0
+        ? Math.round(allProjects.reduce((s, p) => s + calcProjectProgress(p), 0) / allProjects.length)
+        : 0;
+    const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    set('proj-stat-total', allProjects.length);
+    set('proj-stat-active', active);
+    set('proj-stat-done', done);
+    set('proj-stat-overdue', overdue);
+    set('proj-stat-progress', `${avgProgress}%`);
+}
+
+function getFilteredProjects() {
+    const query = ($('project-search')?.value || '').toLowerCase();
+    const sort = $('project-sort')?.value || 'updatedAt';
+    const today = new Date().toISOString().slice(0, 10);
+
+    let list = allProjects.filter(p => {
+        // フィルター
+        if (currentProjectFilter === 'active' && p.status !== 'active') return false;
+        if (currentProjectFilter === 'on-hold' && p.status !== 'on-hold') return false;
+        if (currentProjectFilter === 'completed' && p.status !== 'completed') return false;
+        if (currentProjectFilter === 'overdue' && !isProjectOverdue(p)) return false;
+        // アーカイブは「すべて」でも非表示（明示フィルター時のみ表示）
+        if (p.status === 'archived' && currentProjectFilter !== 'all') return false;
+        // 検索
+        if (query) {
+            const nameMatch = p.name.toLowerCase().includes(query);
+            const tagMatch = (p.tags || []).some(t => t.toLowerCase().includes(query));
+            const descMatch = (p.description || '').toLowerCase().includes(query);
+            if (!nameMatch && !tagMatch && !descMatch) return false;
+        }
+        return true;
+    });
+
+    // ソート
+    list.sort((a, b) => {
+        if (sort === 'dueDate') {
+            if (!a.dueDate && !b.dueDate) return 0;
+            if (!a.dueDate) return 1;
+            if (!b.dueDate) return -1;
+            return a.dueDate.localeCompare(b.dueDate);
+        }
+        if (sort === 'priority') return (PRIORITY_ORDER[a.priority] ?? 2) - (PRIORITY_ORDER[b.priority] ?? 2);
+        if (sort === 'progress') return calcProjectProgress(b) - calcProjectProgress(a);
+        if (sort === 'name') return a.name.localeCompare(b.name, 'ja');
+        return b.updatedAt.localeCompare(a.updatedAt); // updatedAt（デフォルト）
+    });
+
+    return list;
+}
+
+function renderProjectList() {
+    const container = $('project-list-container');
+    if (!container) return;
+
+    const list = getFilteredProjects();
+
+    if (list.length === 0) {
+        container.style.display = 'grid';
+        container.style.gridTemplateColumns = 'repeat(auto-fill,minmax(280px,1fr))';
+        container.innerHTML = '<div class="list-empty" style="grid-column:1/-1;font-size:.88rem;text-align:center;padding:40px">📭 条件に一致するプロジェクトがありません</div>';
+        return;
+    }
+
+    if (currentProjectView === 'kanban') {
+        renderProjectKanban(container, list);
+        return;
+    }
+
+    if (currentProjectView === 'list') {
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.gap = '8px';
+        container.innerHTML = list.map(p => renderProjectListItem(p)).join('');
+    } else {
+        container.style.display = 'grid';
+        container.style.gridTemplateColumns = 'repeat(auto-fill,minmax(280px,1fr))';
+        container.innerHTML = list.map(p => renderProjectCard(p)).join('');
+    }
+
+    // クリックイベント
+    container.querySelectorAll('[data-proj-id]').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const id = el.dataset.projId;
+            const p = allProjects.find(p => p.id === id);
+            if (p) openProjectDetail(p);
+        });
+    });
+}
+
+function renderProjectCard(p) {
+    const progress = calcProjectProgress(p);
+    const overdue = isProjectOverdue(p);
+    const days = getDaysUntilDue(p.dueDate);
+    const daysLabel = days === null ? '' : days < 0 ? `<span style="color:#f87171">期限超過 ${Math.abs(days)}日</span>` : days === 0 ? '<span style="color:#f59e0b">今日が期限</span>' : `<span style="opacity:.5">${days}日後</span>`;
+    const tagHtml = (p.tags || []).slice(0, 3).map(t => `<span style="background:rgba(255,255,255,.06);padding:1px 6px;border-radius:8px;font-size:.66rem">#${esc(t)}</span>`).join(' ');
+
+    return `<div class="glass-card" data-proj-id="${esc(p.id)}" style="cursor:pointer;transition:transform .15s,box-shadow .15s;border-left:4px solid ${p.color || '#6366f1'}" onmouseenter="this.style.transform='translateY(-2px)'" onmouseleave="this.style.transform=''">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <h4 style="font-size:.9rem;font-weight:700;margin:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}</h4>
+            <span style="font-size:.68rem;opacity:.6;white-space:nowrap;margin-left:8px">${STATUS_LABEL[p.status] || p.status}</span>
+        </div>
+        ${p.description ? `<p style="font-size:.75rem;opacity:.6;margin:0 0 8px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(p.description)}</p>` : ''}
+        <div style="margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;font-size:.68rem;opacity:.5;margin-bottom:3px">
+                <span>進捗</span><span>${progress}%</span>
+            </div>
+            <div style="height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${progress}%;background:${p.color || '#6366f1'};border-radius:3px;transition:width .3s"></div>
+            </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:.72rem">
+            <div style="display:flex;gap:4px;flex-wrap:wrap">${tagHtml}</div>
+            <div style="text-align:right">${daysLabel}</div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:.72rem;opacity:.5">
+            <span>${PRIORITY_LABEL[p.priority] || ''}</span>
+            <span>${p.tasks ? `✅ ${p.tasks.filter(t=>t.done).length}/${p.tasks.length}タスク` : ''}</span>
+        </div>
+    </div>`;
+}
+
+function renderProjectListItem(p) {
+    const progress = calcProjectProgress(p);
+    const days = getDaysUntilDue(p.dueDate);
+    const daysLabel = days === null ? '-' : days < 0 ? `期限超過${Math.abs(days)}日` : days === 0 ? '今日' : `${days}日後`;
+    const daysColor = days !== null && days < 0 ? '#f87171' : days === 0 ? '#f59e0b' : 'inherit';
+
+    return `<div class="glass-card" data-proj-id="${esc(p.id)}" style="cursor:pointer;padding:10px 16px;border-left:4px solid ${p.color || '#6366f1'};display:flex;align-items:center;gap:12px">
+        <div style="width:8px;height:8px;border-radius:50%;background:${p.color || '#6366f1'}"></div>
+        <div style="flex:1;overflow:hidden">
+            <span style="font-size:.85rem;font-weight:600">${esc(p.name)}</span>
+            ${p.description ? `<span style="font-size:.72rem;opacity:.5;margin-left:8px">${esc(p.description.slice(0, 60))}${p.description.length > 60 ? '...' : ''}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:16px;align-items:center;font-size:.72rem;white-space:nowrap">
+            <span style="opacity:.5">${STATUS_LABEL[p.status] || ''}</span>
+            <span style="opacity:.5">${PRIORITY_LABEL[p.priority] || ''}</span>
+            <div style="width:60px;height:4px;background:rgba(255,255,255,.08);border-radius:2px"><div style="height:100%;width:${progress}%;background:${p.color || '#6366f1'};border-radius:2px"></div></div>
+            <span style="opacity:.5">${progress}%</span>
+            <span style="color:${daysColor};opacity:${days !== null && days < 0 ? 1 : .5}">${daysLabel}</span>
+        </div>
+    </div>`;
+}
+
+function renderProjectKanban(container, list) {
+    const columns = [
+        { id: 'active',    label: '🔥 進行中',   color: '#6366f1' },
+        { id: 'on-hold',   label: '⏸ 保留中',    color: '#f59e0b' },
+        { id: 'completed', label: '✅ 完了',      color: '#22c55e' },
+        { id: 'archived',  label: '📦 アーカイブ', color: '#6b7280' },
+    ];
+    container.style.display = 'block';
+    container.innerHTML = `<div class="kanban-board">${
+        columns.map(col => {
+            const cards = list.filter(p => p.status === col.id);
+            const cardsHtml = cards.length === 0
+                ? '<div class="kanban-empty">なし</div>'
+                : cards.map(p => {
+                    const progress = calcProjectProgress(p);
+                    const days = getDaysUntilDue(p.dueDate);
+                    const daysLabel = days === null ? '' : days < 0
+                        ? `<span style="color:#f87171;font-size:.66rem">${Math.abs(days)}日超過</span>`
+                        : days <= 3 ? `<span style="color:#f59e0b;font-size:.66rem">${days}日後</span>`
+                        : `<span style="opacity:.4;font-size:.66rem">${days}日後</span>`;
+                    return `<div class="kanban-card" data-proj-id="${esc(p.id)}" style="border-left-color:${p.color || col.color}">
+                        <div class="kanban-card-name">${esc(p.name)}</div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px">
+                            <span style="opacity:.5">${PRIORITY_LABEL[p.priority] || ''}</span>
+                            ${daysLabel}
+                        </div>
+                        ${p.tasks.length > 0 ? `
+                        <div class="kanban-card-progress">
+                            <div class="kanban-card-progress-fill" style="width:${progress}%;background:${p.color || col.color}"></div>
+                        </div>
+                        <div style="font-size:.66rem;opacity:.4;margin-top:3px">${p.tasks.filter(t=>t.done).length}/${p.tasks.length} タスク</div>
+                        ` : ''}
+                    </div>`;
+                }).join('');
+            return `<div class="kanban-column">
+                <div class="kanban-column-header">
+                    <span style="color:${col.color}">${col.label}</span>
+                    <span style="opacity:.4;font-weight:400">${cards.length}</span>
+                </div>
+                ${cardsHtml}
+            </div>`;
+        }).join('')
+    }</div>`;
+
+    // カードクリックイベント
+    container.querySelectorAll('[data-proj-id]').forEach(el => {
+        el.addEventListener('click', () => {
+            const p = allProjects.find(p => p.id === el.dataset.projId);
+            if (p) openProjectDetail(p);
+        });
+    });
+}
+
+function openProjectModal(project) {
+    const modal = $('project-edit-modal');
+    if (!modal) return;
+    const isNew = !project;
+    $('project-modal-title').textContent = isNew ? '新規プロジェクト' : 'プロジェクトを編集';
+    $('project-edit-id').value = project?.id || '';
+    $('project-edit-name').value = project?.name || '';
+    $('project-edit-desc').value = project?.description || '';
+    $('project-edit-due').value = project?.dueDate || '';
+    $('project-edit-priority').value = project?.priority || 'medium';
+    $('project-edit-tags').value = (project?.tags || []).join(', ');
+    const color = project?.color || '#6366f1';
+    $('project-edit-color').value = color;
+    projectSelectedColor = color;
+    document.querySelectorAll('.proj-color-dot').forEach(d => {
+        d.style.outline = d.dataset.color === color ? '2px solid #fff' : 'none';
+    });
+    modal.style.display = 'flex';
+    $('project-edit-name')?.focus();
+}
+
+function closeProjectModal() {
+    const modal = $('project-edit-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function saveProjectFromModal() {
+    const name = ($('project-edit-name')?.value || '').trim();
+    if (!name) { showToast('プロジェクト名を入力してください', 'warning'); return; }
+
+    const project = {
+        id: $('project-edit-id')?.value || undefined,
+        name,
+        description: ($('project-edit-desc')?.value || '').trim(),
+        dueDate: $('project-edit-due')?.value || null,
+        priority: $('project-edit-priority')?.value || 'medium',
+        color: $('project-edit-color')?.value || '#6366f1',
+        tags: ($('project-edit-tags')?.value || '').split(',').map(t => t.trim()).filter(Boolean),
+    };
+    if (!project.id) delete project.id;
+
+    const res = await window.api.saveProject(project);
+    if (res.success) {
+        closeProjectModal();
+        await refreshProjects();
+        showToast(project.id ? 'プロジェクトを更新しました' : 'プロジェクトを作成しました', 'success');
+    } else {
+        showToast(`エラー: ${res.error}`, 'error');
+    }
+}
+
+function openProjectDetail(p) {
+    currentProjectId = p.id;
+    renderProjectDetail(p);
+    const panel = $('project-detail-panel');
+    const overlay = $('project-detail-overlay');
+    if (panel) { panel.style.display = 'block'; }
+    if (overlay) { overlay.style.display = 'block'; }
+}
+
+function closeProjectDetail() {
+    currentProjectId = null;
+    const panel = $('project-detail-panel');
+    const overlay = $('project-detail-overlay');
+    if (panel) panel.style.display = 'none';
+    if (overlay) overlay.style.display = 'none';
+}
+
+function renderProjectDetail(p) {
+    const progress = calcProjectProgress(p);
+    const days = getDaysUntilDue(p.dueDate);
+
+    // ヘッダー
+    const colorBar = $('proj-detail-color-bar');
+    if (colorBar) colorBar.style.background = p.color || '#6366f1';
+    const nameEl = $('proj-detail-name');
+    if (nameEl) nameEl.textContent = p.name;
+    const metaEl = $('proj-detail-meta');
+    if (metaEl) {
+        const parts = [];
+        if (p.dueDate) parts.push(`期限: ${p.dueDate}${days !== null && days < 0 ? ` (${Math.abs(days)}日超過)` : days === 0 ? ' (今日)' : ` (${days}日後)`}`);
+        if (p.tags?.length) parts.push(p.tags.map(t => `#${t}`).join(' '));
+        metaEl.textContent = parts.join(' | ');
+    }
+
+    // ステータス
+    const statusSel = $('proj-detail-status');
+    if (statusSel) statusSel.value = p.status;
+
+    // 進捗バー
+    const bar = $('proj-detail-progress-bar');
+    const label = $('proj-detail-progress-label');
+    if (bar) { bar.style.width = `${progress}%`; bar.style.background = p.color || '#6366f1'; }
+    if (label) label.textContent = `${progress}%`;
+
+    // 説明
+    const descEl = $('proj-detail-desc');
+    if (descEl) descEl.textContent = p.description || '';
+    const descWrap = $('proj-detail-desc-wrap');
+    if (descWrap) descWrap.style.display = p.description ? 'block' : 'none';
+
+    // タスク一覧
+    renderDetailTasks(p);
+
+    // マイルストーン一覧
+    renderDetailMilestones(p);
+
+    // メモ
+    const notesEl = $('proj-detail-notes');
+    if (notesEl) notesEl.value = p.notes || '';
+}
+
+function renderDetailTasks(p) {
+    const list = $('proj-task-list');
+    const count = $('proj-task-count');
+    if (!list) return;
+    const done = p.tasks.filter(t => t.done).length;
+    if (count) count.textContent = `${done}/${p.tasks.length}完了`;
+
+    if (p.tasks.length === 0) {
+        list.innerHTML = '<div class="list-empty" style="font-size:.75rem">タスクがありません</div>';
+        return;
+    }
+    list.innerHTML = p.tasks.map(t => {
+        const priColor = { high: '#f87171', medium: '#f59e0b', low: '#60a5fa' }[t.priority] || 'transparent';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+            <input type="checkbox" ${t.done ? 'checked' : ''} data-ptask-id="${esc(t.id)}" style="cursor:pointer">
+            <span style="flex:1;font-size:.78rem;${t.done ? 'opacity:.4;text-decoration:line-through' : ''}">${esc(t.text)}</span>
+            ${t.priority ? `<span style="width:6px;height:6px;border-radius:50%;background:${priColor};display:inline-block"></span>` : ''}
+            ${t.dueDate ? `<span style="font-size:.66rem;opacity:.5">${t.dueDate}</span>` : ''}
+            <button data-pdel-task="${esc(t.id)}" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:.75rem;opacity:.5" title="削除">✕</button>
+        </div>`;
+    }).join('');
+
+    // チェックボックス
+    list.querySelectorAll('[data-ptask-id]').forEach(cb => {
+        cb.addEventListener('change', async () => {
+            await window.api.toggleProjectTask({ projectId: currentProjectId, taskId: cb.dataset.ptaskId });
+            await refreshProjects();
+            const p = allProjects.find(p => p.id === currentProjectId);
+            if (p) renderProjectDetail(p);
+        });
+    });
+
+    // 削除ボタン
+    list.querySelectorAll('[data-pdel-task]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            await window.api.deleteProjectTask({ projectId: currentProjectId, taskId: btn.dataset.pdelTask });
+            await refreshProjects();
+            const p = allProjects.find(p => p.id === currentProjectId);
+            if (p) renderProjectDetail(p);
+        });
+    });
+}
+
+function renderDetailMilestones(p) {
+    const list = $('proj-milestone-list');
+    if (!list) return;
+    if (p.milestones.length === 0) {
+        list.innerHTML = '<div class="list-empty" style="font-size:.75rem">マイルストーンがありません</div>';
+        return;
+    }
+    list.innerHTML = p.milestones.map(m => {
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+            <input type="checkbox" ${m.done ? 'checked' : ''} data-pms-id="${esc(m.id)}" style="cursor:pointer">
+            <span style="flex:1;font-size:.78rem;${m.done ? 'opacity:.4;text-decoration:line-through' : ''}">${esc(m.name)}</span>
+            ${m.dueDate ? `<span style="font-size:.66rem;opacity:.5">${m.dueDate}</span>` : ''}
+            <button data-pdel-ms="${esc(m.id)}" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:.75rem;opacity:.5" title="削除">✕</button>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('[data-pms-id]').forEach(cb => {
+        cb.addEventListener('change', async () => {
+            await window.api.toggleProjectMilestone({ projectId: currentProjectId, milestoneId: cb.dataset.pmsId });
+            await refreshProjects();
+            const p = allProjects.find(p => p.id === currentProjectId);
+            if (p) renderDetailMilestones(p);
+        });
+    });
+
+    list.querySelectorAll('[data-pdel-ms]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            await window.api.deleteProjectMilestone({ projectId: currentProjectId, milestoneId: btn.dataset.pdelMs });
+            await refreshProjects();
+            const p = allProjects.find(p => p.id === currentProjectId);
+            if (p) renderDetailMilestones(p);
+        });
+    });
+}
+
+async function addProjectTaskFromPanel() {
+    const input = $('proj-new-task-input');
+    const priSel = $('proj-new-task-pri');
+    const text = (input?.value || '').trim();
+    if (!text || !currentProjectId) return;
+    const res = await window.api.addProjectTask({ projectId: currentProjectId, text, priority: priSel?.value || null });
+    if (res.success) {
+        input.value = '';
+        if (priSel) priSel.value = '';
+        await refreshProjects();
+        const p = allProjects.find(p => p.id === currentProjectId);
+        if (p) renderProjectDetail(p);
+    } else {
+        showToast(`エラー: ${res.error}`, 'error');
+    }
+}
+
+async function addProjectMilestoneFromPanel() {
+    const input = $('proj-new-ms-input');
+    const dueInput = $('proj-new-ms-due');
+    const name = (input?.value || '').trim();
+    if (!name || !currentProjectId) return;
+    const res = await window.api.addProjectMilestone({ projectId: currentProjectId, name, dueDate: dueInput?.value || null });
+    if (res.success) {
+        input.value = '';
+        if (dueInput) dueInput.value = '';
+        await refreshProjects();
+        const p = allProjects.find(p => p.id === currentProjectId);
+        if (p) renderDetailMilestones(p);
+    } else {
+        showToast(`エラー: ${res.error}`, 'error');
+    }
+}
+
+// ============================================================
 // タスク管理機能
 // ============================================================
 let allTasksCache = [];
@@ -8108,24 +9095,65 @@ async function initBackupScheduleUI() {
 // Feature 8: コマンドパレット (Cmd+P / Ctrl+P)
 // ============================================================
 const COMMANDS = [
-    { id: 'scan', label: '🔍 スキャンを実行', action: () => runScan() },
-    { id: 'optimize', label: '✨ 最適化を実行', action: () => activateTab('scan-optimize') },
-    { id: 'moc', label: '🗺️ MOC作成', action: () => activateTab('moc-create') },
-    { id: 'tasks', label: '📝 タスクタブを開く', action: () => activateTab('tasks') },
-    { id: 'settings', label: '⚙️ 設定を開く', action: () => activateTab('settings') },
-    { id: 'help', label: '❓ ヘルプを開く', action: () => activateTab('help') },
-    { id: 'graph', label: '🕸️ グラフビューを開く', action: () => { activateTab('analytics'); switchSubTab('analytics', 'graph-view'); } },
-    { id: 'organize', label: '🧹 整理ツールを開く', action: () => activateTab('tools') },
-    { id: 'organize-all', label: '🔍 全ツール一括スキャン', action: () => { activateTab('tools'); orgScanAll(); } },
-    { id: 'dashboard-full', label: '🖥️ フルダッシュボード生成', action: () => selectDashboardType('full') },
-    { id: 'report', label: '📋 健康レポート出力', action: () => runHealthReport() },
-    { id: 'ai-search', label: '🤖 AI検索', action: () => { activateTab('dashboard'); const el = $('ai-search-query'); if (el) el.focus(); } },
-    { id: 'ai-ask', label: '🤖 Vaultに質問する', action: () => { activateTab('dashboard'); const el = $('ai-chat-input'); if (el) el.focus(); } },
-    { id: 'theme', label: '🌙 テーマ切替', action: () => toggleTheme() },
-    { id: 'favorites', label: '⭐ お気に入りを表示', action: () => { activateTab('dashboard'); const el = $('favorites-list'); if (el) el.scrollIntoView({ behavior: 'smooth' }); } },
-    { id: 'analytics', label: '📊 分析タブを開く', action: () => activateTab('analytics') },
-    { id: 'dashboard', label: '🏠 ダッシュボードを開く', action: () => activateTab('dashboard') },
-    { id: 'backup', label: '💾 今すぐバックアップ', action: () => { const btn = $('btn-run-backup-now'); if (btn) btn.click(); else showToast('設定タブからバックアップを実行してください', 'warn'); } },
+    // ── スキャン・最適化 ────────────────────────────────
+    { id: 'scan',              label: '🔍 スキャンを実行',               hint: '全ノートを解析して問題を検出',         action: () => runScan() },
+    { id: 'scan-tab',          label: '🔍 スキャンタブを開く',            hint: 'スキャン結果・最適化ページ',            action: () => activateTab('scan-optimize') },
+    { id: 'optimize',          label: '✨ 最適化を実行',                  hint: '孤立ノート・ゴミファイルを自動修正',    action: () => { activateTab('scan-optimize'); $('btn-run-optimize')?.click(); } },
+    { id: 'preview',           label: '👁️ 変更をプレビュー',              hint: '実行前に影響範囲を確認',                action: () => $('btn-preview')?.click() },
+    { id: 'dry-run',           label: '🧪 ドライランを実行',              hint: '削除予定ファイルを事前確認',            action: () => { activateTab('scan-optimize'); $('btn-dry-run')?.click(); } },
+
+    // ── ノート・タスク ──────────────────────────────────
+    { id: 'daily-note',        label: '📅 デイリーノートを作成',          hint: '今日の日付でノートを自動生成',          action: () => $('btn-quick-daily')?.click() },
+    { id: 'clipboard-inbox',   label: '📋 クリップボード→Inbox',          hint: 'クリップボードをInboxノートに追記',     action: () => $('btn-quick-clipboard')?.click() },
+    { id: 'tasks',             label: '📝 タスクタブを開く',              hint: 'やることリスト管理',                   action: () => activateTab('tasks') },
+    { id: 'add-task',          label: '✅ タスクを追加',                  hint: 'タスクタブを開いて追加フォームへ',      action: () => { activateTab('tasks'); setTimeout(() => $('task-input')?.focus(), 150); } },
+    { id: 'search',            label: '🔎 Vault内検索',                   hint: 'ノート・タグ・内容を横断検索',          action: () => $('btn-quick-search')?.click() },
+
+    // ── プロジェクト ────────────────────────────────────
+    { id: 'projects',          label: '📁 プロジェクト管理を開く',         hint: 'プロジェクト一覧・進捗確認',           action: () => activateTab('projects') },
+    { id: 'new-project',       label: '➕ 新規プロジェクトを作成',         hint: '新しいプロジェクトを登録',             action: () => { activateTab('projects'); setTimeout(() => openProjectModal(null), 100); } },
+
+    // ── MOC・知識整理 ───────────────────────────────────
+    { id: 'moc',               label: '🗺️ MOC作成タブを開く',             hint: 'Map of Content を生成',               action: () => activateTab('moc-create') },
+    { id: 'moc-auto',          label: '🤖 MOC自動生成',                   hint: 'フォルダ・タグから自動でMOCを作成',    action: () => { activateTab('moc-create'); $('btn-analyze-for-moc')?.click(); } },
+
+    // ── 分析・グラフ ────────────────────────────────────
+    { id: 'analytics',         label: '📊 分析タブを開く',                hint: 'Vault統計・ノートスコアを表示',         action: () => activateTab('analytics') },
+    { id: 'graph',             label: '🕸️ グラフビューを開く',             hint: 'ノートのリンク関係を可視化',           action: () => { activateTab('analytics'); switchSubTab('analytics', 'graph-view'); } },
+    { id: 'note-scores',       label: '⭐ ノートスコアを計算',             hint: 'ノートの品質・価値をスコア化',         action: () => { activateTab('analytics'); $('btn-load-note-scores')?.click(); } },
+    { id: 'writing-analytics', label: '✍️ 執筆分析を表示',                hint: '執筆量・更新頻度の推移',               action: () => { activateTab('analytics'); switchSubTab('analytics', 'stats'); } },
+
+    // ── 整理ツール ──────────────────────────────────────
+    { id: 'organize',          label: '🧹 整理ツールを開く',              hint: 'フロントマター・タイトル・分割など',    action: () => activateTab('tools') },
+    { id: 'organize-all',      label: '🔍 全整理ツールをスキャン',         hint: '全ツールを一括で問題検出',             action: () => { activateTab('tools'); orgScanAll?.(); } },
+    { id: 'batch-rename',      label: '📝 バッチリネーム',                hint: '複数ノートを一括でリネーム',           action: () => $('btn-quick-rename')?.click() },
+    { id: 'batch-tags',        label: '🏷️ タグ一括操作',                  hint: 'タグの追加・削除・置換を一括実行',     action: () => $('btn-quick-tags')?.click() },
+    { id: 'lint',              label: '🧑‍💻 Markdownリントチェック',         hint: 'スタイル違反を自動検出・修正',         action: () => { activateTab('tools'); $('btn-lint-scan')?.click(); } },
+
+    // ── ダッシュボード生成 ──────────────────────────────
+    { id: 'dashboard-full',    label: '🖥️ フルダッシュボードを生成',       hint: 'Vaultの総合管理ダッシュボードを作成',  action: () => selectDashboardType('full') },
+    { id: 'dashboard-tasks',   label: '✅ タスクボードを生成',             hint: 'TODO管理に特化したダッシュボード',     action: () => selectDashboardType('tasks') },
+    { id: 'dashboard-weekly',  label: '📆 週次レビューを生成',             hint: '今週の振り返りノートを自動生成',       action: () => selectDashboardType('weekly') },
+    { id: 'dashboard-projects',label: '📁 プロジェクトボードを生成',       hint: 'プロジェクト管理ダッシュボード',       action: () => selectDashboardType('projects') },
+
+    // ── AI機能 ──────────────────────────────────────────
+    { id: 'ai-ask',            label: '🤖 Vaultに質問する',               hint: 'RAGでVaultの内容を検索・回答',         action: () => { activateTab('dashboard'); const el = $('ai-chat-input'); if (el) el.focus(); } },
+    { id: 'ai-search',         label: '🧠 AIスマート検索',                hint: '意味的に近いノートを検索',             action: () => { activateTab('dashboard'); const el = $('ai-search-query'); if (el) el.focus(); } },
+    { id: 'ai-digest',         label: '📰 AI知識ダイジェスト生成',         hint: 'Vaultの内容を要約・まとめ',            action: () => { activateTab('dashboard'); $('btn-auto-digest')?.click(); } },
+    { id: 'ai-weekly',         label: '📅 AIウィークリーインサイト',        hint: '今週のVault変化をAIが分析',           action: () => { activateTab('dashboard'); $('btn-weekly-insight')?.click(); } },
+
+    // ── バックアップ・設定 ──────────────────────────────
+    { id: 'backup',            label: '💾 Gitバックアップを実行',          hint: 'Vaultの全変更をGitで保存',             action: () => $('btn-quick-backup')?.click() },
+    { id: 'settings',          label: '⚙️ 設定を開く',                    hint: 'Vault・AI・バックアップ設定',          action: () => activateTab('settings') },
+    { id: 'ai-settings',       label: '🤖 AI設定を開く',                  hint: 'APIキー・モデル選択',                  action: () => { activateTab('settings'); $('settings-tab-ai')?.click(); } },
+    { id: 'theme',             label: '🌙 テーマを切替',                   hint: 'ダーク/ライト モード切替',             action: () => toggleTheme() },
+    { id: 'report',            label: '📋 健康レポートを出力',             hint: 'Vaultの状態レポートをMarkdownで保存',  action: () => runHealthReport() },
+
+    // ── ヘルプ・情報 ────────────────────────────────────
+    { id: 'help',              label: '❓ ヘルプを開く',                   hint: '使い方ガイド・FAQ・ショートカット一覧', action: () => activateTab('help') },
+    { id: 'dashboard',         label: '🏠 ダッシュボードを開く',           hint: 'ホーム画面に戻る',                    action: () => activateTab('dashboard') },
+    { id: 'analytics-home',    label: '📊 分析ホームを開く',               hint: 'スキャンサマリー・KPI確認',            action: () => activateTab('analytics') },
+    { id: 'favorites',         label: '⭐ お気に入りを表示',               hint: 'ブックマークしたノートの一覧',         action: () => { activateTab('dashboard'); const el = $('favorites-list'); if (el) el.scrollIntoView({ behavior: 'smooth' }); } },
 ];
 
 let commandPaletteActiveIndex = 0;
@@ -8154,10 +9182,17 @@ function renderCommandList() {
     const list = $('command-list');
     if (!list) return;
     list.innerHTML = '';
+    if (filteredCommands.length === 0) {
+        list.innerHTML = '<div style="text-align:center;opacity:.4;padding:16px;font-size:.82rem">コマンドが見つかりません</div>';
+        return;
+    }
     filteredCommands.forEach((cmd, i) => {
         const div = document.createElement('div');
         div.className = 'command-item' + (i === commandPaletteActiveIndex ? ' active' : '');
-        div.textContent = cmd.label;
+        div.innerHTML = `<div style="display:flex;flex-direction:column;gap:1px">
+            <span>${cmd.label}</span>
+            ${cmd.hint ? `<span style="font-size:.68rem;opacity:.45">${cmd.hint}</span>` : ''}
+        </div>`;
         div.addEventListener('click', () => {
             closeCommandPalette();
             cmd.action();
@@ -8178,7 +9213,8 @@ function filterCommands(query) {
         filteredCommands = [...COMMANDS];
     } else {
         filteredCommands = COMMANDS.filter(cmd =>
-            cmd.label.toLowerCase().includes(q) || cmd.id.toLowerCase().includes(q)
+            cmd.label.toLowerCase().includes(q) || cmd.id.toLowerCase().includes(q) ||
+            (cmd.hint && cmd.hint.toLowerCase().includes(q))
         );
     }
     commandPaletteActiveIndex = 0;

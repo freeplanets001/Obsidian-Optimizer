@@ -1,8 +1,11 @@
 /* ============================================================
-   Obsidian Optimizer – World-Class CSS v3.0
-   ============================================================ */
+   Obsidian Optimizer – World-Class CSS v5.0
+   統一デザイントークン・アクセシビリティ・アニメーション
+============================================================ */
 :root {
     color-scheme: dark;
+
+    /* ── カラートークン ──────────────────────── */
     --bg: #080c1a;
     --sidebar: rgba(8, 12, 28, 0.92);
     --glass: rgba(255, 255, 255, 0.045);
@@ -10,16 +13,129 @@
     --border: rgba(255, 255, 255, 0.07);
     --border-h: rgba(255, 255, 255, 0.14);
     --text: #e8edff;
+    --text-muted: rgba(232, 237, 255, 0.45);
     --muted: rgba(232, 237, 255, 0.45);
     --accent: #7c6cf8;
+    --accent-h: #9d91fa;       /* hover時のアクセント */
+    --accent-dim: rgba(124, 108, 248, 0.15);
     --accent2: #ec4899;
     --cyan: #06b6d4;
     --green: #34d399;
+    --green-dim: rgba(52, 211, 153, 0.15);
     --warn: #f59e0b;
+    --warn-dim: rgba(245, 158, 11, 0.15);
     --danger: #f87171;
+    --danger-dim: rgba(248, 113, 113, 0.15);
+
+    /* ── スペーシングトークン ─────────────────── */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+
+    /* ── タイポグラフィ ───────────────────────── */
+    --font-xs: .68rem;
+    --font-sm: .75rem;
+    --font-base: .82rem;
+    --font-md: .9rem;
+    --font-lg: 1rem;
+    --font-xl: 1.2rem;
+
+    /* ── 形状・シャドウ ───────────────────────── */
     --radius: 18px;
     --rsm: 11px;
+    --rmd: 14px;
+    --shadow-sm: 0 2px 8px rgba(0,0,0,.25);
+    --shadow-md: 0 4px 20px rgba(0,0,0,.35);
+    --shadow-lg: 0 8px 40px rgba(0,0,0,.5);
+
+    /* ── アニメーション ──────────────────────── */
+    --transition-fast: .12s ease;
+    --transition-base: .2s ease;
+    --transition-slow: .35s ease;
+
+    /* ── レイアウト ─────────────────────────── */
     --sw: 230px;
+}
+
+/* ── フォーカスリング（アクセシビリティ WCAG AA準拠） ─── */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* ── ツールチップ（[title]属性を強化） ─────────────── */
+[data-tooltip] {
+    position: relative;
+}
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 15, 30, 0.95);
+    color: var(--text);
+    font-size: var(--font-xs);
+    padding: 4px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+    border: 1px solid var(--border);
+    z-index: 9999;
+}
+[data-tooltip]:hover::after {
+    opacity: 1;
+}
+
+/* ── スケルトンローディング ────────────────────────── */
+@keyframes skeleton-shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+.skeleton {
+    background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.08) 50%, rgba(255,255,255,.04) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s infinite;
+    border-radius: var(--rsm);
+}
+
+/* ── アニメーション強化 ────────────────────────────── */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+.animate-fade-in    { animation: fadeIn var(--transition-base) both; }
+.animate-fade-up    { animation: fadeInUp var(--transition-base) both; }
+.animate-slide-in   { animation: slideInRight var(--transition-base) both; }
+
+/* ── 高コントラストモード対応 ──────────────────────── */
+@media (prefers-contrast: high) {
+    :root {
+        --border: rgba(255,255,255,.3);
+        --text: #ffffff;
+        --muted: rgba(255,255,255,.7);
+    }
+}
+
+/* ── 動き低減モード対応 ────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        transition-duration: .01ms !important;
+    }
 }
 
 *,
@@ -2872,7 +2988,7 @@ svg#health-ring-fg, .health-ring-fg {
 }
 
 /* セレクトボックス */
-.vault-select, select {
+.vault-select, select, .select-input {
     background: rgba(255,255,255,.05);
     border: 1px solid rgba(255,255,255,.1);
     border-radius: 8px;
@@ -2881,7 +2997,7 @@ svg#health-ring-fg, .health-ring-fg {
     font-size: .82rem;
     transition: border-color .2s;
 }
-.vault-select:focus, select:focus {
+.vault-select:focus, select:focus, .select-input:focus {
     border-color: rgba(124,108,248,.4);
     outline: none;
 }
@@ -5377,3 +5493,148 @@ body.theme-light .preview-modal-ai-result { background: rgba(0,0,0,.04); }
 .thanks-links a i {
     font-size: 0.9rem;
 }
+
+/* ============================================================
+   プロジェクト管理 スタイル
+============================================================ */
+.proj-color-dot {
+    display: inline-block;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    outline-offset: 2px;
+    transition: transform .15s;
+}
+.proj-color-dot:hover {
+    transform: scale(1.15);
+}
+
+/* ============================================================
+   プロジェクト カンバンビュー
+============================================================ */
+.kanban-board {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+    min-height: 400px;
+    align-items: flex-start;
+}
+.kanban-column {
+    min-width: 240px;
+    max-width: 280px;
+    flex-shrink: 0;
+    background: rgba(255,255,255,.03);
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid rgba(255,255,255,.06);
+}
+.kanban-column-header {
+    font-size: .8rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.kanban-card {
+    background: rgba(255,255,255,.05);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+    transition: transform .15s, background .15s;
+    font-size: .78rem;
+}
+.kanban-card:hover {
+    background: rgba(255,255,255,.08);
+    transform: translateY(-1px);
+}
+.kanban-card-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.kanban-card-progress {
+    height: 3px;
+    background: rgba(255,255,255,.08);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 6px;
+}
+.kanban-card-progress-fill {
+    height: 100%;
+    border-radius: 2px;
+}
+.kanban-empty {
+    text-align: center;
+    opacity: .35;
+    font-size: .72rem;
+    padding: 16px 0;
+}
+
+/* ============================================================
+   ノート品質スコアボード
+   ============================================================ */
+.quality-row {
+    background: rgba(255,255,255,.03);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: var(--rmd);
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    transition: background var(--transition-fast);
+}
+.quality-row:hover { background: rgba(255,255,255,.06); }
+.quality-row-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.quality-tier-badge {
+    font-size: .7rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.tier-a { background: rgba(34,197,94,.2);  color: #4ade80; }
+.tier-b { background: rgba(245,158,11,.2); color: #fbbf24; }
+.tier-c { background: rgba(239,68,68,.2);  color: #f87171; }
+.quality-note-name {
+    flex: 1;
+    font-size: .85rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.quality-score-num {
+    font-size: 1.1rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+.quality-score-bar-wrap {
+    height: 4px;
+    background: rgba(255,255,255,.08);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 6px;
+}
+.quality-score-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width .4s ease;
+}
+.quality-breakdown {
+    display: flex;
+    gap: 12px;
+    font-size: .72rem;
+    opacity: .7;
+    align-items: center;
+}
+.quality-breakdown span { cursor: default; }
