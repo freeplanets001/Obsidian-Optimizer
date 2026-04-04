@@ -9635,9 +9635,7 @@ function initV5Features() {
     // 設定: v5連携
     safe('btn-save-local-llm', saveLocalLlmConfig);
     safe('btn-test-local-llm', testLocalLlm);
-    safe('btn-add-smart-rule', addSmartRule);
-    safe('btn-preview-smart-rules', previewSmartRules);
-    safe('btn-execute-smart-rules', executeSmartRules);
+    // スマートルールエンジンv2.0はinitSmartRuleEngine()で一括初期化
     // v6.0 新連携
     safe('btn-test-obsidian-uri', testObsidianUri);
     safe('btn-git-status', gitStatusCheck);
@@ -9660,9 +9658,8 @@ function initV5Features() {
 
     // プリセット読み込み
     setTimeout(loadPresets, 800);
-    // スマートルール読み込み
-    setTimeout(loadSmartRules, 800);
-    setTimeout(loadSmartRulePresets, 800);
+    // スマートルールエンジンv2.0を初期化
+    setTimeout(initSmartRuleEngine, 800);
 
     // リンクヘルスカードの表示
     const linkHealthCard = $('link-health-card');
@@ -10414,6 +10411,424 @@ async function runCheckPublish() {
 
 // --- 設定: v5連携 ---
 
+// ============================================================
+// スマートルールエンジン v2.0
+// ビジュアルルールビルダー・AND/OR複数条件・実行履歴
+// ============================================================
+
+// メタ情報キャッシュ（トリガー/アクション定義）
+let srMeta = { triggers: {}, actions: {} };
+
+// アクションヒントテキスト
+const SR_ACTION_HINTS = {
+    'archive':          '移動先フォルダ名（例: 99 Archive）。空欄時は "99 Archive"',
+    'move-folder':      '移動先フォルダパス（例: 01 Projects）',
+    'tag':              '追加するタグ（例: #stale）',
+    'remove-tag':       '削除するタグ（例: #inbox）',
+    'add-frontmatter':  'key=value 形式（例: status=archived）',
+    'add-to-moc':       'MOCファイル名（例: Inbox MOC）',
+    'rename-prefix':    'プレフィックス文字列（例: DONE_）',
+};
+
+async function initSmartRuleEngine() {
+    try {
+        const meta = await window.api.getSmartRuleMeta();
+        if (meta.success) srMeta = { triggers: meta.triggers, actions: meta.actions };
+    } catch (_) {}
+    await loadSmartRulePresets();
+    await loadSmartRules();
+    bindSmartRuleEvents();
+}
+
+function bindSmartRuleEvents() {
+    // ルール作成ボタン
+    $('btn-open-rule-builder')?.addEventListener('click', () => openRuleBuilder(null));
+    $('btn-close-rule-builder')?.addEventListener('click', closeRuleBuilder);
+    $('btn-cancel-rule-builder')?.addEventListener('click', closeRuleBuilder);
+    $('btn-save-rule-builder')?.addEventListener('click', saveRuleFromBuilder);
+    $('btn-sr-add-condition')?.addEventListener('click', () => addConditionRow());
+
+    // アクション変更時にヒント更新
+    $('sr-action')?.addEventListener('change', updateActionHint);
+
+    // 履歴モーダル
+    $('btn-smart-rule-history')?.addEventListener('click', openRuleHistory);
+    $('btn-close-rule-history')?.addEventListener('click', closeRuleHistory);
+    $('btn-clear-rule-history')?.addEventListener('click', async () => {
+        if (!confirm('実行履歴をすべて削除しますか？')) return;
+        await window.api.clearSmartRuleHistory();
+        loadRuleHistoryContent();
+        showToast('履歴をクリアしました', 'success');
+    });
+
+    // モーダル外クリックで閉じる
+    $('smart-rule-modal')?.addEventListener('click', e => { if (e.target === $('smart-rule-modal')) closeRuleBuilder(); });
+    $('smart-rule-history-modal')?.addEventListener('click', e => { if (e.target === $('smart-rule-history-modal')) closeRuleHistory(); });
+
+    // 実行・ドライラン
+    $('btn-preview-smart-rules')?.addEventListener('click', previewSmartRules);
+    $('btn-execute-smart-rules')?.addEventListener('click', executeSmartRules);
+}
+
+// ---- ルール一覧 ----
+async function loadSmartRules() {
+    try {
+        const result = await window.api.getSmartRules();
+        const list = $('smart-rules-list');
+        if (!list || !result.success) return;
+        if (result.rules.length === 0) {
+            list.innerHTML = '<div style="font-size:.78rem;color:var(--text-muted);padding:10px 0">ルールがありません。プリセットを選ぶか「ルール作成」ボタンから追加してください。</div>';
+            return;
+        }
+        list.innerHTML = '';
+        result.rules.forEach((r, idx) => {
+            const card = buildRuleCard(r, idx, result.rules.length);
+            list.appendChild(card);
+        });
+    } catch (_) {}
+}
+
+function buildRuleCard(r, idx, total) {
+    const div = document.createElement('div');
+    div.dataset.ruleId = r.id;
+    div.style.cssText = 'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px';
+
+    // 有効/無効トグル
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = !!r.enabled;
+    toggle.style.marginTop = '3px';
+    toggle.addEventListener('change', async () => {
+        await window.api.toggleSmartRule({ ruleId: r.id, enabled: toggle.checked });
+        div.style.opacity = toggle.checked ? '1' : '0.5';
+    });
+    if (!r.enabled) div.style.opacity = '0.5';
+    div.appendChild(toggle);
+
+    // 本文
+    const body = document.createElement('div');
+    body.style.flex = '1';
+
+    // ルール名
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = 'font-size:.84rem;font-weight:600;margin-bottom:5px';
+    nameEl.textContent = r.name || '名称未設定';
+    body.appendChild(nameEl);
+
+    // 条件バッジ群
+    const condWrap = document.createElement('div');
+    condWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px;align-items:center';
+    const conditions = r.conditions || (r.trigger ? [{ trigger: r.trigger, conditionValue: r.condition?.days?.toString() || r.condition?.tag || '' }] : []);
+    const logic = r.logic || 'AND';
+    conditions.forEach((c, i) => {
+        if (i > 0) {
+            const logicBadge = document.createElement('span');
+            logicBadge.style.cssText = 'font-size:.66rem;color:#a78bfa;font-weight:700;padding:0 2px';
+            logicBadge.textContent = logic;
+            condWrap.appendChild(logicBadge);
+        }
+        const triggerLabel = srMeta.triggers[c.trigger]?.label || c.trigger;
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size:.72rem;background:rgba(99,102,241,.2);color:#a5b4fc;padding:2px 7px;border-radius:20px;white-space:nowrap';
+        badge.textContent = `IF: ${triggerLabel}${c.conditionValue ? ` [${c.conditionValue}]` : ''}`;
+        condWrap.appendChild(badge);
+    });
+    body.appendChild(condWrap);
+
+    // アクションバッジ
+    const actionWrap = document.createElement('div');
+    const actionLabel = srMeta.actions[r.action]?.label || r.action;
+    actionWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
+    actionWrap.innerHTML = `<span style="font-size:.72rem;background:rgba(52,211,153,.15);color:#6ee7b7;padding:2px 7px;border-radius:20px">THEN: ${esc(actionLabel)}${r.actionTarget ? ` → ${esc(r.actionTarget)}` : ''}</span>`;
+    body.appendChild(actionWrap);
+
+    div.appendChild(body);
+
+    // 操作ボタン
+    const btnWrap = document.createElement('div');
+    btnWrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;flex-shrink:0';
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'ghost-btn small-btn';
+    editBtn.style.fontSize = '.72rem';
+    editBtn.textContent = '✏️';
+    editBtn.title = '編集';
+    editBtn.addEventListener('click', () => openRuleBuilder(r));
+    btnWrap.appendChild(editBtn);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'ghost-btn small-btn';
+    delBtn.style.cssText = 'font-size:.72rem;color:#f87171';
+    delBtn.textContent = '🗑️';
+    delBtn.title = '削除';
+    delBtn.addEventListener('click', async () => {
+        if (!confirm(`ルール「${r.name || '名称未設定'}」を削除しますか？`)) return;
+        await window.api.deleteSmartRule(r.id);
+        loadSmartRules();
+        showToast('ルールを削除しました', 'success');
+    });
+    btnWrap.appendChild(delBtn);
+
+    div.appendChild(btnWrap);
+    return div;
+}
+
+// ---- プリセット ----
+async function loadSmartRulePresets() {
+    try {
+        const result = await window.api.getSmartRulePresets();
+        const container = $('smart-rule-presets');
+        if (!container || !result.success) return;
+        container.innerHTML = result.presets.map(p =>
+            `<button class="ghost-btn small-btn" style="font-size:.72rem;white-space:nowrap" data-preset-id="${esc(p.id)}" title="${esc(p.description || '')}">${esc(p.label)}</button>`
+        ).join('');
+        container.querySelectorAll('[data-preset-id]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const preset = result.presets.find(p => p.id === btn.dataset.presetId);
+                if (preset) applySmartRulePreset(preset);
+            });
+        });
+    } catch (_) {}
+}
+
+async function applySmartRulePreset(preset) {
+    try {
+        const rule = {
+            name: preset.label.replace(/^[^\s]+ /, ''), // 絵文字を除いた名前
+            logic: preset.logic || 'AND',
+            conditions: preset.conditions || [],
+            action: preset.action,
+            actionTarget: preset.actionTarget,
+            enabled: true,
+        };
+        await window.api.saveSmartRule(rule);
+        await loadSmartRules();
+        showToast(`プリセット「${preset.label}」を追加しました`, 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ---- ルールビルダーモーダル ----
+function openRuleBuilder(rule) {
+    const modal = $('smart-rule-modal');
+    if (!modal) return;
+
+    // フォームリセット
+    $('sr-name').value = rule?.name || '';
+    $('sr-editing-id').value = rule?.id || '';
+    $('sr-action').value = rule?.action || 'archive';
+    $('sr-action-target').value = rule?.actionTarget || '';
+
+    // logicラジオ
+    const logicVal = rule?.logic || 'AND';
+    document.querySelectorAll('input[name="sr-logic"]').forEach(r => { r.checked = r.value === logicVal; });
+
+    // 条件ブロック
+    const condContainer = $('sr-conditions');
+    condContainer.innerHTML = '';
+    const conditions = rule?.conditions || (rule?.trigger
+        ? [{ trigger: rule.trigger, conditionValue: rule.condition?.days?.toString() || rule.condition?.tag || '' }]
+        : []);
+    if (conditions.length === 0) {
+        addConditionRow();
+    } else {
+        conditions.forEach(c => addConditionRow(c));
+    }
+
+    updateActionHint();
+    modal.style.display = 'flex';
+}
+
+function closeRuleBuilder() {
+    const modal = $('smart-rule-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function addConditionRow(cond = null) {
+    const container = $('sr-conditions');
+    if (!container) return;
+
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid rgba(255,255,255,.06)';
+
+    const triggerSel = document.createElement('select');
+    triggerSel.className = 'vault-select';
+    triggerSel.style.flex = '1';
+    const triggerDefs = {
+        'note-stale':        '📅 放置ノート（最終更新日）',
+        'tag-match':         '🏷️ タグが一致',
+        'filename-pattern':  '📄 ファイル名がパターンに一致',
+        'folder-match':      '📁 特定フォルダにある',
+        'content-keyword':   '🔍 本文にキーワードを含む',
+        'no-links':          '🔗 リンクが0件（孤立ノート）',
+        'frontmatter-field': '📋 frontmatterフィールド値',
+    };
+    Object.entries(triggerDefs).forEach(([val, label]) => {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = label;
+        triggerSel.appendChild(opt);
+    });
+    if (cond?.trigger) triggerSel.value = cond.trigger;
+
+    const condInput = document.createElement('input');
+    condInput.type = 'text';
+    condInput.className = 'text-input';
+    condInput.style.flex = '1';
+    condInput.value = cond?.conditionValue || '';
+
+    // トリガー変更で入力欄のplaceholderを更新
+    const condPlaceholders = {
+        'note-stale': '日数（例: 180）', 'tag-match': '#inbox', 'filename-pattern': '例: ^DRAFT',
+        'folder-match': '例: 00 Inbox', 'content-keyword': '例: TODO', 'no-links': '（不要）',
+        'frontmatter-field': '例: status=draft',
+    };
+    function updatePlaceholder() {
+        condInput.placeholder = condPlaceholders[triggerSel.value] || '';
+        condInput.disabled = triggerSel.value === 'no-links';
+    }
+    triggerSel.addEventListener('change', updatePlaceholder);
+    updatePlaceholder();
+
+    const delBtn = document.createElement('button');
+    delBtn.style.cssText = 'background:none;border:none;color:#f87171;cursor:pointer;font-size:.9rem;flex-shrink:0;padding:0 4px';
+    delBtn.textContent = '✕';
+    delBtn.title = '条件を削除';
+    delBtn.addEventListener('click', () => {
+        if (container.children.length > 1) row.remove();
+        else showToast('条件は最低1つ必要です', 'warning');
+    });
+
+    row.appendChild(triggerSel);
+    row.appendChild(condInput);
+    row.appendChild(delBtn);
+    container.appendChild(row);
+}
+
+function updateActionHint() {
+    const action = $('sr-action')?.value;
+    const hint = $('sr-action-hint');
+    if (hint) hint.textContent = SR_ACTION_HINTS[action] || '';
+}
+
+async function saveRuleFromBuilder() {
+    const name = ($('sr-name')?.value || '').trim();
+    if (!name) { showToast('ルール名を入力してください', 'warning'); return; }
+
+    const condRows = $('sr-conditions')?.querySelectorAll('div') || [];
+    const conditions = [];
+    condRows.forEach(row => {
+        const sel = row.querySelector('select');
+        const inp = row.querySelector('input[type="text"]');
+        if (sel) conditions.push({ trigger: sel.value, conditionValue: inp?.value?.trim() || '' });
+    });
+    if (conditions.length === 0) { showToast('条件を最低1つ追加してください', 'warning'); return; }
+
+    const logic = document.querySelector('input[name="sr-logic"]:checked')?.value || 'AND';
+    const action = $('sr-action')?.value;
+    const actionTarget = ($('sr-action-target')?.value || '').trim();
+    const editingId = $('sr-editing-id')?.value || '';
+
+    const rule = { name, logic, conditions, action, actionTarget, enabled: true };
+    if (editingId) rule.id = editingId;
+
+    try {
+        await window.api.saveSmartRule(rule);
+        closeRuleBuilder();
+        await loadSmartRules();
+        showToast(editingId ? 'ルールを更新しました' : 'ルールを追加しました', 'success');
+    } catch (e) { showToast(e.message, 'error'); }
+}
+
+// ---- 実行履歴モーダル ----
+function openRuleHistory() {
+    const modal = $('smart-rule-history-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    loadRuleHistoryContent();
+}
+
+function closeRuleHistory() {
+    const modal = $('smart-rule-history-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function loadRuleHistoryContent() {
+    const list = $('smart-rule-history-list');
+    if (!list) return;
+    try {
+        const res = await window.api.getSmartRuleHistory();
+        if (!res.success || res.history.length === 0) {
+            list.innerHTML = '<div style="font-size:.8rem;color:var(--text-muted);text-align:center;padding:20px">実行履歴がありません</div>';
+            return;
+        }
+        list.innerHTML = res.history.map(h => {
+            const date = new Date(h.executedAt).toLocaleString('ja-JP');
+            const logHtml = (h.log || []).slice(0, 8).map(l => `<div style="font-size:.72rem;color:var(--text-muted);padding:1px 0">${esc(l)}</div>`).join('');
+            return `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                    <span style="font-size:.8rem;font-weight:600">${esc(date)}</span>
+                    <span style="font-size:.76rem;color:#34d399">✅ ${h.totalExecuted}件実行</span>
+                </div>
+                ${logHtml}
+                ${h.log?.length > 8 ? `<div style="font-size:.7rem;color:var(--text-muted)">...他${h.log.length - 8}件</div>` : ''}
+            </div>`;
+        }).join('');
+    } catch (_) {
+        list.innerHTML = '<div style="color:#f87171;font-size:.8rem">履歴の読み込みに失敗しました</div>';
+    }
+}
+
+// ---- ドライラン・実行 ----
+async function previewSmartRules() {
+    showLoading('ドライラン実行中...');
+    try {
+        const result = await window.api.previewSmartRules();
+        hideLoading();
+        const msg = $('smart-rules-result');
+        if (!result.success) { if (msg) msg.textContent = result.error; return; }
+        if (result.preview.length === 0) {
+            if (msg) msg.innerHTML = '<span style="color:var(--text-muted)">ℹ️ 有効なルールがありません。プリセットまたはルール作成から追加してください</span>';
+            return;
+        }
+        let html = '<div style="font-size:.82rem;margin-bottom:6px">🔍 ドライラン結果（実際には変更されません）</div>';
+        for (const p of result.preview) {
+            const color = p.matchCount === 0 ? '#6b7280' : '#34d399';
+            const samples = p.samples.length > 0
+                ? `<div style="font-size:.72rem;color:var(--text-muted);margin-top:2px">例: ${p.samples.map(s => esc(s)).join(', ')}</div>`
+                : '';
+            html += `<div style="padding:7px 10px;background:rgba(255,255,255,.03);border-radius:7px;border-left:3px solid ${color};margin-bottom:5px">
+                <div style="font-size:.8rem"><span style="color:${color}">● ${p.matchCount}件ヒット</span>  <strong>${esc(p.ruleName)}</strong></div>
+                <div style="font-size:.75rem;color:var(--text-muted)">THEN: ${esc(p.actionLabel)} → ${esc(p.actionTarget || '')}</div>
+                ${samples}
+            </div>`;
+        }
+        if (msg) msg.innerHTML = html;
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
+async function executeSmartRules() {
+    const previewEl = $('smart-rules-result');
+    const hasPreview = previewEl && previewEl.innerHTML.includes('ドライラン');
+    if (!hasPreview && !confirm('実行前に「ドライラン」で対象件数を確認することを推奨します。\nそのまま実行しますか？')) return;
+    showLoading('スマートルールを実行中...');
+    try {
+        const result = await window.api.executeSmartRules();
+        hideLoading();
+        const msg = $('smart-rules-result');
+        if (msg) {
+            if (result.success) {
+                const logStr = result.log?.length
+                    ? `<div style="font-size:.75rem;margin-top:8px;color:var(--text-muted)">${result.log.slice(0, 8).map(l => esc(l)).join('<br>')}</div>`
+                    : '';
+                msg.innerHTML = `<span style="color:#34d399;font-size:.84rem">✅ ${result.executed}件のアクションを実行しました</span>${logStr}`;
+            } else {
+                msg.textContent = result.error || 'エラーが発生しました';
+            }
+        }
+        if (result.success) showToast(`${result.executed}件実行完了`, 'success');
+    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
+}
+
 async function toggleSmartRule(ruleId, enabled) {
     try { await window.api.toggleSmartRule({ ruleId, enabled }); } catch (_) {}
 }
@@ -10451,101 +10866,6 @@ async function testLocalLlm() {
     } catch (e) { if (status) { status.textContent = `❌ ${e.message}`; status.style.color = '#f87171'; } }
 }
 
-async function loadSmartRules() {
-    try {
-        const result = await window.api.getSmartRules();
-        const list = $('smart-rules-list');
-        if (!list || !result.success) return;
-        if (result.rules.length === 0) { list.innerHTML = '<div class="list-empty" style="font-size:.78rem">ルールが設定されていません。上の「プリセットから始める」をクリックして追加してください</div>'; return; }
-        let html = '';
-        for (const r of result.rules) {
-            const condLabel = r.condition?.days ? `${r.condition.days}日放置` : (r.condition?.tag || '条件なし');
-            const actionLabel = { archive: 'アーカイブ', tag: 'タグ追加', 'add-to-moc': 'MOC追加' }[r.action] || r.action;
-            html += `<div class="scan-row" style="padding:6px 10px;display:flex;align-items:center;gap:8px"><label style="display:flex;align-items:center;gap:6px;flex:1"><input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleSmartRule('${r.id}', this.checked)"><span style="flex:1;font-size:.82rem">${esc(r.trigger === 'note-stale' ? '▶ ノートが' : '▶ タグ')} <strong>${esc(condLabel)}</strong> → ${esc(actionLabel)} <span style="opacity:.6">(${esc(r.actionTarget || '')})</span></span></label><button class="ghost-btn small-btn danger-btn" onclick="deleteSmartRule('${r.id}')" style="font-size:.72rem">🗑️</button></div>`;
-        }
-        list.innerHTML = html;
-    } catch (_) {}
-}
-
-async function loadSmartRulePresets() {
-    try {
-        const result = await window.api.getSmartRulePresets();
-        const container = $('smart-rule-presets');
-        if (!container || !result.success) return;
-        container.innerHTML = result.presets.map(p =>
-            `<button class="ghost-btn small-btn" style="font-size:.76rem" onclick="applySmartRulePreset(${JSON.stringify(p)})">${esc(p.label)}</button>`
-        ).join('');
-    } catch (_) {}
-}
-
-async function applySmartRulePreset(preset) {
-    try {
-        const rule = { trigger: preset.trigger, condition: preset.condition, action: preset.action, actionTarget: preset.actionTarget, enabled: true };
-        await window.api.saveSmartRule(rule);
-        loadSmartRules();
-        showToast(`プリセット「${preset.label}」を追加しました`, 'success');
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-async function addSmartRule() {
-    const trigger = $('smart-rule-trigger')?.value;
-    const conditionVal = $('smart-rule-condition')?.value?.trim();
-    const action = $('smart-rule-action')?.value;
-    const target = $('smart-rule-target')?.value?.trim();
-    if (!trigger || !action) return;
-    const condition = trigger === 'note-stale' ? { days: parseInt(conditionVal) || 180 } : { tag: conditionVal || '#inbox' };
-    try {
-        await window.api.saveSmartRule({ trigger, condition, action, actionTarget: target, enabled: true });
-        loadSmartRules();
-        showToast('ルールを追加しました', 'success');
-    } catch (e) { showToast(e.message, 'error'); }
-}
-
-async function previewSmartRules() {
-    showLoading('ドライラン実行中...');
-    try {
-        const result = await window.api.previewSmartRules();
-        hideLoading();
-        const msg = $('smart-rules-result');
-        if (!result.success) { if (msg) msg.textContent = result.error; return; }
-        if (result.preview.length === 0) {
-            if (msg) msg.innerHTML = '<span style="color:var(--text-muted)">ℹ️ 有効なルールがありません。まずプリセットからルールを追加してください</span>';
-            return;
-        }
-        let html = '<div style="font-size:.82rem">🔍 ドライラン結果（実際には変更されません）：</div>';
-        for (const p of result.preview) {
-            const actionLabel = { archive: 'アーカイブ移動', tag: 'タグ追加', 'add-to-moc': 'MOC追加' }[p.action] || p.action;
-            const samples = p.samples.length > 0 ? `（例: ${p.samples.slice(0,3).map(s => esc(s)).join(', ')}${p.samples.length > 3 ? '...' : ''}）` : '';
-            const color = p.matchCount === 0 ? '#6b7280' : '#34d399';
-            html += `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)">
-                <span style="color:${color};font-size:.82rem">● ${p.matchCount}件がヒット → ${esc(actionLabel)}</span>
-                <span style="font-size:.75rem;color:var(--text-muted)">${samples}</span>
-            </div>`;
-        }
-        if (msg) msg.innerHTML = html;
-    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
-}
-
-async function executeSmartRules() {
-    const previewEl = $('smart-rules-result');
-    const hasPreview = previewEl && previewEl.textContent.includes('ドライラン');
-    if (!hasPreview && !confirm('実行前に「対象を確認（ドライラン）」で対象件数を確認することをお勧めします。そのまま実行しますか？')) return;
-    showLoading('スマートルールを実行中...');
-    try {
-        const result = await window.api.executeSmartRules();
-        hideLoading();
-        const msg = $('smart-rules-result');
-        if (msg) {
-            if (result.success) {
-                const logStr = result.log?.length ? `<div style="font-size:.78rem;margin-top:6px;color:var(--text-muted)">${result.log.slice(0,5).map(l => esc(l)).join('<br>')}</div>` : '';
-                msg.innerHTML = `<span style="color:#34d399">✅ ${result.executed}件のアクションを実行しました</span>${logStr}`;
-            } else {
-                msg.textContent = result.error || 'エラーが発生しました';
-            }
-        }
-        if (result.success) showToast(`${result.executed}件実行`, 'success');
-    } catch (e) { hideLoading(); showToast(e.message, 'error'); }
-}
 
 // ── v6.0 新連携 ──
 async function testObsidianUri() {

@@ -1776,40 +1776,104 @@
                     </div>
                 </div>
 
-                <!-- v5.0: スマートルールエンジン -->
+                <!-- v5.2: スマートルールエンジン v2.0 -->
                 <div class="glass-card">
-                    <h3 class="card-title">⚡ スマートルールエンジン</h3>
-                    <p class="muted-hint" style="margin-bottom:8px">IF-THEN形式の自動化ルールを設定。Vaultを自動整理します。</p>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                        <h3 class="card-title" style="margin:0">⚡ スマートルールエンジン</h3>
+                        <div style="display:flex;gap:6px">
+                            <button class="ghost-btn small-btn" id="btn-smart-rule-history" title="実行履歴">📋 履歴</button>
+                            <button class="primary-btn small-btn" id="btn-open-rule-builder">➕ ルール作成</button>
+                        </div>
+                    </div>
+                    <p class="muted-hint" style="margin-bottom:12px">IF-THEN形式の自動化ルール。複数条件のAND/OR組み合わせに対応。</p>
 
                     <!-- プリセット -->
-                    <div style="margin-bottom:12px">
-                        <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">💡 プリセットから始める</p>
-                        <div id="smart-rule-presets" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+                    <div style="margin-bottom:14px">
+                        <p style="font-size:.78rem;color:var(--text-muted);margin-bottom:6px">💡 プリセットから追加</p>
+                        <div id="smart-rule-presets" style="display:flex;gap:5px;flex-wrap:wrap"></div>
                     </div>
 
-                    <div id="smart-rules-list" style="margin-bottom:12px"></div>
-                    <details style="margin-bottom:10px">
-                        <summary style="font-size:.82rem;cursor:pointer;color:var(--accent)">➕ 新しいルールを追加</summary>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding:10px;background:rgba(255,255,255,.03);border-radius:8px">
-                            <select id="smart-rule-trigger" class="vault-select" style="width:180px">
-                                <option value="note-stale">ノートが放置されたら（日数指定）</option>
-                                <option value="tag-match">特定タグがあれば</option>
-                            </select>
-                            <input type="text" id="smart-rule-condition" class="text-input" placeholder="例: 180（日数）または #inbox（タグ）" style="width:200px">
-                            <select id="smart-rule-action" class="vault-select" style="width:160px">
-                                <option value="archive">アーカイブに移動</option>
-                                <option value="tag">タグを追加</option>
-                                <option value="add-to-moc">MOCに追加</option>
-                            </select>
-                            <input type="text" id="smart-rule-target" class="text-input" placeholder="例: 99 Archive / #stale / Inbox MOC" style="width:180px">
-                            <button class="ghost-btn small-btn" id="btn-add-smart-rule">➕ ルール追加</button>
-                        </div>
-                    </details>
-                    <div style="display:flex;gap:8px">
-                        <button class="ghost-btn" id="btn-preview-smart-rules">🔍 対象を確認（ドライラン）</button>
+                    <!-- ルール一覧 -->
+                    <div id="smart-rules-list" style="margin-bottom:14px;display:flex;flex-direction:column;gap:6px"></div>
+
+                    <!-- アクションボタン -->
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button class="ghost-btn" id="btn-preview-smart-rules">🔍 ドライラン（確認）</button>
                         <button class="primary-btn" id="btn-execute-smart-rules">▶️ ルール実行</button>
                     </div>
                     <div id="smart-rules-result" class="moc-result-msg" style="margin-top:8px"></div>
+                </div>
+
+                <!-- スマートルール作成モーダル -->
+                <div id="smart-rule-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9000;display:none;align-items:center;justify-content:center">
+                    <div style="background:var(--bg-card,#1e2030);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:24px;width:560px;max-width:96vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                            <h3 style="margin:0;font-size:1rem">⚡ ルール作成 / 編集</h3>
+                            <button id="btn-close-rule-builder" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem">✕</button>
+                        </div>
+
+                        <!-- ルール名 -->
+                        <div style="margin-bottom:14px">
+                            <label style="font-size:.8rem;color:var(--text-muted);display:block;margin-bottom:4px">ルール名</label>
+                            <input type="text" id="sr-name" class="text-input" style="width:100%;box-sizing:border-box" placeholder="例: 180日放置ノートをアーカイブ">
+                        </div>
+
+                        <!-- 条件ロジック -->
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                            <span style="font-size:.82rem;color:var(--text-muted)">条件の結合</span>
+                            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer">
+                                <input type="radio" name="sr-logic" value="AND" checked> すべて満たす（AND）
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;font-size:.82rem;cursor:pointer">
+                                <input type="radio" name="sr-logic" value="OR"> いずれか満たす（OR）
+                            </label>
+                        </div>
+
+                        <!-- 条件ブロック -->
+                        <div style="margin-bottom:10px">
+                            <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:6px">IF 条件</div>
+                            <div id="sr-conditions" style="display:flex;flex-direction:column;gap:6px"></div>
+                            <button id="btn-sr-add-condition" class="ghost-btn small-btn" style="margin-top:8px;font-size:.76rem">＋ 条件を追加</button>
+                        </div>
+
+                        <!-- アクション -->
+                        <div style="margin-bottom:16px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid rgba(255,255,255,.07)">
+                            <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:8px">THEN アクション</div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                                <select id="sr-action" class="vault-select" style="flex:1;min-width:180px">
+                                    <option value="archive">📦 アーカイブフォルダに移動</option>
+                                    <option value="move-folder">📁 指定フォルダに移動</option>
+                                    <option value="tag">🏷️ タグを追加</option>
+                                    <option value="remove-tag">🧹 タグを削除</option>
+                                    <option value="add-frontmatter">📋 frontmatterフィールドを追加</option>
+                                    <option value="add-to-moc">🗺️ MOCノートに追記</option>
+                                    <option value="rename-prefix">✏️ ファイル名にプレフィックス付与</option>
+                                </select>
+                                <input type="text" id="sr-action-target" class="text-input" style="flex:1;min-width:160px" placeholder="対象（フォルダ名・タグ名など）">
+                            </div>
+                            <p id="sr-action-hint" style="font-size:.72rem;color:var(--text-muted);margin:6px 0 0"></p>
+                        </div>
+
+                        <input type="hidden" id="sr-editing-id">
+                        <div style="display:flex;gap:8px;justify-content:flex-end">
+                            <button class="ghost-btn" id="btn-cancel-rule-builder">キャンセル</button>
+                            <button class="primary-btn" id="btn-save-rule-builder">💾 保存</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 実行履歴モーダル -->
+                <div id="smart-rule-history-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9000;align-items:center;justify-content:center">
+                    <div style="background:var(--bg-card,#1e2030);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:24px;width:520px;max-width:96vw;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                            <h3 style="margin:0;font-size:1rem">📋 実行履歴</h3>
+                            <div style="display:flex;gap:8px">
+                                <button class="ghost-btn small-btn" id="btn-clear-rule-history" style="font-size:.72rem;color:#f87171">🗑️ 履歴クリア</button>
+                                <button id="btn-close-rule-history" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem">✕</button>
+                            </div>
+                        </div>
+                        <div id="smart-rule-history-list"></div>
+                    </div>
                 </div>
 
                 <!-- v5.0: 外部連携 -->

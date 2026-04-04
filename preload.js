@@ -233,14 +233,18 @@ contextBridge.exposeInMainWorld('api', {
     checkNoteAtomicity: () => ipcRenderer.invoke('check-note-atomicity'),
     profileVaultPerformance: () => ipcRenderer.invoke('profile-vault-performance'),
 
-    // Phase 5: ワークフロー自動化
+    // Phase 5: ワークフロー自動化 (v2.0)
     getSmartRules: () => ipcRenderer.invoke('get-smart-rules'),
     saveSmartRule: (rule) => ipcRenderer.invoke('save-smart-rule', rule),
     deleteSmartRule: (ruleId) => ipcRenderer.invoke('delete-smart-rule', ruleId),
     toggleSmartRule: (params) => ipcRenderer.invoke('toggle-smart-rule', params),
+    reorderSmartRules: (orderedIds) => ipcRenderer.invoke('reorder-smart-rules', orderedIds),
     executeSmartRules: () => ipcRenderer.invoke('execute-smart-rules'),
     previewSmartRules: () => ipcRenderer.invoke('preview-smart-rules'),
     getSmartRulePresets: () => ipcRenderer.invoke('get-smart-rule-presets'),
+    getSmartRuleMeta: () => ipcRenderer.invoke('get-smart-rule-meta'),
+    getSmartRuleHistory: () => ipcRenderer.invoke('get-smart-rule-history'),
+    clearSmartRuleHistory: () => ipcRenderer.invoke('clear-smart-rule-history'),
     getScheduledWorkflows: () => ipcRenderer.invoke('get-scheduled-workflows'),
     saveScheduledWorkflow: (workflow) => ipcRenderer.invoke('save-scheduled-workflow', workflow),
     deleteScheduledWorkflow: (id) => ipcRenderer.invoke('delete-scheduled-workflow', id),
