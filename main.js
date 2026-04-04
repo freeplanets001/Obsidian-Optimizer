@@ -262,6 +262,8 @@ function loadConfig() {
         backupSchedule: cfg.backupSchedule || 'off',
         // Git設定 (Plan B): Vaultパスをキーとした設定マップ
         gitSettings: cfg.gitSettings || {},
+        // プロジェクト一覧
+        projects: cfg.projects || [],
     };
 }
 
@@ -7003,7 +7005,7 @@ function getProjects() {
 
 function saveProjects(projects) {
     config.projects = projects;
-    saveConfig();
+    saveConfig(config);
 }
 
 // プロジェクト一覧取得

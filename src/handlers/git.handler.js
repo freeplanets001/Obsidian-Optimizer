@@ -6,12 +6,29 @@ const { execFile, execSync } = require('child_process');
 const { promisify } = require('util');
 const { ok, fail, withErrorHandling } = require('../utils/ipc-response');
 
-const execFileAsync = promisify(execFile);
+const _execFileAsync = promisify(execFile);
 
 // ======================================================
 // Git 統合ハンドラ
 // execSync → execFileAsync (非同期) に変更してUIフリーズを防止
 // ======================================================
+
+// Electronプロセスではターミナル認証プロンプトが出せないため無効化
+// GIT_TERMINAL_PROMPT=0 で認証待ちの無音ハングを防止
+const GIT_ENV = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '/bin/echo',
+};
+
+/**
+ * execFileAsync のラッパー: git コマンド実行時は GIT_ENV を自動注入
+ * これによりElectronプロセスでの認証プロンプト待ちによる無音ハングを防止する
+ */
+function execFileAsync(cmd, args, opts = {}) {
+    const env = cmd === 'git' ? { env: GIT_ENV, ...opts } : opts;
+    return _execFileAsync(cmd, args, env);
+}
 
 async function isGitAvailable() {
     try {
@@ -96,7 +113,7 @@ async function handleGitBackup(getCurrentVault, getGitSettings) {
         const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         return ok({ commit: logOut.trim() });
     } catch (e) {
-        const errDetail = [e.message, e.stderr].filter(Boolean).join('\n').trim();
+        const errDetail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n').trim();
         // ロックファイルエラーの場合、除去して1回リトライ
         if (errDetail.includes('index.lock') || errDetail.includes('Another git process')) {
             clearGitLocks(vaultPath);
@@ -107,7 +124,7 @@ async function handleGitBackup(getCurrentVault, getGitSettings) {
                 const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
                 return ok({ commit: logOut.trim() });
             } catch (retryErr) {
-                const retryDetail = [retryErr.message, retryErr.stderr].filter(Boolean).join('\n').trim();
+                const retryDetail = [retryErr.stderr, retryErr.stdout, retryErr.message].filter(Boolean).join('\n').trim();
                 return fail(retryDetail || retryErr, 'git-backup');
             }
         }
@@ -296,7 +313,7 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         try {
             await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
         } catch (pushErr) {
-            const pushDetail = [pushErr.message, pushErr.stderr].filter(Boolean).join('\n').trim();
+            const pushDetail = [pushErr.stderr, pushErr.stdout, pushErr.message].filter(Boolean).join('\n').trim();
             if (pushDetail.includes('non-fast-forward') || pushDetail.includes('rejected') || pushDetail.includes('fetch first')) {
                 // リモートが進んでいる → fetchしてから強制push（fetch直後なので安全）
                 await execFileAsync('git', ['fetch', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
@@ -307,7 +324,7 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         }
         return ok({ message: `Push完了 (origin/${branch})` });
     } catch (e) {
-        const errDetail = [e.message, e.stderr].filter(Boolean).join('\n').trim();
+        const errDetail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n').trim();
         return fail(errDetail || e, 'git-push');
     }
 }

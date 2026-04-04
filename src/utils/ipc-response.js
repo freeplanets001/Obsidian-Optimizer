@@ -21,7 +21,14 @@ function ok(data = {}) {
  * @returns {{ success: false, error: string }}
  */
 function fail(err, context = '') {
-    const message = err instanceof Error ? err.message : String(err);
+    // execFileAsync のエラーは err.stderr / err.stdout に詳細が入る
+    let message;
+    if (err instanceof Error) {
+        const parts = [err.stderr, err.stdout, err.message].filter(s => s && String(s).trim());
+        message = parts.join('\n').trim() || err.message;
+    } else {
+        message = String(err);
+    }
     if (context) {
         console.error(`[IPC:${context}]`, err);
     } else {
