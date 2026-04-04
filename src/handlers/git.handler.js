@@ -20,6 +20,17 @@ async function isGitAvailable() {
     } catch (_) { return false; }
 }
 
+/**
+ * ローカル git config に user.name / user.email を適用する
+ * 設定値がなければフォールバック値を使う (Plan A)
+ */
+async function applyGitUserConfig(vaultPath, settings = {}) {
+    const userName  = (settings.userName  || '').trim() || 'Optimizer Backup';
+    const userEmail = (settings.userEmail || '').trim() || 'optimizer@local.backup';
+    await execFileAsync('git', ['config', '--local', 'user.name',  userName],  { cwd: vaultPath, timeout: 5000 });
+    await execFileAsync('git', ['config', '--local', 'user.email', userEmail], { cwd: vaultPath, timeout: 5000 });
+}
+
 /** git-status ハンドラ実装 */
 async function handleGitStatus(getCurrentVault) {
     const vaultPath = getCurrentVault();
@@ -60,7 +71,7 @@ function clearGitLocks(vaultPath) {
 }
 
 /** git-backup ハンドラ実装 */
-async function handleGitBackup(getCurrentVault) {
+async function handleGitBackup(getCurrentVault, getGitSettings) {
     const vaultPath = getCurrentVault();
     if (!vaultPath) return fail('Vaultが設定されていません', 'git-backup');
     if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-backup');
@@ -68,6 +79,10 @@ async function handleGitBackup(getCurrentVault) {
 
     // 古いロックファイルを除去（5秒以上前のもの）
     clearGitLocks(vaultPath);
+
+    // Plan A: user.name / user.email をローカルに確実に設定
+    const settings = getGitSettings ? getGitSettings() : {};
+    await applyGitUserConfig(vaultPath, settings);
 
     // .gitignoreが無ければ作成
     const gitignorePath = path.join(vaultPath, '.gitignore');
@@ -119,7 +134,7 @@ async function handleGitLog(getCurrentVault) {
 }
 
 /** git-init ハンドラ実装 */
-async function handleGitInit(getCurrentVault) {
+async function handleGitInit(getCurrentVault, getGitSettings) {
     const vaultPath = getCurrentVault();
     if (!vaultPath) return fail('Vaultが設定されていません', 'git-init');
     if (!await isGitAvailable()) return fail(
@@ -129,6 +144,16 @@ async function handleGitInit(getCurrentVault) {
     if (fs.existsSync(path.join(vaultPath, '.git'))) return ok({ message: '既にGitリポジトリです' });
 
     await execFileAsync('git', ['init'], { cwd: vaultPath, timeout: 10000 });
+
+    // Plan A: user.name / user.email を確実に設定
+    const settings = getGitSettings ? getGitSettings() : {};
+    await applyGitUserConfig(vaultPath, settings);
+
+    // リモートURL設定 (Plan B)
+    if (settings.remoteUrl) {
+        await execFileAsync('git', ['remote', 'add', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
+    }
+
     const gitignorePath = path.join(vaultPath, '.gitignore');
     if (!fs.existsSync(gitignorePath)) {
         fs.writeFileSync(gitignorePath, '.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n', 'utf-8');
@@ -138,17 +163,91 @@ async function handleGitInit(getCurrentVault) {
     return ok({ message: 'Gitリポジトリを初期化しました' });
 }
 
+// ======================================================
+// Plan B: Git設定 取得 / 保存 / Push
+// ======================================================
+
+/** git-get-config ハンドラ: 現在のVaultのGit設定を返す */
+async function handleGitGetConfig(getCurrentVault, getGitSettings) {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return fail('Vaultが設定されていません', 'git-get-config');
+    const settings = getGitSettings ? getGitSettings() : {};
+    return ok({ settings });
+}
+
+/** git-save-config ハンドラ: Git設定を保存し、既存リポジトリに即座に適用 */
+async function handleGitSaveConfig(getCurrentVault, saveGitSettings, params) {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return fail('Vaultが設定されていません', 'git-save-config');
+
+    const { userName = '', userEmail = '', remoteUrl = '' } = params || {};
+    saveGitSettings({ userName: userName.trim(), userEmail: userEmail.trim(), remoteUrl: remoteUrl.trim() });
+
+    // Gitリポジトリが初期化済みなら即座に適用
+    if (fs.existsSync(path.join(vaultPath, '.git'))) {
+        await applyGitUserConfig(vaultPath, { userName, userEmail });
+
+        if (remoteUrl.trim()) {
+            try {
+                await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+                // 既存リモートのURLを更新
+                await execFileAsync('git', ['remote', 'set-url', 'origin', remoteUrl.trim()], { cwd: vaultPath, timeout: 5000 });
+            } catch (_) {
+                // リモートが存在しない → 追加
+                await execFileAsync('git', ['remote', 'add', 'origin', remoteUrl.trim()], { cwd: vaultPath, timeout: 5000 });
+            }
+        }
+    }
+    return ok({ message: 'Git設定を保存しました' });
+}
+
+/** git-push ハンドラ: origin にプッシュ */
+async function handleGitPush(getCurrentVault, getGitSettings) {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return fail('Vaultが設定されていません', 'git-push');
+    if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-push');
+    if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Git初期化が必要です', 'git-push');
+
+    const settings = getGitSettings ? getGitSettings() : {};
+    if (!settings.remoteUrl) {
+        return fail('リモートURLが設定されていません。Git設定でリモートURLを入力し「設定保存」してください。', 'git-push');
+    }
+
+    // リモートURLが最新か確認・同期
+    try {
+        const { stdout: currentUrl } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+        if (currentUrl.trim() !== settings.remoteUrl) {
+            await execFileAsync('git', ['remote', 'set-url', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
+        }
+    } catch (_) {
+        await execFileAsync('git', ['remote', 'add', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
+    }
+
+    try {
+        const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+        const branch = branchOut.trim() || 'main';
+        await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+        return ok({ message: `Push完了 (origin/${branch})` });
+    } catch (e) {
+        const errDetail = [e.message, e.stderr].filter(Boolean).join('\n').trim();
+        return fail(errDetail || e, 'git-push');
+    }
+}
+
 /**
  * IPC ハンドラを登録する
  * @param {Electron.IpcMain} ipcMain
- * @param {{ getCurrentVault: () => string|null }} ctx - 共有コンテキスト
+ * @param {{ getCurrentVault: () => string|null, getGitSettings: () => object, saveGitSettings: (s: object) => void }} ctx
  */
 function register(ipcMain, ctx) {
-    const { getCurrentVault } = ctx;
-    ipcMain.handle('git-status', withErrorHandling('git-status', () => handleGitStatus(getCurrentVault)));
-    ipcMain.handle('git-backup', withErrorHandling('git-backup', () => handleGitBackup(getCurrentVault)));
-    ipcMain.handle('git-log',    withErrorHandling('git-log',    () => handleGitLog(getCurrentVault)));
-    ipcMain.handle('git-init',   withErrorHandling('git-init',   () => handleGitInit(getCurrentVault)));
+    const { getCurrentVault, getGitSettings, saveGitSettings } = ctx;
+    ipcMain.handle('git-status',     withErrorHandling('git-status',     () => handleGitStatus(getCurrentVault)));
+    ipcMain.handle('git-backup',     withErrorHandling('git-backup',     () => handleGitBackup(getCurrentVault, getGitSettings)));
+    ipcMain.handle('git-log',        withErrorHandling('git-log',        () => handleGitLog(getCurrentVault)));
+    ipcMain.handle('git-init',       withErrorHandling('git-init',       () => handleGitInit(getCurrentVault, getGitSettings)));
+    ipcMain.handle('git-get-config', withErrorHandling('git-get-config', () => handleGitGetConfig(getCurrentVault, getGitSettings)));
+    ipcMain.handle('git-save-config',withErrorHandling('git-save-config',(_, params) => handleGitSaveConfig(getCurrentVault, saveGitSettings, params)));
+    ipcMain.handle('git-push',       withErrorHandling('git-push',       () => handleGitPush(getCurrentVault, getGitSettings)));
 }
 
 module.exports = { register };

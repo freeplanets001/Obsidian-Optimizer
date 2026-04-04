@@ -595,6 +595,8 @@ async function switchVault(index) {
         const check = await window.api.checkVault();
         updateVaultStatus(check);
         resetDashboard();
+        // Vault が変わったら Git設定を再ロード
+        loadGitConfig();
     } catch (e) { addLog(`❌ Vault 切り替えエラー: ${e.message}`, 'error'); }
 }
 
@@ -9626,6 +9628,10 @@ function initV5Features() {
     safe('btn-git-backup', gitBackup);
     safe('btn-git-log', gitShowLog);
     safe('btn-git-init', gitInitVault);
+    safe('btn-git-save-config', saveGitConfig);
+    safe('btn-git-push', gitPushToRemote);
+    // Git設定の初期ロード
+    loadGitConfig();
     safe('btn-export-notes', exportNotesAction);
     safe('btn-clipboard-to-inbox', clipboardToInbox);
     safe('btn-export-preset', exportPreset);
@@ -10558,6 +10564,61 @@ async function gitBackup() {
             showToast(res.error, 'error');
         }
     } catch (e) { if (status) status.textContent = `❌ ${e.message}`; }
+}
+
+// ======================================================
+// Git設定 (Plan B): 読み込み・保存・Push
+// ======================================================
+async function loadGitConfig() {
+    try {
+        const res = await window.api.gitGetConfig();
+        if (!res.success) return;
+        const s = res.settings || {};
+        const nameEl  = $('git-user-name');
+        const emailEl = $('git-user-email');
+        const urlEl   = $('git-remote-url');
+        if (nameEl)  nameEl.value  = s.userName  || '';
+        if (emailEl) emailEl.value = s.userEmail || '';
+        if (urlEl)   urlEl.value   = s.remoteUrl  || '';
+    } catch (_) {}
+}
+
+async function saveGitConfig() {
+    const cfgStatus = $('git-config-status');
+    try {
+        const userName  = ($('git-user-name')   || {}).value || '';
+        const userEmail = ($('git-user-email')  || {}).value || '';
+        const remoteUrl = ($('git-remote-url')  || {}).value || '';
+        if (cfgStatus) cfgStatus.textContent = '💾 保存中...';
+        const res = await window.api.gitSaveConfig({ userName, userEmail, remoteUrl });
+        if (res.success) {
+            if (cfgStatus) cfgStatus.textContent = `✅ ${res.message}`;
+            showToast('✅ Git設定を保存しました', 'success');
+        } else {
+            if (cfgStatus) cfgStatus.textContent = `❌ ${res.error}`;
+            showToast(res.error, 'error');
+        }
+    } catch (e) {
+        if (cfgStatus) cfgStatus.textContent = `❌ ${e.message}`;
+    }
+}
+
+async function gitPushToRemote() {
+    const cfgStatus = $('git-config-status');
+    try {
+        if (cfgStatus) cfgStatus.textContent = '🚀 Push中...';
+        const res = await window.api.gitPush();
+        if (res.success) {
+            if (cfgStatus) cfgStatus.textContent = `✅ ${res.message}`;
+            showToast(`✅ ${res.message}`, 'success');
+            addLog(`🚀 Git Push: ${res.message}`, 'info', 'GIT');
+        } else {
+            if (cfgStatus) cfgStatus.textContent = `❌ ${res.error}`;
+            showToast(res.error, 'error');
+        }
+    } catch (e) {
+        if (cfgStatus) cfgStatus.textContent = `❌ ${e.message}`;
+    }
 }
 
 async function gitShowLog() {

@@ -9437,7 +9437,20 @@ ipcMain.handle('test-obsidian-uri', async () => {
 });
 
 // Git 統合ハンドラ → src/handlers/git.handler.js に移動済み
-require('./src/handlers/git.handler').register(ipcMain, { getCurrentVault });
+// getGitSettings / saveGitSettings: Vault ごとの Git 設定を config に保存 (Plan B)
+function getGitSettings() {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return {};
+    return ((config.gitSettings || {})[vaultPath]) || {};
+}
+function saveGitSettings(settings) {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return;
+    if (!config.gitSettings) config.gitSettings = {};
+    config.gitSettings[vaultPath] = settings;
+    saveConfig(config);
+}
+require('./src/handlers/git.handler').register(ipcMain, { getCurrentVault, getGitSettings, saveGitSettings });
 
 // ノートエクスポート
 ipcMain.handle('export-notes', async (_, { format, scope }) => {

@@ -1847,6 +1847,31 @@
                             </div>
                             <span id="git-status-text" class="muted-hint" style="font-size:.75rem;display:block;margin-top:6px"></span>
                             <div id="git-log-list" style="display:none;margin-top:8px;max-height:200px;overflow-y:auto"></div>
+                            <!-- Git設定パネル (Plan B) -->
+                            <div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                                    <span style="font-size:.82rem;font-weight:600">⚙️ Git設定</span>
+                                    <button class="ghost-btn small-btn" id="btn-git-push" style="font-size:.75rem">🚀 Push to Remote</button>
+                                </div>
+                                <div style="display:grid;gap:8px">
+                                    <div style="display:flex;gap:8px;align-items:center">
+                                        <label style="font-size:.75rem;color:var(--text-muted);min-width:96px;flex-shrink:0">ユーザー名</label>
+                                        <input id="git-user-name" type="text" class="vault-input" placeholder="例: Taro Yamada" style="flex:1;font-size:.8rem;padding:4px 8px">
+                                    </div>
+                                    <div style="display:flex;gap:8px;align-items:center">
+                                        <label style="font-size:.75rem;color:var(--text-muted);min-width:96px;flex-shrink:0">メールアドレス</label>
+                                        <input id="git-user-email" type="email" class="vault-input" placeholder="例: taro@example.com" style="flex:1;font-size:.8rem;padding:4px 8px">
+                                    </div>
+                                    <div style="display:flex;gap:8px;align-items:center">
+                                        <label style="font-size:.75rem;color:var(--text-muted);min-width:96px;flex-shrink:0">リモートURL</label>
+                                        <input id="git-remote-url" type="text" class="vault-input" placeholder="例: https://github.com/user/vault.git" style="flex:1;font-size:.8rem;padding:4px 8px">
+                                    </div>
+                                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:2px">
+                                        <button class="primary-btn small-btn" id="btn-git-save-config" style="font-size:.75rem">💾 設定保存</button>
+                                    </div>
+                                </div>
+                                <span id="git-config-status" class="muted-hint" style="font-size:.75rem;display:block;margin-top:6px"></span>
+                            </div>
                         </div>
                         <!-- エクスポート -->
                         <div style="padding:14px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">

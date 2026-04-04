@@ -305,4 +305,8 @@ contextBridge.exposeInMainWorld('api', {
         ipcRenderer.removeAllListeners('quick-capture-focus');
         ipcRenderer.on('quick-capture-focus', () => cb());
     },
+    // Git設定 (Plan B)
+    gitGetConfig: () => ipcRenderer.invoke('git-get-config'),
+    gitSaveConfig: (params) => ipcRenderer.invoke('git-save-config', params),
+    gitPush: () => ipcRenderer.invoke('git-push'),
 });
