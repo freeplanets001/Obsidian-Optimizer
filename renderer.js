@@ -4542,6 +4542,8 @@ window.activateTab = function(tab) {
     if ((tab === 'analytics') && !aiBatchInitialized) { aiBatchInitialized = true; initAiBatchTab(); }
     if ((tab === 'analytics') && !qualityBoardInitialized) { qualityBoardInitialized = true; initQualityBoard(); }
     if (tab === 'tasks' && !taskTabInitialized) { taskTabInitialized = true; loadTaskTab(); }
+    // タスクタブを開くたびにプロジェクト一覧を更新（プロジェクト作成後すぐに反映するため）
+    else if (tab === 'tasks') { loadTaskProjectOptions(); }
     if (tab === 'projects' && !projectTabInitialized) { projectTabInitialized = true; loadProjectTab(); }
 };
 
@@ -7657,6 +7659,8 @@ async function saveProjectFromModal() {
         const isNew = !project.id;
         closeProjectModal();
         await refreshProjects();
+        // タスクタブのプロジェクトドロップダウンも即座に更新
+        if (taskTabInitialized) loadTaskProjectOptions();
         showToast(isNew ? 'プロジェクトを作成しました' : 'プロジェクトを更新しました', 'success');
 
         // Vaultノートを自動生成/更新
