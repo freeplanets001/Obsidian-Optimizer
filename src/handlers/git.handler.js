@@ -227,15 +227,13 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         const branch = branchOut.trim() || 'main';
 
-        // 未コミットの変更があればstashで退避
-        let stashed = false;
-        try {
-            const { stdout: diffOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
-            if (diffOut.trim()) {
-                await execFileAsync('git', ['stash', '--include-untracked'], { cwd: vaultPath, timeout: 30000 });
-                stashed = true;
-            }
-        } catch (_) {}
+        // push前に未コミット変更をすべてコミットしてcleanな状態にする
+        const { stdout: diffOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+        if (diffOut.trim()) {
+            await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+            const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
+            await execFileAsync('git', ['commit', '-m', `Vault backup ${timestamp}`, '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
+        }
 
         // リモートが進んでいる場合に備えて先にpull --rebaseする
         try {
@@ -246,15 +244,8 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
             if (pullDetail.includes('unrelated histories') || pullDetail.includes('refusing to merge')) {
                 await execFileAsync('git', ['pull', '--rebase', '--allow-unrelated-histories', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
             } else if (!pullDetail.includes('no tracking information') && !pullDetail.includes('There is no tracking')) {
-                // stashを戻してからエラーを投げる
-                if (stashed) { try { await execFileAsync('git', ['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {} }
                 throw pullErr;
             }
-        }
-
-        // stashした変更を戻す
-        if (stashed) {
-            try { await execFileAsync('git', ['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {}
         }
 
         await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
