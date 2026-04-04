@@ -226,6 +226,21 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
     try {
         const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         const branch = branchOut.trim() || 'main';
+
+        // リモートが進んでいる場合に備えて先にpull --rebaseする
+        try {
+            await execFileAsync('git', ['pull', '--rebase', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+        } catch (pullErr) {
+            const pullDetail = [pullErr.message, pullErr.stderr].filter(Boolean).join('\n').trim();
+            // unrelated histories の場合は --allow-unrelated-histories で再試行
+            if (pullDetail.includes('unrelated histories') || pullDetail.includes('refusing to merge')) {
+                await execFileAsync('git', ['pull', '--rebase', '--allow-unrelated-histories', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+            } else if (!pullDetail.includes('no tracking information') && !pullDetail.includes('There is no tracking')) {
+                // 取得できないネットワークエラー等は無視してpushを試みる
+                throw pullErr;
+            }
+        }
+
         await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
         return ok({ message: `Push完了 (origin/${branch})` });
     } catch (e) {
