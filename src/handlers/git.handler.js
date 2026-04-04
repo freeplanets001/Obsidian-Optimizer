@@ -230,12 +230,15 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         // push前に古いロックファイルを除去してからコミット
         clearGitLocks(vaultPath);
 
+        // user.name / user.email を確実にセット（commitに必須）
+        await applyGitUserConfig(vaultPath, settings);
+
         // push前に未コミット変更をすべてコミットしてcleanな状態にする
         const { stdout: diffOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
         if (diffOut.trim()) {
             await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
             const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
-            await execFileAsync('git', ['commit', '-m', `Vault backup ${timestamp}`, '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
+            await execFileAsync('git', ['commit', '-m', `Vault backup ${timestamp}`], { cwd: vaultPath, timeout: 30000 });
         }
 
         // リモートが進んでいる場合に備えて先にpull --rebaseする
