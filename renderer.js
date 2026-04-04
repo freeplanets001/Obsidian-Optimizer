@@ -10638,8 +10638,41 @@ async function gitShowLog() {
         const res = await window.api.gitLog();
         if (!res.success || !logList) { showToast(res.error || 'エラー', 'error'); return; }
         logList.style.display = '';
-        logList.innerHTML = res.entries.map(e => `<div style="padding:4px 8px;font-size:.78rem;border-bottom:1px solid var(--border)"><code style="color:var(--accent)">${esc(e.hash)}</code> ${esc(e.message)}</div>`).join('');
+        logList.innerHTML = res.entries.map((e, i) => `
+            <div style="padding:6px 8px;font-size:.77rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <div style="min-width:0;flex:1">
+                    <code style="color:var(--accent);font-size:.72rem">${esc(e.hash)}</code>
+                    <span style="color:var(--text-muted);font-size:.7rem;margin-left:4px">${esc(e.date)}</span>
+                    <div style="margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.message)}</div>
+                </div>
+                ${i === 0 ? '' : `<button class="ghost-btn" style="font-size:.7rem;padding:2px 6px;white-space:nowrap;flex-shrink:0" onclick="gitRestoreVersion('${esc(e.hash)}','${esc(e.date)}')">⏮ 復元</button>`}
+            </div>`).join('');
     } catch (e) { showToast(e.message, 'error'); }
+}
+
+async function gitRestoreVersion(hash, label) {
+    const confirmed = await showConfirmModal(
+        '⏮ バージョン復元',
+        `【${label} (${hash})】の状態にVaultを復元します。\n現在の変更は自動保存されてから復元されます。\n\nよろしいですか？`,
+        '復元する'
+    );
+    if (!confirmed) return;
+    const status = $('git-status-text');
+    try {
+        if (status) status.textContent = '⏮ 復元中...';
+        const res = await window.api.gitRestore(hash);
+        if (res.success) {
+            showToast(`✅ ${res.message}`, 'success');
+            addLog(`⏮ Git復元: ${res.message}`, 'info', 'GIT');
+            if (status) status.textContent = `✅ ${res.message}`;
+        } else {
+            if (status) status.textContent = `❌ ${res.error}`;
+            showToast(res.error, 'error');
+        }
+    } catch (e) {
+        if (status) status.textContent = `❌ ${e.message}`;
+        showToast(e.message, 'error');
+    }
 }
 
 async function gitInitVault() {

@@ -125,12 +125,46 @@ async function handleGitLog(getCurrentVault) {
     if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-log');
     if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Gitリポジトリではありません', 'git-log');
 
-    const { stdout } = await execFileAsync('git', ['log', '--oneline', '-20'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+    // hash・日時・メッセージを取得
+    const { stdout } = await execFileAsync('git', ['log', '--format=%h\x1f%ci\x1f%s', '-30'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
     const entries = stdout.trim().split('\n').filter(l => l.trim()).map(l => {
-        const [hash, ...rest] = l.split(' ');
-        return { hash, message: rest.join(' ') };
+        const [hash, date, ...rest] = l.split('\x1f');
+        return { hash: hash.trim(), date: date ? date.trim().slice(0, 16) : '', message: rest.join(' ').trim() };
     });
     return ok({ entries });
+}
+
+/** git-restore ハンドラ: 指定コミットの状態にVaultを復元 */
+async function handleGitRestore(getCurrentVault, getGitSettings, hash) {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return fail('Vaultが設定されていません', 'git-restore');
+    if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-restore');
+    if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Git初期化が必要です', 'git-restore');
+    if (!hash || !/^[0-9a-f]{4,40}$/.test(hash)) return fail('無効なコミットハッシュです', 'git-restore');
+
+    // 現在の変更をまず退避コミット
+    clearGitLocks(vaultPath);
+    const settings = getGitSettings ? getGitSettings() : {};
+    await applyGitUserConfig(vaultPath, settings);
+    try {
+        const { stdout: st } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+        if (st.trim()) {
+            await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+            const ts = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
+            await execFileAsync('git', ['commit', '-m', `Auto-save before restore ${ts}`], { cwd: vaultPath, timeout: 30000 });
+        }
+    } catch (_) {}
+
+    // 指定コミットの状態にファイルを復元（HEADは動かさず内容だけ展開）
+    await execFileAsync('git', ['checkout', hash, '--', '.'], { cwd: vaultPath, timeout: 30000 });
+
+    // 復元した差分をコミット
+    const { stdout: diffAfter } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+    if (diffAfter.trim()) {
+        await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+        await execFileAsync('git', ['commit', '-m', `Restore to ${hash}`], { cwd: vaultPath, timeout: 30000 });
+    }
+    return ok({ message: `${hash} の状態に復元しました` });
 }
 
 /** git-init ハンドラ実装 */
@@ -252,16 +286,25 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
             }
         } catch (_) {}
 
-        // Step 3: リモートが進んでいる場合に備えて先にpull --rebaseする
+        // Step 3: リモートが進んでいる場合に備えて fetch → merge（ローカル優先）
         try {
-            await execFileAsync('git', ['pull', '--rebase', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
-        } catch (pullErr) {
-            const pullDetail = [pullErr.message, pullErr.stderr].filter(Boolean).join('\n').trim();
-            if (pullDetail.includes('unrelated histories') || pullDetail.includes('refusing to merge')) {
-                await execFileAsync('git', ['pull', '--rebase', '--allow-unrelated-histories', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
-            } else if (!pullDetail.includes('no tracking information') && !pullDetail.includes('There is no tracking')) {
-                if (stashed) { try { await execFileAsync('git', ['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {} }
-                throw pullErr;
+            await execFileAsync('git', ['fetch', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+        } catch (_) { /* ネットワークエラーは無視してpushを試みる */ }
+
+        // リモートブランチが存在するか確認
+        let remoteExists = false;
+        try {
+            await execFileAsync('git', ['rev-parse', `origin/${branch}`], { cwd: vaultPath, timeout: 5000 });
+            remoteExists = true;
+        } catch (_) {}
+
+        if (remoteExists) {
+            try {
+                // ローカルがリモートより進んでいれば何もしない。リモートが進んでいればmerge
+                await execFileAsync('git', ['merge', `origin/${branch}`, '-X', 'ours', '--no-edit', '--allow-unrelated-histories'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+            } catch (mergeErr) {
+                // マージ失敗時はローカルを優先してabort
+                try { await execFileAsync('git', ['merge', '--abort'], { cwd: vaultPath, timeout: 10000 }); } catch (_) {}
             }
         }
 
@@ -292,6 +335,7 @@ function register(ipcMain, ctx) {
     ipcMain.handle('git-get-config', withErrorHandling('git-get-config', () => handleGitGetConfig(getCurrentVault, getGitSettings)));
     ipcMain.handle('git-save-config',withErrorHandling('git-save-config',(_, params) => handleGitSaveConfig(getCurrentVault, saveGitSettings, params)));
     ipcMain.handle('git-push',       withErrorHandling('git-push',       () => handleGitPush(getCurrentVault, getGitSettings)));
+    ipcMain.handle('git-restore',    withErrorHandling('git-restore',    (_, hash) => handleGitRestore(getCurrentVault, getGitSettings, hash)));
 }
 
 module.exports = { register };

@@ -311,4 +311,6 @@ contextBridge.exposeInMainWorld('api', {
     gitPush: () => ipcRenderer.invoke('git-push'),
     // Dockバッジリセット
     resetDockBadge: () => ipcRenderer.invoke('reset-dock-badge'),
+    // Git世代管理
+    gitRestore: (hash) => ipcRenderer.invoke('git-restore', hash),
 });
