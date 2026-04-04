@@ -7386,11 +7386,11 @@ function bindProjectEvents() {
 
     // タスク追加
     $('btn-proj-add-task')?.addEventListener('click', addProjectTaskFromPanel);
-    $('proj-new-task-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') addProjectTaskFromPanel(); });
+    $('proj-new-task-input')?.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addProjectTaskFromPanel(); } });
 
     // マイルストーン追加
     $('btn-proj-add-ms')?.addEventListener('click', addProjectMilestoneFromPanel);
-    $('proj-new-ms-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') addProjectMilestoneFromPanel(); });
+    $('proj-new-ms-input')?.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addProjectMilestoneFromPanel(); } });
 
     // メモ保存
     $('btn-proj-save-notes')?.addEventListener('click', async () => {
@@ -7843,6 +7843,7 @@ function renderDetailMilestones(p) {
             await refreshProjects();
             const p = allProjects.find(p => p.id === currentProjectId);
             if (p) renderDetailMilestones(p);
+            syncProjectToVault(currentProjectId);
         });
     });
 }
@@ -7888,7 +7889,7 @@ async function addProjectMilestoneFromPanel() {
         if (dueInput) dueInput.value = '';
         await refreshProjects();
         const p = allProjects.find(p => p.id === currentProjectId);
-        if (p) renderDetailMilestones(p);
+        if (p) renderProjectDetail(p);
         syncProjectToVault(currentProjectId);
     } else {
         showToast(`エラー: ${res.error}`, 'error');
