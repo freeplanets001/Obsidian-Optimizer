@@ -233,7 +233,7 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         // user.name / user.email を確実にセット（commitに必須）
         await applyGitUserConfig(vaultPath, settings);
 
-        // push前に未コミット変更をすべてコミットしてcleanな状態にする
+        // Step 1: 追跡済みファイルの変更をコミット
         const { stdout: diffOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
         if (diffOut.trim()) {
             await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
@@ -241,17 +241,33 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
             await execFileAsync('git', ['commit', '-m', `Vault backup ${timestamp}`], { cwd: vaultPath, timeout: 30000 });
         }
 
-        // リモートが進んでいる場合に備えて先にpull --rebaseする
+        // Step 2: コミット後にiCloudが作った新ファイル等をstashで退避
+        // (pull --rebase はワーキングツリーがcleanでないと失敗するため)
+        let stashed = false;
+        try {
+            const { stdout: afterCommit } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+            if (afterCommit.trim()) {
+                await execFileAsync('git', ['stash', '--include-untracked'], { cwd: vaultPath, timeout: 30000 });
+                stashed = true;
+            }
+        } catch (_) {}
+
+        // Step 3: リモートが進んでいる場合に備えて先にpull --rebaseする
         try {
             await execFileAsync('git', ['pull', '--rebase', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
         } catch (pullErr) {
             const pullDetail = [pullErr.message, pullErr.stderr].filter(Boolean).join('\n').trim();
-            // unrelated histories の場合は --allow-unrelated-histories で再試行
             if (pullDetail.includes('unrelated histories') || pullDetail.includes('refusing to merge')) {
                 await execFileAsync('git', ['pull', '--rebase', '--allow-unrelated-histories', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
             } else if (!pullDetail.includes('no tracking information') && !pullDetail.includes('There is no tracking')) {
+                if (stashed) { try { await execFileAsync('git', ['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {} }
                 throw pullErr;
             }
+        }
+
+        // Step 4: stashした変更を戻す
+        if (stashed) {
+            try { await execFileAsync('git', ['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {}
         }
 
         await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
