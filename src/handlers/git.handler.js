@@ -286,34 +286,25 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
             }
         } catch (_) {}
 
-        // Step 3: リモートが進んでいる場合に備えて fetch → merge（ローカル優先）
-        try {
-            await execFileAsync('git', ['fetch', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
-        } catch (_) { /* ネットワークエラーは無視してpushを試みる */ }
-
-        // リモートブランチが存在するか確認
-        let remoteExists = false;
-        try {
-            await execFileAsync('git', ['rev-parse', `origin/${branch}`], { cwd: vaultPath, timeout: 5000 });
-            remoteExists = true;
-        } catch (_) {}
-
-        if (remoteExists) {
-            try {
-                // ローカルがリモートより進んでいれば何もしない。リモートが進んでいればmerge
-                await execFileAsync('git', ['merge', `origin/${branch}`, '-X', 'ours', '--no-edit', '--allow-unrelated-histories'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
-            } catch (mergeErr) {
-                // マージ失敗時はローカルを優先してabort
-                try { await execFileAsync('git', ['merge', '--abort'], { cwd: vaultPath, timeout: 10000 }); } catch (_) {}
-            }
-        }
-
-        // Step 4: stashした変更を戻す
+        // Step 3: stashした変更を戻す
         if (stashed) {
             try { await execFileAsync('git', ['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {}
         }
 
-        await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+        // Step 4: まず通常pushを試みる。失敗したらfetch後に--force-with-leaseで上書き
+        // (--force-with-leaseはfetch直後のリモート状態と一致する場合のみ上書きするため安全)
+        try {
+            await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+        } catch (pushErr) {
+            const pushDetail = [pushErr.message, pushErr.stderr].filter(Boolean).join('\n').trim();
+            if (pushDetail.includes('non-fast-forward') || pushDetail.includes('rejected') || pushDetail.includes('fetch first')) {
+                // リモートが進んでいる → fetchしてから強制push（fetch直後なので安全）
+                await execFileAsync('git', ['fetch', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+                await execFileAsync('git', ['push', '--force-with-lease', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+            } else {
+                throw pushErr;
+            }
+        }
         return ok({ message: `Push完了 (origin/${branch})` });
     } catch (e) {
         const errDetail = [e.message, e.stderr].filter(Boolean).join('\n').trim();
