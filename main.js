@@ -6832,6 +6832,51 @@ require('./src/handlers/license.handler').register(ipcMain, {
 });
 
 // ======================================================
+// アップデート直接ダウンロード（進捗イベント付き）
+// ======================================================
+ipcMain.handle('download-update', async (event, { url, fileName }) => {
+    const https = require('https');
+    const http  = require('http');
+    const dest  = path.join(os.tmpdir(), fileName);
+
+    return new Promise((resolve) => {
+        const download = (downloadUrl) => {
+            const proto = downloadUrl.startsWith('https') ? https : http;
+            proto.get(downloadUrl, (res) => {
+                // リダイレクト追従
+                if (res.statusCode === 301 || res.statusCode === 302) {
+                    return download(res.headers.location);
+                }
+                if (res.statusCode !== 200) {
+                    return resolve({ success: false, error: `HTTP ${res.statusCode}` });
+                }
+                const total = parseInt(res.headers['content-length'] || '0', 10);
+                let received = 0;
+                const file = fs.createWriteStream(dest);
+                res.on('data', (chunk) => {
+                    received += chunk.length;
+                    if (total > 0) {
+                        const pct = Math.round(received / total * 100);
+                        try { event.sender.send('update-download-progress', { pct, received, total }); } catch (_) {}
+                    }
+                });
+                res.pipe(file);
+                file.on('finish', () => { file.close(); resolve({ success: true, filePath: dest }); });
+                file.on('error', (e) => resolve({ success: false, error: e.message }));
+            }).on('error', (e) => resolve({ success: false, error: e.message }));
+        };
+        download(url);
+    });
+});
+
+// ダウンロード済みインストーラーを開く
+ipcMain.handle('open-installer', async (_, filePath) => {
+    const { shell } = require('electron');
+    await shell.openPath(filePath);
+    return { success: true };
+});
+
+// ======================================================
 // Feature 3: スキャンデータエクスポート（CSV/JSON）
 // ======================================================
 ipcMain.handle('export-scan-data', async (event, { format }) => {

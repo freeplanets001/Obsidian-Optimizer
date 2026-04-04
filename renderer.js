@@ -8810,7 +8810,7 @@ async function verifyLicenseFromInput(inputId, errorId) {
 // ============================================================
 async function checkForUpdates(silent) {
     const statusEl = $('update-status');
-    const infoEl = $('update-info');
+    const infoEl   = $('update-info');
 
     if (!silent && statusEl) statusEl.textContent = '確認中...';
 
@@ -8821,20 +8821,75 @@ async function checkForUpdates(silent) {
             return;
         }
         if (result.updateAvailable) {
-            if (statusEl) statusEl.textContent = '新バージョンがあります！';
+            if (statusEl) statusEl.textContent = '🔔 新バージョン v' + result.latestVersion + ' があります';
             if (infoEl) {
                 infoEl.style.display = 'block';
+                const hasDirectDL = !!result.directDownloadUrl;
                 infoEl.innerHTML = `
-                    <div style="padding:12px;background:var(--glass);border:1px solid var(--border);border-radius:12px">
-                        <p><strong>v${esc(result.latestVersion)}</strong> が利用可能です（現在: v${esc(result.currentVersion)}）</p>
-                        ${result.releaseNotes ? '<p style="margin-top:8px;opacity:.7;font-size:.8rem;white-space:pre-wrap">' + esc(result.releaseNotes).slice(0, 300) + '</p>' : ''}
-                        <a href="${esc(result.downloadUrl)}" style="display:inline-block;margin-top:10px;color:var(--accent);text-decoration:underline;cursor:pointer" onclick="event.preventDefault();window.api.openPath('${esc(result.downloadUrl)}')">ダウンロードページを開く</a>
+                    <div style="padding:12px;background:var(--glass);border:1px solid var(--accent);border-radius:12px">
+                        <p><strong>v${escHtml(result.latestVersion)}</strong> が利用可能です（現在: v${escHtml(result.currentVersion)}）</p>
+                        ${result.releaseNotes ? `<p style="margin-top:6px;opacity:.65;font-size:.78rem;white-space:pre-wrap">${escHtml(result.releaseNotes.slice(0, 300))}</p>` : ''}
+                        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                            ${hasDirectDL
+                                ? `<button class="primary-btn" id="btn-do-download-update">⬇️ ダウンロード＆インストール</button>`
+                                : ''}
+                            <a href="#" id="btn-open-release-page" style="font-size:.8rem;opacity:.7;text-decoration:underline">リリースページを開く</a>
+                        </div>
+                        <div id="update-dl-progress" style="display:none;margin-top:10px">
+                            <div style="font-size:.8rem;opacity:.7;margin-bottom:4px" id="update-dl-label">ダウンロード中...</div>
+                            <div style="height:6px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden">
+                                <div id="update-dl-bar" style="height:100%;background:var(--accent);width:0%;transition:width .3s ease;border-radius:3px"></div>
+                            </div>
+                        </div>
                     </div>`;
+
+                $('btn-open-release-page')?.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    window.api.openPath(result.downloadUrl);
+                });
+
+                if (hasDirectDL) {
+                    $('btn-do-download-update')?.addEventListener('click', async () => {
+                        const btn = $('btn-do-download-update');
+                        const progressArea = $('update-dl-progress');
+                        const barEl  = $('update-dl-bar');
+                        const labelEl = $('update-dl-label');
+
+                        if (btn) { btn.disabled = true; btn.textContent = '⬇️ ダウンロード中...'; }
+                        if (progressArea) progressArea.style.display = 'block';
+
+                        window.api.removeUpdateDownloadProgress?.();
+                        window.api.onUpdateDownloadProgress?.((data) => {
+                            if (barEl)   barEl.style.width = data.pct + '%';
+                            if (labelEl) labelEl.textContent = `ダウンロード中... ${data.pct}%（${Math.round(data.received / 1024 / 1024)}MB / ${Math.round(data.total / 1024 / 1024)}MB）`;
+                        });
+
+                        const dlResult = await window.api.downloadUpdate({
+                            url: result.directDownloadUrl,
+                            fileName: result.fileName,
+                        });
+
+                        window.api.removeUpdateDownloadProgress?.();
+
+                        if (!dlResult.success) {
+                            if (btn) { btn.disabled = false; btn.textContent = '⬇️ ダウンロード＆インストール'; }
+                            if (labelEl) labelEl.textContent = 'エラー: ' + (dlResult.error || '不明');
+                            showToast('ダウンロード失敗: ' + (dlResult.error || '不明'), 'error');
+                            return;
+                        }
+
+                        if (barEl)   barEl.style.width = '100%';
+                        if (labelEl) labelEl.textContent = '✅ ダウンロード完了 — インストーラーを開いています...';
+                        if (btn) { btn.textContent = '✅ 完了'; }
+
+                        await window.api.openInstaller(dlResult.filePath);
+                        showToast('インストーラーを開きました。インストール後にアプリを再起動してください。', 'success', 8000);
+                    });
+                }
             }
-            // サイレントモードでもトーストを出す
             showToast('新バージョン v' + result.latestVersion + ' が利用可能です', 'info', 6000);
         } else {
-            if (!silent && statusEl) statusEl.textContent = '最新版です (v' + result.currentVersion + ')';
+            if (!silent && statusEl) statusEl.textContent = '✅ 最新版です (v' + result.currentVersion + ')';
             if (infoEl) infoEl.style.display = 'none';
         }
     } catch (e) {

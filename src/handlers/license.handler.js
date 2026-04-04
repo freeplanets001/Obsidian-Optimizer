@@ -61,12 +61,32 @@ function register(ipcMain, ctx) {
         const release = await fetchJson(GITHUB_RELEASES_URL);
         const latestVersion = (release.tag_name || '').replace(/^v/, '');
         const updateAvailable = compareVersions(latestVersion, APP_VERSION) > 0;
+
+        // プラットフォーム・アーキテクチャに応じた直接ダウンロードURLを生成
+        const platform = process.platform;
+        const arch = process.arch;
+        let fileName = null;
+        let directDownloadUrl = null;
+        if (updateAvailable) {
+            const v = latestVersion;
+            const base = `https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v${v}`;
+            if (platform === 'darwin') {
+                const archSuffix = arch === 'arm64' ? 'arm64' : 'x64';
+                fileName = `Obsidian.Optimizer-${v}-mac-${archSuffix}.dmg`;
+            } else if (platform === 'win32') {
+                fileName = `Obsidian.Optimizer-${v}-win-x64.exe`;
+            }
+            if (fileName) directDownloadUrl = `${base}/${fileName}`;
+        }
+
         return {
             updateAvailable,
             latestVersion,
             currentVersion: APP_VERSION,
             downloadUrl: release.html_url || '',
             releaseNotes: release.body || '',
+            directDownloadUrl,
+            fileName,
         };
     }));
 }

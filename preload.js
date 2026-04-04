@@ -156,6 +156,11 @@ contextBridge.exposeInMainWorld('api', {
     generateLicenseKey: () => ipcRenderer.invoke('generate-license-key'),
     // アップデートチェック
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+    // アップデート直接ダウンロード
+    downloadUpdate: (params) => ipcRenderer.invoke('download-update', params),
+    openInstaller: (filePath) => ipcRenderer.invoke('open-installer', filePath),
+    onUpdateDownloadProgress: (cb) => ipcRenderer.on('update-download-progress', (_, data) => cb(data)),
+    removeUpdateDownloadProgress: () => ipcRenderer.removeAllListeners('update-download-progress'),
     // スキャンデータエクスポート
     exportScanData: (params) => ipcRenderer.invoke('export-scan-data', params),
     // テーマ切り替え
