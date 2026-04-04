@@ -1,0 +1,32 @@
+#!/bin/bash
+# PKGインストール後にGatekeeper問題を修正するスクリプト
+# 「破損しているか不完全」エラーを防止する
+
+APP_PATH="/Applications/Obsidian Optimizer.app"
+
+if [ -d "$APP_PATH" ]; then
+    # dot_cleanでリソースフォーク（._ファイル）を除去
+    dot_clean "$APP_PATH" 2>/dev/null || true
+
+    # quarantine / provenance属性を全て除去
+    xattr -cr "$APP_PATH" 2>/dev/null || true
+
+    # com.apple.provenanceを個別に明示除去（xattr -crで取れないことがある）
+    find "$APP_PATH" -exec xattr -d com.apple.provenance {} 2>/dev/null \; || true
+    find "$APP_PATH" -exec xattr -d com.apple.quarantine {} 2>/dev/null \; || true
+
+    # 権限を修正
+    chmod -R a+rX "$APP_PATH" 2>/dev/null || true
+
+    # 既存の壊れた署名を除去してad-hoc署名を再適用
+    # asar無効ビルドでは署名とリソースの不整合が起きるため必須
+    codesign --remove-signature "$APP_PATH" 2>/dev/null || true
+    codesign --force --deep --sign - "$APP_PATH" 2>/dev/null || true
+
+    # Gatekeeperの評価を通過させる
+    spctl --add --label "ObsidianOptimizer" "$APP_PATH" 2>/dev/null || true
+
+    echo "Obsidian Optimizer: postinstall completed successfully"
+fi
+
+exit 0
