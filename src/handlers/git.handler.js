@@ -227,6 +227,9 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         const branch = branchOut.trim() || 'main';
 
+        // push前に古いロックファイルを除去してからコミット
+        clearGitLocks(vaultPath);
+
         // push前に未コミット変更をすべてコミットしてcleanな状態にする
         const { stdout: diffOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
         if (diffOut.trim()) {
