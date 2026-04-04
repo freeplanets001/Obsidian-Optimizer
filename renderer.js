@@ -11308,9 +11308,26 @@ async function applyTemplateAfterProjectSave(projectId) {
     const tpl = PROJECT_TEMPLATES[selectedProjectTemplate];
     if (!tpl) return;
 
-    // タスクを追加
+    // プロジェクトのタグ名を取得（タスクタブ連動用）
+    const projRes = await window.api.getProjects().catch(() => null);
+    const proj = projRes?.projects?.find(p => p.id === projectId);
+    const projectTag = proj ? proj.name.replace(/\s+/g, '-') : '';
+
+    // プロジェクトパネルへのタスク追加 + タスクタブへの同時登録
     for (const taskText of tpl.tasks) {
+        // ① プロジェクト詳細パネルに表示されるプロジェクトタスクとして追加
         await window.api.addProjectTask({ projectId, text: taskText, priority: null }).catch(() => {});
+        // ② タスクタブ（⑥タスク）にも #project/タグ付きで登録
+        if (projectTag) {
+            await window.api.addTask({
+                text: taskText,
+                dueDate: '',
+                priority: '',
+                targetNote: '__default__',
+                projectTag,
+                recur: 'none',
+            }).catch(() => {});
+        }
     }
     // マイルストーンを追加
     for (const msName of tpl.milestones) {

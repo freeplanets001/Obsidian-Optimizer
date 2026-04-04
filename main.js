@@ -7315,10 +7315,14 @@ ipcMain.handle('generate-project-note', async (_, { projectId }) => {
 
         // タスクタブから #project/tag で紐づけたVaultタスクをDataviewで表示
         const projectTag = p.name.replace(/\s+/g, '-');
-        const vaultTasksSection =
-`## 🔗 Vault連動タスク
 
-> タスクタブから「プロジェクトに紐づける」で追加したタスクが自動表示されます
+        // タスクセクション（プロジェクトタスク + Vault連動タスクを統合）
+        const unifiedTasksSection =
+`## タスク (${doneTasks}/${p.tasks.length})
+
+${taskLines}
+
+> 以下はタスクタブで \`#project/${projectTag}\` タグを付けたVault連動タスクです
 
 \`\`\`dataview
 TASK
@@ -7346,8 +7350,7 @@ SORT file.mtime DESC
             `> **ステータス**: ${statusLabel} | **優先度**: ${priorityLabel} | **進捗**: ${progress}%`,
             '',
             p.description ? `## 概要\n\n${p.description}\n` : '',
-            `## タスク (${doneTasks}/${p.tasks.length})\n\n${taskLines}\n`,
-            vaultTasksSection,
+            unifiedTasksSection,
             msLines ? `## マイルストーン\n\n${msLines}\n` : '',
             p.notes ? `## メモ\n\n${p.notes}\n` : '',
         ].filter(l => l !== null).join('\n');
