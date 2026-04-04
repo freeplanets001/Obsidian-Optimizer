@@ -2256,10 +2256,24 @@
                         <h4 class="help-subtitle">📝 タスク</h4>
                         <p>Vault横断のタスク管理タブです。</p>
                         <ul class="help-list">
-                            <li><strong>タスク追加</strong> ─ タスク名・期限・優先度（高/中/低）を入力して追加。クイック日付ボタンで素早く期限設定</li>
+                            <li><strong>タスク追加</strong> ─ タスク名・期限・優先度（高/中/低）・繰り返し（毎日/毎週/毎月）を設定して追加。クイック日付ボタンで素早く期限設定</li>
+                            <li><strong>プロジェクト紐付け</strong> ─ タスク追加時に「プロジェクトに紐づける」でプロジェクトと連携。<code>#project/タグ名</code> でVaultノートにも同期</li>
+                            <li><strong>保存先ノート指定</strong> ─ タスクを書き込む Vault ノートを指定可能。デフォルトはデイリーノートに追記</li>
                             <li><strong>ソース切替</strong> ─ 「📋 登録タスク」（このアプリで追加したもの）と「📂 Vault全体」（全チェックリスト）を切り替え可能</li>
                             <li><strong>フィルター</strong> ─ すべて / 今日 / 今週 / 期限切れ / 完了で絞り込み</li>
-                            <li><strong>Obsidian Tasks互換</strong> ─ <code>- [ ] タスク名 📅 YYYY-MM-DD</code> 形式で出力。Obsidian側でも管理可能</li>
+                            <li><strong>Obsidian Tasks互換</strong> ─ <code>- [ ] タスク名 📅 YYYY-MM-DD ⏫</code> 形式で出力。Obsidian Tasks プラグインと完全互換</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">📁 プロジェクト</h4>
+                        <p>プロジェクト単位でタスク・マイルストーン・メモを一元管理するタブです（⌘7）。</p>
+                        <ul class="help-list">
+                            <li><strong>カンバンボード</strong> ─ 進行中 / 保留中 / 完了の3列カンバンでプロジェクトを管理</li>
+                            <li><strong>プロジェクト詳細</strong> ─ カードをクリックするとサイドパネルが開き、タスク・マイルストーン・メモを管理できます</li>
+                            <li><strong>サブタスク管理</strong> ─ プロジェクト内にタスクを追加し、完了チェックで進捗バーに反映</li>
+                            <li><strong>マイルストーン</strong> ─ 期日付きのマイルストーンを設定。完了するとチェックが入ります</li>
+                            <li><strong>Vault連動タスク</strong> ─ タスクタブで「プロジェクト紐付け」したタスクが自動集計されます</li>
+                            <li><strong>Vaultノート生成</strong> ─ 「📝 Vaultノート生成」でObsidian内にプロジェクトノートを自動作成・同期</li>
+                            <li><strong>ステータス管理</strong> ─ 🔥 進行中 / 📋 保留中 / ✅ 完了 をプルダウンで切り替え</li>
                         </ul>
 
                         <h4 class="help-subtitle">⚙️ 設定</h4>
@@ -2267,11 +2281,21 @@
                         <ul class="help-list">
                             <li><strong>ゴミ判定ルール</strong> ─ 「ゴミ」と判定する文字数・キーワードを変更できます</li>
                             <li><strong>安全設定</strong> ─ 削除前のバックアップ作成を有効にすると、万一の復元が可能</li>
-                            <li><strong>🤖 AI設定</strong> ─ Claude / OpenAI / Gemini のAPIキーを設定</li>
-                            <li><strong>🦙 ローカルLLM</strong> ─ Ollama / LM Studioを使用してオフラインでAI分析。詳細な導入手順を設定画面に記載</li>
-                            <li><strong>🔌 外部連携</strong> ─ Obsidian直接連携（クリックで開く）・Vault Gitバックアップ・ノートエクスポート・クリップボード→Inbox</li>
+                            <li><strong>🤖 AI設定</strong> ─ Claude / OpenAI / Gemini のAPIキーを設定。利用料金の目安も確認可能</li>
+                            <li><strong>🦙 ローカルLLM</strong> ─ Ollama / LM Studio を使用してオフラインでAI分析。詳細な導入手順を設定画面に記載</li>
+                            <li><strong>🔌 外部連携</strong> ─ Obsidian直接連携（クリックで開く）・ノートエクスポート・クリップボード→Inbox</li>
                             <li><strong>📥 ノートインポーター</strong> ─ Notion / Evernote / Bear からノートを一括インポート</li>
-                            <li><strong>⚡ スマートルールエンジン</strong> ─ IF-THEN形式の自動化ルールでVaultを自動整理</li>
+                            <li><strong>⚡ スマートルールエンジン v2.0</strong> ─ IF-THEN形式の自動化ルール。7種のトリガー・7種のアクション・AND/OR複数条件に対応</li>
+                        </ul>
+
+                        <h4 class="help-subtitle">🗄️ Vault Gitバックアップ（設定内）</h4>
+                        <p>Vault を Git でバージョン管理し、GitHub にバックアップできます。</p>
+                        <ul class="help-list">
+                            <li><strong>Git初期化</strong> ─ Vault フォルダをGitリポジトリとして初期化</li>
+                            <li><strong>バックアップ（コミット）</strong> ─ 現在の状態をスナップショットとして保存</li>
+                            <li><strong>Git設定</strong> ─ ユーザー名・メールアドレス・GitHubリモートURL をVaultごとに設定</li>
+                            <li><strong>Push to Remote</strong> ─ GitHubリポジトリに変更を送信。non-fast-forward の場合は自動で <code>--force-with-lease</code> にフォールバック</li>
+                            <li><strong>世代管理（バージョン復元）</strong> ─ 過去のコミット一覧から選択し、「⏮ 復元」でVaultをその時点の状態に戻せます。復元前の現在の状態は自動保存されます</li>
                         </ul>
 
                         <h4 class="help-subtitle">🏠 ダッシュボード新機能</h4>
@@ -2369,6 +2393,26 @@
                             <strong>Q. 実績バッジの条件は？</strong>
                             <p>実績バッジはVaultの整理活動に応じて自動的にアンロックされるゲーミフィケーション要素です。例えば「初回スキャン完了」「孤立ノート0達成」「連続7日スキャン」「MOC 10個作成」など、さまざまな条件があります。ダッシュボードの実績セクションで獲得済み・未獲得のバッジを確認できます。</p>
                         </div>
+                        <div class="help-faq-item">
+                            <strong>Q. プロジェクトとタスクの違いは何ですか？</strong>
+                            <p>「タスク」は単発の作業で Vault の Markdown ファイルに書き込まれます。「プロジェクト」はアプリ内で管理する大きな目標で、複数のサブタスク・マイルストーン・メモを含められます。タスクをプロジェクトに紐付けると、プロジェクト詳細画面の「Vault連動タスク」にも自動表示されます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. GitバックアップとVaultの定期バックアップ（~/.obsidian-optimizer-backups/）の違いは？</strong>
+                            <p>定期バックアップはアプリがファイル削除前に自動作成するローカルのコピーです。Gitバックアップは Vault フォルダ全体をGitで管理し、任意のタイミングでコミット・GitHubへPushできます。Git を使うと「○月○日時点の状態に戻す」という世代管理が可能です。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. Gitで誰のコミットになりますか？</strong>
+                            <p>「設定」→「Vault Gitバックアップ」→「Git設定」でユーザー名・メールアドレスを入力して「設定保存」してください。未設定の場合は "Optimizer Backup / optimizer@local.backup" が自動的に使われます。設定はVaultごとに異なる値を保存できます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. スマートルールエンジンで実際に何ができますか？</strong>
+                            <p>「設定」→「スマートルールエンジン」でIF-THENルールを作成できます。例えば「180日以上更新されていないノートを99 Archiveフォルダに自動移動」「本文にTODOを含むノートに#actionタグを追加」「ファイル名がDRAFTで始まるノートをDraftsフォルダへ移動」などが設定可能です。実行前に「ドライラン（確認）」で対象件数を確認できます。</p>
+                        </div>
+                        <div class="help-faq-item">
+                            <strong>Q. タスクに繰り返し設定をしても毎日自動でタスクが作られますか？</strong>
+                            <p>繰り返し設定（毎日/毎週/毎月）はObsidian Tasks プラグインの <code>🔁 daily</code> 形式で記録されます。タスクを完了チェックすると次回分が自動生成されます（Obsidian Tasks プラグインが必要）。このアプリ内でも繰り返し設定として表示されます。</p>
+                        </div>
                     </div>
                 </div>
 
@@ -2401,6 +2445,12 @@
                             <tr><td>エゴグラフ</td><td>選択した1つのノードを中心に、直接リンクされた周辺ノートだけを表示する局所的なグラフビュー。大規模Vaultで特定ノートの関係性を把握するのに便利。</td></tr>
                             <tr><td>ノートスコア</td><td>ノートの充実度を0〜100で数値化したもの。リンク数・文字数・タグ数・更新頻度などを総合して算出。スコアが低いノートは改善候補として表示されます。</td></tr>
                             <tr><td>CSSスニペット</td><td>Obsidian の外観をカスタマイズするCSSファイル。ダッシュボード生成で作成されるノートに適用すると、見た目をさらに整えることができます。</td></tr>
+                            <tr><td>スマートルール</td><td>IF-THEN形式の自動化ルール。トリガー（条件）とアクション（操作）を組み合わせてVaultを自動整理する仕組み。AND/ORで複数条件を結合できます。</td></tr>
+                            <tr><td>ドライラン</td><td>実際には変更を行わず、対象になるファイル数だけを確認する「試し実行」。スマートルールや最適化実行前の確認に使います。</td></tr>
+                            <tr><td>世代管理</td><td>Gitのコミット履歴を使ってVaultの過去の状態を保存・復元する機能。「あの時点のノートに戻したい」という場合に利用します。</td></tr>
+                            <tr><td>カンバンボード</td><td>プロジェクトタブで使用する管理方式。進行中/保留中/完了の3列にプロジェクトカードを配置して視覚的に状態を把握します。</td></tr>
+                            <tr><td>マイルストーン</td><td>プロジェクトの中間目標。期日と名前を設定でき、達成時にチェックを入れて進捗を記録します。</td></tr>
+                            <tr><td>ローカルLLM</td><td>インターネット接続なしで動作するAI。OllamaやLM Studioを通じてLlama・Gemmaなどのモデルをローカルで実行できます。APIキーが不要でプライバシーも保たれます。</td></tr>
                         </table>
                     </div>
                 </div>
@@ -2420,6 +2470,7 @@
                             <tr><td><kbd>⌘</kbd> + <kbd>4</kbd></td><td>分析タブに移動</td></tr>
                             <tr><td><kbd>⌘</kbd> + <kbd>5</kbd></td><td>整理ツールタブに移動</td></tr>
                             <tr><td><kbd>⌘</kbd> + <kbd>6</kbd></td><td>タスクタブに移動</td></tr>
+                            <tr><td><kbd>⌘</kbd> + <kbd>7</kbd></td><td>プロジェクトタブに移動</td></tr>
                             <tr><td><kbd>⌘</kbd> + <kbd>S</kbd></td><td>Vault をスキャン</td></tr>
                             <tr><td><kbd>⌘</kbd> + <kbd>T</kbd></td><td>タスクタブを開く</td></tr>
                             <tr><td><kbd>⌘</kbd> + <kbd>,</kbd></td><td>設定タブを開く</td></tr>
@@ -2493,6 +2544,9 @@
                                 <li>「📊 ダッシュボード生成」でObsidian内にも統計ダッシュボードを作成できます</li>
                                 <li>「🕸️ グラフビュー」のエゴグラフ機能で、特定ノート周辺の関係性を集中的に確認できます</li>
                                 <li>「📥 ノートインポーター」で Notion / Evernote / Bear からの移行がスムーズに行えます</li>
+                                <li>「📁 プロジェクト」タブでプロジェクトを作成し、タスクと紐付けると進捗が一目でわかります</li>
+                                <li>「⚡ スマートルールエンジン」にプリセットを追加しておくと、Vaultが自動で整理され続けます</li>
+                                <li>「🗄️ Gitバックアップ」を週1回実行 → GitHubにPushしておくと、誤削除時でも復元できます</li>
                                 <li>実績バッジを集めてモチベーションを維持しましょう！</li>
                             </ul>
                         </div>
