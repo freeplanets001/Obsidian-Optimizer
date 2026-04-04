@@ -3741,7 +3741,7 @@ function renderQualityBoard(list) {
         <div class="quality-row ${tierClass[tier]}">
             <div class="quality-row-header">
                 <span class="quality-tier-badge tier-${tier.toLowerCase()}">${tierLabel[tier]}</span>
-                <span class="quality-note-name">${escHtml(name)}</span>
+                <span class="quality-note-name">${esc(name)}</span>
                 <span class="quality-score-num">${score.total}<span style="opacity:.5;font-size:.8em">/100</span></span>
             </div>
             <div class="quality-score-bar-wrap">
@@ -9081,8 +9081,8 @@ async function checkForUpdates(silent) {
                 const hasDirectDL = !!result.directDownloadUrl;
                 infoEl.innerHTML = `
                     <div style="padding:12px;background:var(--glass);border:1px solid var(--accent);border-radius:12px">
-                        <p><strong>v${escHtml(result.latestVersion)}</strong> が利用可能です（現在: v${escHtml(result.currentVersion)}）</p>
-                        ${result.releaseNotes ? `<p style="margin-top:6px;opacity:.65;font-size:.78rem;white-space:pre-wrap">${escHtml(result.releaseNotes.slice(0, 300))}</p>` : ''}
+                        <p><strong>v${esc(result.latestVersion)}</strong> が利用可能です（現在: v${esc(result.currentVersion)}）</p>
+                        ${result.releaseNotes ? `<p style="margin-top:6px;opacity:.65;font-size:.78rem;white-space:pre-wrap">${esc(result.releaseNotes.slice(0, 300))}</p>` : ''}
                         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                             ${hasDirectDL
                                 ? `<button class="primary-btn" id="btn-do-download-update">⬇️ ダウンロード＆インストール</button>`
