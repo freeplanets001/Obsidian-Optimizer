@@ -87,8 +87,12 @@ function clearGitLocks(vaultPath) {
     }
 }
 
-/** git-backup ハンドラ実装 */
-async function handleGitBackup(getCurrentVault, getGitSettings) {
+/** git-backup ハンドラ実装
+ * @param {Function} getCurrentVault
+ * @param {Function} getGitSettings
+ * @param {string} [commitMsg] - カスタムコミットメッセージ（省略時は自動生成）
+ */
+async function handleGitBackup(getCurrentVault, getGitSettings, commitMsg) {
     const vaultPath = getCurrentVault();
     if (!vaultPath) return fail('Vaultが設定されていません', 'git-backup');
     if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-backup');
@@ -106,10 +110,16 @@ async function handleGitBackup(getCurrentVault, getGitSettings) {
     if (!fs.existsSync(gitignorePath)) {
         fs.writeFileSync(gitignorePath, '.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n', 'utf-8');
     }
+
+    // コミットメッセージを決定（カスタム > 自動生成）
+    const buildCommitMsg = () => {
+        const ts = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
+        return commitMsg && commitMsg.trim() ? commitMsg.trim() : `Vault backup ${ts}`;
+    };
+
     try {
         await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
-        const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
-        await execFileAsync('git', ['commit', '-m', `Vault backup ${timestamp}`, '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
+        await execFileAsync('git', ['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
         const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         return ok({ commit: logOut.trim() });
     } catch (e) {
@@ -119,8 +129,7 @@ async function handleGitBackup(getCurrentVault, getGitSettings) {
             clearGitLocks(vaultPath);
             try {
                 await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
-                const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
-                await execFileAsync('git', ['commit', '-m', `Vault backup ${timestamp}`, '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
+                await execFileAsync('git', ['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
                 const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
                 return ok({ commit: logOut.trim() });
             } catch (retryErr) {
@@ -337,7 +346,7 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
 function register(ipcMain, ctx) {
     const { getCurrentVault, getGitSettings, saveGitSettings } = ctx;
     ipcMain.handle('git-status',     withErrorHandling('git-status',     () => handleGitStatus(getCurrentVault)));
-    ipcMain.handle('git-backup',     withErrorHandling('git-backup',     () => handleGitBackup(getCurrentVault, getGitSettings)));
+    ipcMain.handle('git-backup',     withErrorHandling('git-backup',     (_, { commitMsg } = {}) => handleGitBackup(getCurrentVault, getGitSettings, commitMsg)));
     ipcMain.handle('git-log',        withErrorHandling('git-log',        () => handleGitLog(getCurrentVault)));
     ipcMain.handle('git-init',       withErrorHandling('git-init',       () => handleGitInit(getCurrentVault, getGitSettings)));
     ipcMain.handle('git-get-config', withErrorHandling('git-get-config', () => handleGitGetConfig(getCurrentVault, getGitSettings)));

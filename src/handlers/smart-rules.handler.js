@@ -151,7 +151,7 @@ const RULE_PRESETS = [
  * IPC ハンドラを登録する
  */
 function register(ipcMain, ctx) {
-    const { getCurrentVault, getConfig, saveConfig, getFilesRecursively, safeReadFile } = ctx;
+    const { getCurrentVault, getConfig, saveConfig, getFilesRecursively, safeReadFile, Notification } = ctx;
 
     // ---- トリガー・アクション定義を返す（UI構築用）----
     ipcMain.handle('get-smart-rule-meta', () => ok({ triggers: TRIGGERS, actions: ACTIONS }));
@@ -270,6 +270,16 @@ function register(ipcMain, ctx) {
         });
         config.smartRuleHistory = config.smartRuleHistory.slice(0, 30);
         saveConfig(config);
+
+        // macOS通知
+        if (Notification && Notification.isSupported && Notification.isSupported()) {
+            const body = totalExecuted > 0
+                ? `${totalExecuted}件のファイルを処理しました`
+                : '対象ファイルはありませんでした';
+            try {
+                new Notification({ title: '⚡ スマートルール実行完了', body, silent: false }).show();
+            } catch (_) {}
+        }
 
         return ok({ executed: totalExecuted, log, ruleResults });
     }));
@@ -575,4 +585,5 @@ function addFrontmatterField(content, key, value) {
     return `---\n${key}: ${value}\n---\n\n${content}`;
 }
 
-module.exports = { register };
+// スケジュール実行用にexecuteRuleを公開
+module.exports = { register, executeRuleExported: executeRule };

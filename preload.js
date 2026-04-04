@@ -276,7 +276,7 @@ contextBridge.exposeInMainWorld('api', {
     // Phase 8: 外部連携（v6.0）
     testObsidianUri: () => ipcRenderer.invoke('test-obsidian-uri'),
     gitStatus: () => ipcRenderer.invoke('git-status'),
-    gitBackup: () => ipcRenderer.invoke('git-backup'),
+    gitBackup: (commitMsg) => ipcRenderer.invoke('git-backup', { commitMsg: commitMsg || '' }),
     gitLog: () => ipcRenderer.invoke('git-log'),
     gitInit: () => ipcRenderer.invoke('git-init'),
     exportNotes: (params) => ipcRenderer.invoke('export-notes', params),
@@ -317,4 +317,12 @@ contextBridge.exposeInMainWorld('api', {
     resetDockBadge: () => ipcRenderer.invoke('reset-dock-badge'),
     // Git世代管理
     gitRestore: (hash) => ipcRenderer.invoke('git-restore', hash),
+    // v5.3 新機能: プロジェクト間タスク移動
+    moveProjectTask: (params) => ipcRenderer.invoke('move-project-task', params),
+    // v5.3 新機能: VaultからプロジェクトへTaskを同期
+    syncVaultToProject: (params) => ipcRenderer.invoke('sync-vault-to-project', params),
+    // v5.3 新機能: ダッシュボードウィジェット用データ取得
+    getDashboardWidgetData: () => ipcRenderer.invoke('get-dashboard-widget-data'),
+    // v5.3 新機能: スマートルールスケジュール設定
+    setSmartRuleSchedule: (params) => ipcRenderer.invoke('set-smart-rule-schedule', params),
 });

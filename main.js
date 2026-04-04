@@ -416,6 +416,10 @@ app.whenReady().then(() => {
     // ─── タスクリマインダー (起動5分後 + 24時間ごと) ───
     setTimeout(() => scheduleTaskReminders(), 5 * 60 * 1000);
 
+    // ─── v5.3: スマートルールスケジュール実行 (起動10分後 + 1時間ごとにチェック) ───
+    setTimeout(() => runScheduledSmartRules(), 10 * 60 * 1000);
+    setInterval(() => runScheduledSmartRules(), 60 * 60 * 1000);
+
     // ─── 繰り返しタスク処理 (起動30秒後: 起動直後の遅延を避ける) ───
     setTimeout(() => processRecurringTasks(), 30 * 1000);
 
@@ -6720,6 +6724,75 @@ ipcMain.handle('get-task-targets', async () => {
 // タスク拡張機能: リマインダー・繰り返し・Dockバッジ・週次レポート
 // ======================================================
 
+// ======================================================
+// v5.3: スマートルールスケジュール自動実行
+// ======================================================
+async function runScheduledSmartRules() {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return;
+    const rules = config.smartRules || [];
+    const scheduled = rules.filter(r => r.enabled && r.schedule && r.schedule !== 'off');
+    if (scheduled.length === 0) return;
+
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    let anyRan = false;
+    let totalExecuted = 0;
+
+    for (const rule of scheduled) {
+        const lastRun = rule.lastScheduledRun ? rule.lastScheduledRun.slice(0, 10) : null;
+        let shouldRun = false;
+
+        if (rule.schedule === 'daily') {
+            shouldRun = lastRun !== todayStr;
+        } else if (rule.schedule === 'weekly') {
+            if (!lastRun) {
+                shouldRun = true;
+            } else {
+                const daysDiff = Math.floor((now - new Date(lastRun)) / 86400000);
+                shouldRun = daysDiff >= 7;
+            }
+        } else if (rule.schedule === 'monthly') {
+            if (!lastRun) {
+                shouldRun = true;
+            } else {
+                const lastRunDate = new Date(lastRun);
+                shouldRun = now.getMonth() !== lastRunDate.getMonth() || now.getFullYear() !== lastRunDate.getFullYear();
+            }
+        }
+
+        if (!shouldRun) continue;
+
+        try {
+            const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+            const { executeRuleExported } = require('./src/handlers/smart-rules.handler');
+            if (executeRuleExported) {
+                const result = await executeRuleExported(rule, vaultPath, allFiles, safeReadFile);
+                totalExecuted += result.count || 0;
+            }
+            rule.lastScheduledRun = now.toISOString();
+            anyRan = true;
+        } catch (_) {
+            rule.lastScheduledRun = now.toISOString();
+            anyRan = true;
+        }
+    }
+
+    if (anyRan) {
+        saveConfig(config);
+        if (totalExecuted > 0 && Notification.isSupported()) {
+            try {
+                new Notification({
+                    title: '⚡ スマートルール自動実行完了',
+                    body: `スケジュール実行: ${totalExecuted}件処理しました`,
+                    silent: true,
+                }).show();
+            } catch (_) {}
+        }
+    }
+}
+
 // タスクリマインダースケジューラ
 function scheduleTaskReminders() {
     const checkReminders = async () => {
@@ -7299,6 +7372,176 @@ SORT file.mtime DESC
         saveProjects(projects);
 
         return { success: true, notePath };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ======================================================
+// v5.3 新機能: プロジェクト間タスク移動
+// ======================================================
+ipcMain.handle('move-project-task', (_, { fromProjectId, taskId, toProjectId }) => {
+    try {
+        if (!fromProjectId || !taskId || !toProjectId) return { success: false, error: 'パラメータ不足' };
+        if (fromProjectId === toProjectId) return { success: false, error: '移動先が同じプロジェクトです' };
+        const projects = getProjects();
+        const fromP = projects.find(p => p.id === fromProjectId);
+        const toP   = projects.find(p => p.id === toProjectId);
+        if (!fromP) return { success: false, error: '移動元プロジェクトが見つかりません' };
+        if (!toP)   return { success: false, error: '移動先プロジェクトが見つかりません' };
+        const taskIdx = (fromP.tasks || []).findIndex(t => t.id === taskId);
+        if (taskIdx < 0) return { success: false, error: 'タスクが見つかりません' };
+        const [task] = fromP.tasks.splice(taskIdx, 1);
+        if (!toP.tasks) toP.tasks = [];
+        toP.tasks.push(task);
+        fromP.updatedAt = new Date().toISOString();
+        toP.updatedAt   = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ======================================================
+// v5.3 新機能: VaultノートからプロジェクトTaskを同期（双方向同期）
+// ======================================================
+ipcMain.handle('sync-vault-to-project', async (_, { projectId }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+
+        // プロジェクトのVaultノートパスを特定
+        const safeFileName = p.name.replace(/[/\\:*?"<>|]/g, '-');
+        const notePath = p.vaultNotePath || path.join(vaultPath, '01 Projects', `📁 ${safeFileName}.md`);
+        if (!fs.existsSync(notePath)) {
+            return { success: false, error: 'Vaultノートがまだありません。「Vaultノートを生成」してから同期してください。' };
+        }
+
+        const content = fs.readFileSync(notePath, 'utf-8');
+        // ## タスク セクションのチェックボックスを抽出（- [ ] / - [x]）
+        const taskSection = content.match(/## タスク[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n```|$)/);
+        if (!taskSection) return { success: false, error: 'Vaultノートにタスクセクションが見つかりません' };
+
+        const rawLines = taskSection[1].split('\n');
+        const vaultTasks = [];
+        for (const line of rawLines) {
+            const m = line.match(/^- \[([ xX])\] (.+)/);
+            if (!m) continue;
+            const done = m[1].toLowerCase() === 'x';
+            let text = m[2].trim();
+            // 📅 日付を除去してテキストのみ抽出
+            const dueMatch = text.match(/📅 (\d{4}-\d{2}-\d{2})/);
+            const dueDate = dueMatch ? dueMatch[1] : null;
+            text = text.replace(/📅 \d{4}-\d{2}-\d{2}/, '').trim();
+            if (text && !text.startsWith('（タスクを追加してください）')) {
+                vaultTasks.push({ text, done, dueDate });
+            }
+        }
+
+        if (vaultTasks.length === 0) return { success: false, error: 'Vaultノートに有効なタスクが見つかりません' };
+
+        // 既存のプロジェクトタスクをマージ（新しいタスクのみ追加、既存は更新）
+        let added = 0;
+        let updated = 0;
+        for (const vt of vaultTasks) {
+            const existing = (p.tasks || []).find(t => t.text === vt.text);
+            if (existing) {
+                // done状態を同期
+                if (existing.done !== vt.done) {
+                    existing.done = vt.done;
+                    updated++;
+                }
+            } else {
+                // 新しいタスクを追加
+                if (!p.tasks) p.tasks = [];
+                p.tasks.push({
+                    id: require('crypto').randomUUID(),
+                    text: vt.text,
+                    done: vt.done,
+                    dueDate: vt.dueDate || null,
+                    priority: null,
+                    createdAt: new Date().toISOString(),
+                });
+                added++;
+            }
+        }
+        p.updatedAt = new Date().toISOString();
+        saveProjects(projects);
+        return { success: true, added, updated, total: vaultTasks.length };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ======================================================
+// v5.3 新機能: ダッシュボードウィジェット用データ
+// ======================================================
+ipcMain.handle('get-dashboard-widget-data', async () => {
+    try {
+        const vaultPath = getCurrentVault();
+        const today = new Date().toISOString().slice(0, 10);
+        const projects = getProjects();
+
+        // プロジェクト統計
+        const activeProjects = projects.filter(p => p.status === 'active');
+        const projectStats = activeProjects.slice(0, 5).map(p => {
+            const done = (p.tasks || []).filter(t => t.done).length;
+            const total = (p.tasks || []).length;
+            const progress = total > 0 ? Math.round(done / total * 100) : 0;
+            return { id: p.id, name: p.name, progress, done, total, color: p.color || '#6366f1' };
+        });
+
+        // 今日のタスク（Vaultタスク）
+        let todayTaskCount = 0;
+        let overdueCount = 0;
+        if (vaultPath) {
+            const { getAllTasksFromVault } = (() => {
+                // 簡易タスク集計（既存ロジックと同様）
+                const mdFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+                let today_count = 0;
+                let overdue_count = 0;
+                for (const f of mdFiles.slice(0, 200)) {
+                    try {
+                        const lines = fs.readFileSync(f, 'utf-8').split('\n');
+                        for (const line of lines) {
+                            const m = line.match(/^- \[[ ]\] .+ 📅 (\d{4}-\d{2}-\d{2})/);
+                            if (!m) continue;
+                            if (m[1] === today) today_count++;
+                            else if (m[1] < today) overdue_count++;
+                        }
+                    } catch (_) {}
+                }
+                return { getAllTasksFromVault: () => ({ today: today_count, overdue: overdue_count }) };
+            })();
+            const counts = getAllTasksFromVault();
+            todayTaskCount = counts.today;
+            overdueCount = counts.overdue;
+        }
+
+        return { success: true, projectStats, todayTaskCount, overdueCount, activeProjectCount: activeProjects.length };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ======================================================
+// v5.3 新機能: スマートルールスケジュール（ルール単位）
+// ======================================================
+ipcMain.handle('set-smart-rule-schedule', (_, { ruleId, schedule }) => {
+    try {
+        if (!['off', 'daily', 'weekly', 'monthly'].includes(schedule)) {
+            return { success: false, error: '無効なスケジュール値' };
+        }
+        const rules = config.smartRules || [];
+        const rule = rules.find(r => r.id === ruleId);
+        if (!rule) return { success: false, error: 'ルールが見つかりません' };
+        rule.schedule = schedule;
+        saveConfig(config);
+        return { success: true };
     } catch (e) {
         return { success: false, error: e.message };
     }
@@ -8967,6 +9210,7 @@ require('./src/handlers/smart-rules.handler').register(ipcMain, {
     saveConfig,
     getFilesRecursively,
     safeReadFile,
+    Notification,
 });
 
 // ======================================================

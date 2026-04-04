@@ -144,6 +144,31 @@
                     </div>
                 </div>
 
+                <!-- v5.3 今日のタスク・プロジェクト進捗ウィジェット -->
+                <div id="dashboard-widget" style="display:none;margin-bottom:16px">
+                    <div style="background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(34,197,94,.06));border:1px solid rgba(99,102,241,.2);border-radius:14px;padding:14px 18px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                            <span style="font-size:.82rem;font-weight:700">📊 今日の概況</span>
+                            <button id="btn-refresh-widget" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:.72rem;opacity:.7" title="更新">↺ 更新</button>
+                        </div>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+                            <div style="flex:1;min-width:100px;background:rgba(255,255,255,.04);border-radius:10px;padding:10px 12px;text-align:center">
+                                <div style="font-size:1.4rem;font-weight:800;color:#6366f1" id="widget-today-tasks">-</div>
+                                <div style="font-size:.7rem;opacity:.6;margin-top:2px">今日が期限のタスク</div>
+                            </div>
+                            <div style="flex:1;min-width:100px;background:rgba(255,255,255,.04);border-radius:10px;padding:10px 12px;text-align:center">
+                                <div style="font-size:1.4rem;font-weight:800;color:#f87171" id="widget-overdue-tasks">-</div>
+                                <div style="font-size:.7rem;opacity:.6;margin-top:2px">期限超過タスク</div>
+                            </div>
+                            <div style="flex:1;min-width:100px;background:rgba(255,255,255,.04);border-radius:10px;padding:10px 12px;text-align:center">
+                                <div style="font-size:1.4rem;font-weight:800;color:#22c55e" id="widget-active-projects">-</div>
+                                <div style="font-size:.7rem;opacity:.6;margin-top:2px">進行中プロジェクト</div>
+                            </div>
+                        </div>
+                        <div id="widget-project-bars" style="display:flex;flex-direction:column;gap:5px"></div>
+                    </div>
+                </div>
+
                 <!-- メインアクション（スキャン・プレビュー・最適化） -->
                 <div class="action-row" style="margin-bottom:16px">
                     <button class="action-btn btn-scan" id="btn-quick-scan">
@@ -1903,6 +1928,9 @@
                                 <span style="font-size:.72rem;color:var(--text-muted)">ワンクリックでバージョン管理</span>
                             </div>
                             <p style="font-size:.78rem;color:var(--text-muted);margin:0 0 8px">VaultをGitリポジトリとして管理。ワンクリックでコミット・変更履歴の確認・復元ができます。</p>
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                                <input type="text" id="git-commit-msg" class="vault-input" placeholder="コミットメッセージ（省略可: 自動生成されます）" style="flex:1;font-size:.8rem;padding:4px 8px" title="カスタムコミットメッセージを入力してください">
+                            </div>
                             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                                 <button class="ghost-btn small-btn" id="btn-git-status">📋 状態確認</button>
                                 <button class="primary-btn small-btn" id="btn-git-backup">💾 バックアップ（コミット）</button>
@@ -3236,13 +3264,15 @@
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
                         <h3 class="card-title" style="margin:0">📋 タスク一覧</h3>
                         <div style="display:flex;gap:6px">
+                            <button class="ghost-btn" id="btn-task-view-list" title="リスト表示" style="font-size:.8rem;padding:4px 8px" data-view="list">☰ リスト</button>
+                            <button class="ghost-btn" id="btn-task-view-calendar" title="カレンダー表示" style="font-size:.8rem;padding:4px 8px" data-view="calendar">📅 カレンダー</button>
                             <button class="ghost-btn" id="btn-weekly-report" title="今週の週次レポートをVaultに生成" style="font-size:.8rem">📊 週次レポート</button>
                             <button class="ghost-btn" id="btn-reset-dock-badge" title="Dockバッジをリセット" style="font-size:.8rem">🔔 バッジリセット</button>
                             <button class="ghost-btn" id="btn-refresh-tasks" style="font-size:.8rem">🔄 更新</button>
                         </div>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-                        <div class="task-filters">
+                        <div class="task-filters" id="task-list-filters">
                             <button class="task-filter-btn active" data-filter="all">すべて</button>
                             <button class="task-filter-btn" data-filter="today">📅 今日</button>
                             <button class="task-filter-btn" data-filter="week">📆 今週</button>
@@ -3260,8 +3290,18 @@
                             </select>
                         </div>
                     </div>
+                    <!-- リスト表示 -->
                     <div id="task-list-container">
                         <!-- 動的に生成 -->
+                    </div>
+                    <!-- カレンダー表示 -->
+                    <div id="task-calendar-container" style="display:none">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                            <button id="btn-cal-prev" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.1rem;padding:4px 8px">‹</button>
+                            <span id="cal-month-label" style="font-size:.9rem;font-weight:700"></span>
+                            <button id="btn-cal-next" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.1rem;padding:4px 8px">›</button>
+                        </div>
+                        <div id="task-calendar-grid"></div>
                     </div>
                 </div>
             </div>
@@ -3334,6 +3374,21 @@
             </div>
             <input type="hidden" id="project-edit-id">
             <div style="display:grid;gap:14px">
+                <!-- テンプレート選択 -->
+                <div id="project-template-section">
+                    <label style="font-size:.78rem;opacity:.6;display:block;margin-bottom:6px">📋 テンプレートから開始（任意）</label>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap" id="project-template-chips">
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="note-writing">📝 Note執筆</button>
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="website">🌐 Webサイト</button>
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="app-dev">📱 アプリ開発</button>
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="study">📚 学習・研究</button>
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="vault-org">🔧 Vault整理</button>
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="meeting">📋 会議・管理</button>
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="goal">🎯 目標設定</button>
+                        <button class="ghost-btn" style="font-size:.72rem;padding:3px 10px;border-radius:20px" data-tpl="idea">💡 アイデア実現</button>
+                    </div>
+                    <div id="project-template-preview" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:8px;font-size:.75rem;opacity:.8"></div>
+                </div>
                 <!-- プロジェクト名 -->
                 <div>
                     <label style="font-size:.78rem;opacity:.6;display:block;margin-bottom:4px">プロジェクト名 *</label>
@@ -3405,6 +3460,7 @@
             </select>
             <button class="ghost-btn small-btn" id="btn-proj-edit" style="font-size:.75rem">✏️ 編集</button>
             <button class="ghost-btn small-btn" id="btn-proj-gen-note" style="font-size:.75rem">📝 Vaultノート生成</button>
+            <button class="ghost-btn small-btn" id="btn-proj-sync-vault" style="font-size:.75rem" title="Vaultノートのタスクをこのプロジェクトに取り込みます">🔄 Vaultから同期</button>
             <button class="ghost-btn small-btn" id="btn-proj-delete" style="font-size:.75rem;color:#f87171">🗑️ 削除</button>
         </div>
 
@@ -3609,6 +3665,27 @@
                 <kbd style="font-size:.7rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;color:var(--muted)">ESC</kbd>
             </div>
             <div id="global-search-results" class="command-list" style="max-height:400px"></div>
+        </div>
+    </div>
+
+    <!-- v5.3 タスク移動モーダル -->
+    <div id="task-move-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1500;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+        <div style="background:#1e1e2e;border-radius:16px;padding:24px;width:min(400px,95vw);border:1px solid rgba(255,255,255,.08)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="font-size:.95rem;font-weight:700;margin:0">📦 タスクを別プロジェクトへ移動</h3>
+                <button id="btn-task-move-close" style="background:none;border:none;color:#fff;font-size:1.1rem;cursor:pointer;opacity:.6">✕</button>
+            </div>
+            <p id="task-move-task-name" style="font-size:.82rem;opacity:.7;margin:0 0 14px;padding:8px 12px;background:rgba(255,255,255,.04);border-radius:8px"></p>
+            <div style="margin-bottom:16px">
+                <label style="font-size:.78rem;opacity:.6;display:block;margin-bottom:6px">移動先プロジェクト</label>
+                <select id="task-move-target-project" class="select-input" style="width:100%">
+                    <option value="">プロジェクトを選択...</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end">
+                <button class="ghost-btn" id="btn-task-move-cancel">キャンセル</button>
+                <button class="primary-btn" id="btn-task-move-confirm">移動する</button>
+            </div>
         </div>
     </div>
 

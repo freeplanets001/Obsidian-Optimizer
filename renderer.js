@@ -447,6 +447,11 @@ async function initAsync() {
 
     // 初心者向けガイドカード: Vault未設定 or 初回起動時に表示
     initBeginnerGuide();
+
+    // v5.3 新機能初期化
+    initV53Features();
+    // ダッシュボードウィジェットを非同期で読み込み
+    loadDashboardWidget().catch(() => {});
 }
 
 function initBeginnerGuide() {
@@ -539,6 +544,11 @@ function activateTab(tab) {
     if (tab === 'moc-create' && !mocTabInitialized) {
         mocTabInitialized = true;
         initMocTab();
+    }
+
+    // v5.3: ダッシュボードタブ切り替え時にウィジェットを更新
+    if (tab === 'dashboard') {
+        loadDashboardWidget().catch(() => {});
     }
 }
 
@@ -7373,6 +7383,28 @@ function bindProjectEvents() {
         else { showToast(`エラー: ${res.error}`, 'error'); }
     });
 
+    // 詳細パネル Vaultから同期
+    $('btn-proj-sync-vault')?.addEventListener('click', async () => {
+        if (!currentProjectId) return;
+        const btn = $('btn-proj-sync-vault');
+        if (btn) { btn.disabled = true; btn.textContent = '🔄 同期中...'; }
+        try {
+            const res = await window.api.syncVaultToProject({ projectId: currentProjectId });
+            if (res.success) {
+                showToast(`✅ 同期完了: ${res.added}件追加、${res.updated}件更新`, 'success');
+                await refreshProjects();
+                const p = allProjects.find(p => p.id === currentProjectId);
+                if (p) renderProjectDetail(p);
+            } else {
+                showToast(`❌ ${res.error}`, 'error');
+            }
+        } catch (e) {
+            showToast(`エラー: ${e.message}`, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🔄 Vaultから同期'; }
+        }
+    });
+
     // 詳細パネル 削除
     $('btn-proj-delete')?.addEventListener('click', async () => {
         const p = allProjects.find(p => p.id === currentProjectId);
@@ -7618,6 +7650,14 @@ function openProjectModal(project) {
     if (!modal) return;
     const isNew = !project;
     $('project-modal-title').textContent = isNew ? '新規プロジェクト' : 'プロジェクトを編集';
+
+    // テンプレート選択をリセット
+    selectedProjectTemplate = null;
+    document.querySelectorAll('[data-tpl]').forEach(b => b.classList.remove('active'));
+    const tplPreview = $('project-template-preview');
+    if (tplPreview) { tplPreview.style.display = 'none'; tplPreview.innerHTML = ''; }
+    const tplSection = $('project-template-section');
+    if (tplSection) tplSection.style.display = isNew ? 'block' : 'none';
     $('project-edit-id').value = project?.id || '';
     $('project-edit-name').value = project?.name || '';
     $('project-edit-desc').value = project?.description || '';
@@ -7666,6 +7706,14 @@ async function saveProjectFromModal() {
         // Vaultノートを自動生成/更新
         // 新規: res.projectsの末尾が新しいプロジェクト / 既存: project.idを使用
         const savedId = project.id ?? res.projects[res.projects.length - 1]?.id;
+
+        // 新規プロジェクトにテンプレートを適用
+        if (isNew && selectedProjectTemplate) {
+            await applyTemplateAfterProjectSave(savedId);
+            await refreshProjects();
+            showToast('テンプレートからタスク・マイルストーンを追加しました', 'success');
+        }
+
         syncProjectToVault(savedId);
     } else {
         showToast(`エラー: ${res.error}`, 'error');
@@ -7784,6 +7832,7 @@ function renderDetailTasks(p) {
             <span style="flex:1;font-size:.78rem;${t.done ? 'opacity:.4;text-decoration:line-through' : ''}">${esc(t.text)}</span>
             ${t.priority ? `<span style="width:6px;height:6px;border-radius:50%;background:${priColor};display:inline-block"></span>` : ''}
             ${t.dueDate ? `<span style="font-size:.66rem;opacity:.5">${t.dueDate}</span>` : ''}
+            <button data-pmove-task="${esc(t.id)}" data-pmove-text="${esc(t.text)}" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:.7rem;opacity:.5" title="別プロジェクトへ移動">→</button>
             <button data-pdel-task="${esc(t.id)}" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:.75rem;opacity:.5" title="削除">✕</button>
         </div>`;
     }).join('');
@@ -7807,6 +7856,13 @@ function renderDetailTasks(p) {
             const p = allProjects.find(p => p.id === currentProjectId);
             if (p) renderProjectDetail(p);
             syncProjectToVault(currentProjectId);
+        });
+    });
+
+    // 移動ボタン
+    list.querySelectorAll('[data-pmove-task]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            openTaskMoveModal(btn.dataset.pmoveTask, btn.dataset.pmoveText);
         });
     });
 }
@@ -10538,8 +10594,31 @@ function buildRuleCard(r, idx, total) {
     // アクションバッジ
     const actionWrap = document.createElement('div');
     const actionLabel = srMeta.actions[r.action]?.label || r.action;
-    actionWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
+    actionWrap.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap';
     actionWrap.innerHTML = `<span style="font-size:.72rem;background:rgba(52,211,153,.15);color:#6ee7b7;padding:2px 7px;border-radius:20px">THEN: ${esc(actionLabel)}${r.actionTarget ? ` → ${esc(r.actionTarget)}` : ''}</span>`;
+
+    // スケジュール設定セレクタ
+    const schedSel = document.createElement('select');
+    schedSel.style.cssText = 'font-size:.68rem;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:2px 6px;color:inherit;cursor:pointer';
+    schedSel.title = '自動実行スケジュール';
+    const schedOpts = [
+        { value: 'off', label: '⏸ 手動のみ' },
+        { value: 'daily', label: '🌅 毎日自動' },
+        { value: 'weekly', label: '📅 毎週自動' },
+        { value: 'monthly', label: '🗓️ 毎月自動' },
+    ];
+    schedOpts.forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.value;
+        opt.textContent = o.label;
+        if ((r.schedule || 'off') === o.value) opt.selected = true;
+        schedSel.appendChild(opt);
+    });
+    schedSel.addEventListener('change', async () => {
+        await setSmartRuleSchedule(r.id, schedSel.value);
+    });
+    actionWrap.appendChild(schedSel);
+
     body.appendChild(actionWrap);
 
     div.appendChild(body);
@@ -10888,13 +10967,17 @@ async function gitStatusCheck() {
 
 async function gitBackup() {
     const status = $('git-status-text');
+    const msgInput = $('git-commit-msg');
+    const commitMsg = msgInput ? msgInput.value.trim() : '';
     try {
         if (status) status.textContent = '💾 バックアップ中...';
-        const res = await window.api.gitBackup();
+        const res = await window.api.gitBackup(commitMsg);
         if (res.success) {
             showToast(`💾 バックアップ完了: ${res.commit}`, 'success');
             addLog(`💾 Gitバックアップ: ${res.commit}`, 'info', 'GIT');
             if (status) status.textContent = `✅ ${res.commit}`;
+            // メッセージ入力欄をクリア
+            if (msgInput) msgInput.value = '';
         } else {
             if (status) status.textContent = `❌ ${res.error}`;
             showToast(res.error, 'error');
@@ -11093,3 +11176,416 @@ async function importPreset() {
         else showToast(result.error || 'キャンセル', 'warn');
     } catch (e) { showToast(e.message, 'error'); }
 }
+
+// ============================================================
+// v5.3 新機能実装
+// ============================================================
+
+// ======================================================
+// 機能1: プロジェクトテンプレート
+// ======================================================
+const PROJECT_TEMPLATES = {
+    'note-writing': {
+        name: 'Note執筆プロジェクト',
+        description: '記事・ブログ・ドキュメント執筆のテンプレート',
+        priority: 'medium',
+        color: '#6366f1',
+        tags: ['writing', 'note'],
+        tasks: ['テーマ・アイデア収集', 'アウトライン作成', '初稿執筆', 'レビュー・推敲', '最終確認・公開'],
+        milestones: ['アウトライン完成', '初稿完成', '最終版完成'],
+    },
+    'website': {
+        name: 'Webサイト構築',
+        description: 'Webサイト・ランディングページ制作のテンプレート',
+        priority: 'high',
+        color: '#06b6d4',
+        tags: ['web', 'design'],
+        tasks: ['要件定義・目的明確化', 'デザイン・ワイヤーフレーム', 'フロントエンド実装', 'コンテンツ制作', 'テスト・レビュー', 'デプロイ・公開'],
+        milestones: ['デザイン承認', 'ベータ版完成', '本番公開'],
+    },
+    'app-dev': {
+        name: 'アプリ開発',
+        description: 'アプリケーション開発のテンプレート',
+        priority: 'high',
+        color: '#22c55e',
+        tags: ['dev', 'app'],
+        tasks: ['要件定義・仕様書作成', 'UI/UX設計', 'アーキテクチャ設計', 'コア機能実装', 'テスト作成', 'バグ修正・品質改善', 'リリース準備'],
+        milestones: ['設計完了', 'α版完成', 'β版完成', 'リリース'],
+    },
+    'study': {
+        name: '学習・研究プロジェクト',
+        description: '書籍読了・研究テーマの学習テンプレート',
+        priority: 'medium',
+        color: '#f59e0b',
+        tags: ['study', 'research'],
+        tasks: ['テーマ決定・スコープ定義', '文献・リソース調査', '学習ノート作成', '要点まとめ・整理', 'アウトプット・発信'],
+        milestones: ['リソー���収集完了', '学習完了', 'アウトプット完了'],
+    },
+    'vault-org': {
+        name: 'Vault整理プロジェクト',
+        description: 'Obsidian Vaultの整理・最適化テンプレート',
+        priority: 'medium',
+        color: '#ec4899',
+        tags: ['vault', 'obsidian'],
+        tasks: ['孤立ノートのスキャン・処理', 'タグ体系の整理・統一', 'フォルダ構造の��直し', 'リンク切れの修正', 'MoC（Map of Content）更新', 'アーカイブノートの整理'],
+        milestones: ['スキャン完了', '構造整理完了', 'MoC更新完了'],
+    },
+    'meeting': {
+        name: '会議・プロジェクト管理',
+        description: '会議の準備から議事録作成までのテンプレート',
+        priority: 'medium',
+        color: '#6b7280',
+        tags: ['meeting', 'management'],
+        tasks: ['アジェンダ作成', '参加者確認・招集', '資料準備', '会議実施', '議事録作成', 'フォローアップタスク対応'],
+        milestones: ['アジェンダ確定', '会議完了', 'フォローアップ完了'],
+    },
+    'goal': {
+        name: '目標設定・達成',
+        description: '目標を立てて達成するためのテンプレート',
+        priority: 'high',
+        color: '#ef4444',
+        tags: ['goal', 'okr'],
+        tasks: ['目標の明確化（SMART）', 'マイルストーン設定', '週次進捗記録', '障壁・課題の洗い出し', '振り返り・調整'],
+        milestones: ['目標設定完了', '中間チェック', '目標達成'],
+    },
+    'idea': {
+        name: 'アイデア実現',
+        description: 'アイデアを形にするためのテンプレート',
+        priority: 'low',
+        color: '#8b5cf6',
+        tags: ['idea', 'innovation'],
+        tasks: ['アイデアの整理・整頓', 'リサーチ・調査', 'プロトタイプ作成', 'フィードバック収集', '改善・ブラッシュアップ', '実装・実行'],
+        milestones: ['コンセプト確定', 'プロトタイプ完成', 'リリース'],
+    },
+};
+
+let selectedProjectTemplate = null;
+
+function bindProjectTemplateEvents() {
+    document.querySelectorAll('[data-tpl]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tplId = btn.dataset.tpl;
+            if (selectedProjectTemplate === tplId) {
+                // 選択解除
+                selectedProjectTemplate = null;
+                document.querySelectorAll('[data-tpl]').forEach(b => b.classList.remove('active'));
+                const preview = $('project-template-preview');
+                if (preview) preview.style.display = 'none';
+                return;
+            }
+            selectedProjectTemplate = tplId;
+            document.querySelectorAll('[data-tpl]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const tpl = PROJECT_TEMPLATES[tplId];
+            if (!tpl) return;
+            const preview = $('project-template-preview');
+            if (preview) {
+                preview.style.display = 'block';
+                preview.innerHTML = `<strong>${esc(tpl.name)}</strong>: ${esc(tpl.description)}<br>タスク ${tpl.tasks.length}件 / マイルストーン ${tpl.milestones.length}件 を自動追加します`;
+            }
+            // 入力欄に反映（名前は空のままにして自分で入力させる）
+            const descEl = $('project-edit-desc');
+            if (descEl && !descEl.value) descEl.value = tpl.description;
+            const priEl = $('project-edit-priority');
+            if (priEl) priEl.value = tpl.priority;
+            const colorEl = $('project-edit-color');
+            if (colorEl) {
+                colorEl.value = tpl.color;
+                projectSelectedColor = tpl.color;
+                document.querySelectorAll('.proj-color-dot').forEach(d => {
+                    d.style.outline = d.dataset.color === tpl.color ? '2px solid #fff' : 'none';
+                });
+            }
+            const tagsEl = $('project-edit-tags');
+            if (tagsEl && !tagsEl.value) tagsEl.value = tpl.tags.join(', ');
+        });
+    });
+}
+
+// プロジェクト保存時にテンプレートのタスク/マイルストーンを適用
+async function applyTemplateAfterProjectSave(projectId) {
+    if (!selectedProjectTemplate) return;
+    const tpl = PROJECT_TEMPLATES[selectedProjectTemplate];
+    if (!tpl) return;
+
+    // タスクを追加
+    for (const taskText of tpl.tasks) {
+        await window.api.addProjectTask({ projectId, text: taskText, priority: null }).catch(() => {});
+    }
+    // マイルストーンを追加
+    for (const msName of tpl.milestones) {
+        await window.api.addProjectMilestone({ projectId, name: msName, dueDate: null }).catch(() => {});
+    }
+    selectedProjectTemplate = null;
+    document.querySelectorAll('[data-tpl]').forEach(b => b.classList.remove('active'));
+    const preview = $('project-template-preview');
+    if (preview) preview.style.display = 'none';
+}
+
+// ======================================================
+// 機能6: ダッシュボードウィジェット
+// ======================================================
+async function loadDashboardWidget() {
+    const widget = $('dashboard-widget');
+    if (!widget) return;
+    try {
+        const res = await window.api.getDashboardWidgetData();
+        if (!res.success) return;
+        widget.style.display = 'block';
+        const todayEl = $('widget-today-tasks');
+        const overdueEl = $('widget-overdue-tasks');
+        const activeEl = $('widget-active-projects');
+        if (todayEl) todayEl.textContent = res.todayTaskCount;
+        if (overdueEl) overdueEl.textContent = res.overdueCount;
+        if (activeEl) activeEl.textContent = res.activeProjectCount;
+
+        // プロジェクト進捗バー
+        const barsEl = $('widget-project-bars');
+        if (barsEl && res.projectStats.length > 0) {
+            barsEl.innerHTML = res.projectStats.map(p => `
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:.72rem;min-width:100px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8">${esc(p.name)}</span>
+                    <div style="flex:1;height:5px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden">
+                        <div style="height:100%;width:${p.progress}%;background:${p.color};border-radius:3px;transition:width .4s"></div>
+                    </div>
+                    <span style="font-size:.7rem;opacity:.5;min-width:30px;text-align:right">${p.progress}%</span>
+                </div>`).join('');
+        } else if (barsEl) {
+            barsEl.innerHTML = '';
+        }
+    } catch (_) {}
+}
+
+// ======================================================
+// 機能4: タスクカレンダービュー
+// ======================================================
+let currentCalMonth = new Date().getMonth();
+let currentCalYear = new Date().getFullYear();
+let currentTaskView = 'list'; // 'list' | 'calendar'
+
+function initTaskCalendarView() {
+    const btnList = $('btn-task-view-list');
+    const btnCal  = $('btn-task-view-calendar');
+    const btnPrev = $('btn-cal-prev');
+    const btnNext = $('btn-cal-next');
+
+    if (btnList) {
+        btnList.addEventListener('click', () => {
+            currentTaskView = 'list';
+            btnList.classList.add('active');
+            if (btnCal) btnCal.classList.remove('active');
+            const lc = $('task-list-container');
+            const cc = $('task-calendar-container');
+            const filters = $('task-list-filters');
+            if (lc) lc.style.display = '';
+            if (cc) cc.style.display = 'none';
+            if (filters) filters.style.display = '';
+        });
+    }
+    if (btnCal) {
+        btnCal.addEventListener('click', () => {
+            currentTaskView = 'calendar';
+            btnCal.classList.add('active');
+            if (btnList) btnList.classList.remove('active');
+            const lc = $('task-list-container');
+            const cc = $('task-calendar-container');
+            const filters = $('task-list-filters');
+            if (lc) lc.style.display = 'none';
+            if (cc) cc.style.display = '';
+            if (filters) filters.style.display = 'none';
+            renderTaskCalendar();
+        });
+    }
+    if (btnPrev) {
+        btnPrev.addEventListener('click', () => {
+            currentCalMonth--;
+            if (currentCalMonth < 0) { currentCalMonth = 11; currentCalYear--; }
+            renderTaskCalendar();
+        });
+    }
+    if (btnNext) {
+        btnNext.addEventListener('click', () => {
+            currentCalMonth++;
+            if (currentCalMonth > 11) { currentCalMonth = 0; currentCalYear++; }
+            renderTaskCalendar();
+        });
+    }
+}
+
+function renderTaskCalendar() {
+    const grid = $('task-calendar-grid');
+    const label = $('cal-month-label');
+    if (!grid) return;
+
+    const year = currentCalYear;
+    const month = currentCalMonth;
+    if (label) label.textContent = `${year}年 ${month + 1}月`;
+
+    // この月のタスクをフィルタリング
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const tasksForMonth = allTasksCache.filter(t => t.dueDate && t.dueDate.startsWith(monthStr));
+
+    // タスクを日付別にグループ化
+    const tasksByDate = {};
+    for (const t of tasksForMonth) {
+        if (!tasksByDate[t.dueDate]) tasksByDate[t.dueDate] = [];
+        tasksByDate[t.dueDate].push(t);
+    }
+
+    // カレンダーグリッド生成
+    const firstDay = new Date(year, month, 1).getDay(); // 0=日
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const today = new Date().toISOString().slice(0, 10);
+    const DAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+    let html = `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">`;
+    for (const d of DAYS) {
+        html += `<div style="text-align:center;font-size:.7rem;opacity:.4;padding:4px 0">${d}</div>`;
+    }
+    html += `</div><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">`;
+
+    // 先頭の空白セル
+    for (let i = 0; i < firstDay; i++) {
+        html += `<div></div>`;
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const tasks = tasksByDate[dateStr] || [];
+        const isToday = dateStr === today;
+        const hasTasks = tasks.length > 0;
+        const hasOverdue = tasks.some(t => !t.done);
+        const bgColor = isToday ? 'rgba(99,102,241,.3)' : hasTasks ? 'rgba(255,255,255,.06)' : 'rgba(255,255,255,.02)';
+        const borderColor = isToday ? 'rgba(99,102,241,.6)' : hasTasks ? 'rgba(255,255,255,.12)' : 'transparent';
+        const dotColor = hasOverdue ? '#f87171' : '#22c55e';
+
+        html += `<div style="min-height:52px;padding:4px;border-radius:6px;background:${bgColor};border:1px solid ${borderColor};cursor:${hasTasks ? 'pointer' : 'default'}"
+            ${hasTasks ? `onclick="showCalendarDayTasks('${dateStr}')"` : ''}>
+            <div style="font-size:.72rem;${isToday ? 'font-weight:700;color:#a5b4fc' : 'opacity:.6'}">${day}</div>
+            ${hasTasks ? `<div style="margin-top:2px">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${dotColor}"></span>
+                <span style="font-size:.62rem;opacity:.7;margin-left:2px">${tasks.length}</span>
+            </div>` : ''}
+        </div>`;
+    }
+    html += `</div>`;
+    grid.innerHTML = html;
+}
+
+function showCalendarDayTasks(dateStr) {
+    const tasks = allTasksCache.filter(t => t.dueDate === dateStr);
+    if (tasks.length === 0) return;
+    const d = new Date(dateStr + 'T00:00:00');
+    const label = `${d.getMonth() + 1}月${d.getDate()}日のタスク`;
+    const content = `<ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px">${
+        tasks.map(t => `<li style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+            <span style="font-size:1rem">${t.done ? '✅' : '⬜'}</span>
+            <span style="flex:1;font-size:.82rem;${t.done ? 'opacity:.4;text-decoration:line-through' : ''}">${esc(t.text)}</span>
+            ${t.projectTag ? `<span style="font-size:.68rem;opacity:.5">#${esc(t.projectTag)}</span>` : ''}
+        </li>`).join('')
+    }</ul>`;
+    showPreviewModal({ title: `📅 ${label}`, content });
+}
+
+// ======================================================
+// 機能8: プロジェクト間タスク移動
+// ======================================================
+let taskMoveState = { taskId: null, fromProjectId: null };
+
+function openTaskMoveModal(taskId, taskText) {
+    const modal = $('task-move-modal');
+    if (!modal) return;
+    taskMoveState = { taskId, fromProjectId: currentProjectId };
+
+    const nameEl = $('task-move-task-name');
+    if (nameEl) nameEl.textContent = taskText;
+
+    const sel = $('task-move-target-project');
+    if (sel) {
+        sel.innerHTML = '<option value="">プロジェクトを選択...</option>';
+        allProjects
+            .filter(p => p.id !== currentProjectId && p.status !== 'archived')
+            .forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = `${p.name} (${p.status === 'active' ? '進行中' : p.status === 'completed' ? '完了' : '保留中'})`;
+                sel.appendChild(opt);
+            });
+    }
+    modal.style.display = 'flex';
+}
+
+function closeTaskMoveModal() {
+    const modal = $('task-move-modal');
+    if (modal) modal.style.display = 'none';
+    taskMoveState = { taskId: null, fromProjectId: null };
+}
+
+function bindTaskMoveModalEvents() {
+    $('btn-task-move-close')?.addEventListener('click', closeTaskMoveModal);
+    $('btn-task-move-cancel')?.addEventListener('click', closeTaskMoveModal);
+    $('task-move-modal')?.addEventListener('click', e => { if (e.target === $('task-move-modal')) closeTaskMoveModal(); });
+    $('btn-task-move-confirm')?.addEventListener('click', async () => {
+        const toProjectId = $('task-move-target-project')?.value;
+        if (!toProjectId) { showToast('移動先プロジェクトを選択してくだ���い', 'warning'); return; }
+        const { taskId, fromProjectId } = taskMoveState;
+        if (!taskId || !fromProjectId) return;
+
+        const btn = $('btn-task-move-confirm');
+        if (btn) { btn.disabled = true; btn.textContent = '移動中...'; }
+        try {
+            const res = await window.api.moveProjectTask({ fromProjectId, taskId, toProjectId });
+            if (res.success) {
+                closeTaskMoveModal();
+                await refreshProjects();
+                const p = allProjects.find(p => p.id === fromProjectId);
+                if (p) renderProjectDetail(p);
+                const toP = allProjects.find(p => p.id === toProjectId);
+                showToast(`タスクを「${toP ? toP.name : '選択したプロジェクト'}」へ移動しました`, 'success');
+                syncProjectToVault(fromProjectId);
+                syncProjectToVault(toProjectId);
+            } else {
+                showToast(`エラー: ${res.error}`, 'error');
+            }
+        } catch (e) {
+            showToast(`エラー: ${e.message}`, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '移動する'; }
+        }
+    });
+}
+
+// ======================================================
+// 機能2: スマートルールスケジュール（ルールカード更新）
+// ======================================================
+async function setSmartRuleSchedule(ruleId, schedule) {
+    try {
+        const res = await window.api.setSmartRuleSchedule({ ruleId, schedule });
+        if (res.success) {
+            showToast(`スケジュールを設定しました: ${schedule}`, 'success');
+        } else {
+            showToast(`エラー: ${res.error}`, 'error');
+        }
+    } catch (e) {
+        showToast(`エラー: ${e.message}`, 'error');
+    }
+}
+
+// ======================================================
+// UX改善: 初期化時にダッシュボードウィジェット・テンプ���ート・移動モーダルを初期化
+// ======================================================
+function initV53Features() {
+    // ダッシュボードウィジェット更新ボタン
+    const refreshBtn = $('btn-refresh-widget');
+    if (refreshBtn) refreshBtn.addEventListener('click', loadDashboardWidget);
+
+    // プロジェクトテンプレートイベント
+    bindProjectTemplateEvents();
+
+    // タスクカレンダービュー初期化
+    initTaskCalendarView();
+
+    // タスク移動モーダル
+    bindTaskMoveModalEvents();
+}
+
