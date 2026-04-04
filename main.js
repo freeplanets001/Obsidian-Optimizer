@@ -615,6 +615,7 @@ ipcMain.handle('get-config', () => ({
     autoScanSchedule: config.autoScanSchedule,
     dashboardWidgets: config.dashboardWidgets,
     onboardingCompleted: config.onboardingCompleted || false,
+    appVersion: APP_VERSION,
 }));
 
 ipcMain.handle('save-config-partial', (_, partial) => {
@@ -6778,12 +6779,18 @@ async function updateDockBadge() {
                 const m = taskLineRe.exec(line);
                 if (!m || m[2].toLowerCase() === 'x') continue;
                 const dm = dueDateRe.exec(m[3]);
-                if (dm && dm[1] <= today) urgentCount++;
+                // 今日が期限のタスクのみカウント（過去分は積み上がらないよう除外）
+                if (dm && dm[1] === today) urgentCount++;
             }
         }
         app.setBadgeCount(urgentCount);
     } catch (e) { console.warn('Dockバッジ更新エラー:', e.message); }
 }
+
+ipcMain.handle('reset-dock-badge', () => {
+    try { app.setBadgeCount(0); } catch (_) {}
+    return { success: true };
+});
 
 ipcMain.handle('update-dock-badge', async () => {
     await updateDockBadge();

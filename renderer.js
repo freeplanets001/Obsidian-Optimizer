@@ -391,6 +391,13 @@ async function initAsync() {
     try {
         const cfg = await window.api.getConfig();
         applyConfig(cfg);
+        // バージョン表示を動的にセット
+        if (cfg.appVersion) {
+            const sidebarVer = $('app-version-sidebar');
+            const infoVer    = $('app-version-info');
+            if (sidebarVer) sidebarVer.textContent = `v${cfg.appVersion} World-Class Edition`;
+            if (infoVer)    infoVer.textContent     = `v${cfg.appVersion}`;
+        }
         // vault selector の更新
         const vs = $('vault-switcher');
         if (vs && cfg.vaults) {
@@ -7914,6 +7921,10 @@ function bindTaskEvents() {
     const safe = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
     safe('btn-add-task', addTask);
     safe('btn-refresh-tasks', refreshTaskList);
+    safe('btn-reset-dock-badge', async () => {
+        await window.api.resetDockBadge();
+        showToast('🔔 Dockバッジをリセットしました', 'success');
+    });
 
     // Enterキーでタスク追加
     const input = $('task-input');

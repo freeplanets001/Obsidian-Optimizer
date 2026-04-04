@@ -309,4 +309,6 @@ contextBridge.exposeInMainWorld('api', {
     gitGetConfig: () => ipcRenderer.invoke('git-get-config'),
     gitSaveConfig: (params) => ipcRenderer.invoke('git-save-config', params),
     gitPush: () => ipcRenderer.invoke('git-push'),
+    // Dockバッジリセット
+    resetDockBadge: () => ipcRenderer.invoke('reset-dock-badge'),
 });
