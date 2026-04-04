@@ -5,3 +5,12 @@ release/
 ._*
 *.blockmap
 .env
+.claude/
+*.lock
+キャプチャ/
+*.jpeg
+*.jpg
+*.png
+!assets/icon.icns
+!assets/icon.ico
+!assets/icon.png
