@@ -260,6 +260,8 @@ function loadConfig() {
         favorites: cfg.favorites || [],
         // Feature 7: 自動バックアップスケジュール
         backupSchedule: cfg.backupSchedule || 'off',
+        // Git設定 (Plan B): Vaultパスをキーとした設定マップ
+        gitSettings: cfg.gitSettings || {},
     };
 }
 
