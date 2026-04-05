@@ -1,0 +1,23 @@
+#!/bin/bash
+# PKGインストール前に既存アプリを安全に削除する
+# 「一部の項目をスキップする必要があった」エラーを防止
+
+APP_PATH="/Applications/Obsidian Optimizer.app"
+
+if [ -d "$APP_PATH" ]; then
+    # ロックフラグ（immutable）を解除
+    chflags -R nouchg,noschg,nosappnd "$APP_PATH" 2>/dev/null || true
+
+    # quarantine属性を除去
+    xattr -cr "$APP_PATH" 2>/dev/null || true
+
+    # 権限を修正してから削除
+    chmod -R 755 "$APP_PATH" 2>/dev/null || true
+
+    # 既存アプリを削除
+    rm -rf "$APP_PATH" 2>/dev/null || true
+
+    echo "Obsidian Optimizer: removed existing installation"
+fi
+
+exit 0
