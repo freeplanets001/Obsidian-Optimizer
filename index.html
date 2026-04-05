@@ -2048,6 +2048,21 @@
                     </a>
                 </div>
 
+                <!-- クラッシュレポート / ログ -->
+                <div class="glass-card">
+                    <h3 class="card-title">🪲 クラッシュレポート・ログ</h3>
+                    <p style="font-size:.85rem;opacity:.7;margin-bottom:10px">
+                        問題が発生した場合はログを開発者へ送付してください。<br>
+                        ログに個人情報・Vault内容は含まれません。
+                    </p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+                        <button class="ghost-btn" id="btn-show-log">ログを表示</button>
+                        <button class="ghost-btn" id="btn-open-log-folder">ログフォルダを開く</button>
+                        <button class="ghost-btn" id="btn-copy-log">クリップボードにコピー</button>
+                    </div>
+                    <div id="log-viewer" style="display:none;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px;font-size:.72rem;font-family:monospace;max-height:200px;overflow-y:auto;white-space:pre-wrap;opacity:.85"></div>
+                </div>
+
                 </div><!-- /subtab-settings-advanced -->
             </div>
 

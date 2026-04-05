@@ -489,6 +489,15 @@ async function initAsync() {
     initV53Features();
     // ダッシュボードウィジェットを非同期で読み込み
     loadDashboardWidget().catch(() => {});
+    // クラッシュレポート・ログUI初期化
+    initLogViewer();
+    // レンダラーエラーをメインプロセスのログに転送
+    window.addEventListener('error', (e) => {
+        window.api.sendRendererError?.(e.error || { message: e.message, stack: '' });
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+        window.api.sendRendererError?.({ message: String(e.reason), stack: '' });
+    });
 }
 
 function initBeginnerGuide() {
@@ -671,13 +680,34 @@ function showVaultWarning(vaultPath, noVault) {
     const old = document.getElementById('vault-warn-banner'); if (old) old.remove();
     const b = document.createElement('div');
     b.id = 'vault-warn-banner';
-    b.style.cssText = 'background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.35);border-radius:14px;padding:14px 18px;margin-bottom:16px;color:#f87171;font-size:.84rem;line-height:1.7';
+    b.style.cssText = 'background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.35);border-radius:14px;padding:16px 18px;margin-bottom:16px;color:#f87171;font-size:.84rem;line-height:1.7';
     if (noVault) {
-        b.innerHTML = `⚠️ <strong>Vault が設定されていません</strong><br>「➕ 追加」ボタンから Obsidian の Vault フォルダを選択してください。<br><span style="font-size:.76rem;opacity:.7">Vault フォルダとは、Obsidian で管理しているノートが入っているフォルダです（中に .obsidian フォルダがあります）。</span>`;
+        b.innerHTML = `
+            <div style="font-weight:700;margin-bottom:6px">⚠️ Vault が設定されていません</div>
+            <div style="opacity:.85;margin-bottom:10px">Obsidian で管理しているノートのフォルダ（<code style="font-size:.76rem">.obsidian</code> フォルダが入っているフォルダ）を選択してください。</div>
+            <button id="vault-warn-setup-btn" style="background:rgba(248,113,113,.2);border:1px solid rgba(248,113,113,.5);border-radius:8px;color:#f87171;padding:7px 16px;font-size:.82rem;font-weight:600;cursor:pointer">
+                📂 今すぐ Vault を設定する
+            </button>`;
     } else {
-        b.innerHTML = `⚠️ <strong>Vault が見つかりません</strong><br>パス: <code style="font-size:.76rem">${esc(vaultPath)}</code><br>フォルダが存在しないか、Obsidian Vault として認識できません。「➕ 追加」ボタンで正しい Vault を選択してください。`;
+        b.innerHTML = `
+            <div style="font-weight:700;margin-bottom:6px">⚠️ Vault が見つかりません</div>
+            <div style="opacity:.85;margin-bottom:10px">パス: <code style="font-size:.76rem">${esc(vaultPath)}</code><br>フォルダが存在しないか移動した可能性があります。</div>
+            <button id="vault-warn-setup-btn" style="background:rgba(248,113,113,.2);border:1px solid rgba(248,113,113,.5);border-radius:8px;color:#f87171;padding:7px 16px;font-size:.82rem;font-weight:600;cursor:pointer">
+                📂 Vault を再選択する
+            </button>`;
     }
     settingsTab.insertBefore(b, settingsTab.children[1] || null);
+    // ボタンクリックでウィザードを起動
+    document.getElementById('vault-warn-setup-btn')?.addEventListener('click', async () => {
+        const result = await window.api.selectVaultFolder().catch(() => null);
+        if (result) {
+            old?.remove();
+            b.remove();
+            await initAsync();
+            showToast('Vault を設定しました: ' + result, 'success');
+            activateTab('dashboard');
+        }
+    });
 }
 
 function resetDashboard() {
@@ -9170,11 +9200,23 @@ async function checkForUpdates(silent) {
                         }
 
                         if (barEl)   barEl.style.width = '100%';
-                        if (labelEl) labelEl.textContent = '✅ ダウンロード完了 — インストーラーを開いています...';
+                        if (labelEl) labelEl.textContent = '✅ ダウンロード完了';
                         if (btn) { btn.textContent = '✅ 完了'; }
 
                         await window.api.openInstaller(dlResult.filePath);
-                        showToast('インストーラーを開きました。インストール後にアプリを再起動してください。', 'success', 8000);
+
+                        // インストール完了後の再起動ボタンを表示
+                        const relaunchArea = document.createElement('div');
+                        relaunchArea.style.cssText = 'margin-top:10px;display:flex;gap:8px;align-items:center';
+                        relaunchArea.innerHTML = `
+                            <span style="font-size:.82rem;opacity:.7">インストーラーでインストール後、アプリを再起動してください</span>
+                            <button class="primary-btn" id="btn-relaunch-now" style="font-size:.8rem;padding:6px 14px">今すぐ再起動</button>
+                        `;
+                        progressArea?.parentElement?.appendChild(relaunchArea);
+                        document.getElementById('btn-relaunch-now')?.addEventListener('click', () => {
+                            window.api.relaunchApp?.();
+                        });
+                        showToast('インストーラーを開きました', 'success', 5000);
                     });
                 }
             }
@@ -11643,3 +11685,41 @@ function initV53Features() {
     bindTaskMoveModalEvents();
 }
 
+
+// ============================================================
+// クラッシュレポート・ログビューア
+// ============================================================
+function initLogViewer() {
+    const btnShow   = $('btn-show-log');
+    const btnFolder = $('btn-open-log-folder');
+    const btnCopy   = $('btn-copy-log');
+    const viewer    = $('log-viewer');
+    if (!btnShow) return;
+
+    btnShow.addEventListener('click', async () => {
+        if (viewer.style.display !== 'none') {
+            viewer.style.display = 'none';
+            btnShow.textContent = 'ログを表示';
+            return;
+        }
+        viewer.textContent = '読み込み中...';
+        viewer.style.display = 'block';
+        btnShow.textContent = 'ログを隠す';
+        const res = await window.api.getLogContent().catch(() => ({ content: '取得失敗' }));
+        viewer.textContent = res.content || '（ログがありません）';
+        viewer.scrollTop = viewer.scrollHeight;
+    });
+
+    btnFolder?.addEventListener('click', () => {
+        window.api.openLogFile?.();
+    });
+
+    btnCopy?.addEventListener('click', async () => {
+        const res = await window.api.getLogContent().catch(() => ({ content: '' }));
+        if (res.content) {
+            navigator.clipboard.writeText(res.content).then(() => {
+                showToast('ログをクリップボードにコピーしました', 'success');
+            });
+        }
+    });
+}

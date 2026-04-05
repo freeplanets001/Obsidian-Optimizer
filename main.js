@@ -5,6 +5,24 @@ const os = require('os');
 const crypto = require('crypto');
 const https = require('https');
 
+// ======================================================
+// ログ初期化 (electron-log)
+// ログファイル: ~/Library/Logs/Obsidian Optimizer/main.log
+// ======================================================
+const log = require('electron-log/main');
+log.initialize();
+log.transports.file.level = 'info';
+log.transports.console.level = 'warn';
+log.info('=== Obsidian Optimizer 起動 ===');
+
+// 未捕捉エラーをログに記録
+process.on('uncaughtException', (err) => {
+    log.error('uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+    log.error('unhandledRejection:', reason);
+});
+
 // ちらつき防止: GPU合成を安定化させるフラグ
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
@@ -7615,6 +7633,43 @@ ipcMain.handle('open-installer', async (_, filePath) => {
     const { shell } = require('electron');
     await shell.openPath(filePath);
     return { success: true };
+});
+
+// ======================================================
+// クラッシュレポート / ログ (electron-log)
+// ======================================================
+ipcMain.handle('get-log-path', () => {
+    return { path: log.transports.file.getFile().path };
+});
+
+ipcMain.handle('get-log-content', () => {
+    try {
+        const logPath = log.transports.file.getFile().path;
+        if (!fs.existsSync(logPath)) return { content: '（ログファイルがまだ作成されていません）' };
+        const raw = fs.readFileSync(logPath, 'utf-8');
+        // 最新200行のみ返す
+        const lines = raw.split('\n');
+        return { content: lines.slice(-200).join('\n') };
+    } catch (e) {
+        return { content: 'ログ読み込みエラー: ' + e.message };
+    }
+});
+
+ipcMain.handle('open-log-file', async () => {
+    const logPath = log.transports.file.getFile().path;
+    await shell.openPath(path.dirname(logPath));
+    return { success: true };
+});
+
+// レンダラーからのエラーをメインプロセスのログに記録
+ipcMain.on('renderer-error', (_, { message, stack }) => {
+    log.error('[Renderer]', message, stack || '');
+});
+
+// インストール完了後の再起動
+ipcMain.handle('relaunch-app', () => {
+    app.relaunch();
+    app.exit(0);
 });
 
 // ======================================================

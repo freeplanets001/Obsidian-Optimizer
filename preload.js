@@ -325,4 +325,11 @@ contextBridge.exposeInMainWorld('api', {
     getDashboardWidgetData: () => ipcRenderer.invoke('get-dashboard-widget-data'),
     // v5.3 新機能: スマートルールスケジュール設定
     setSmartRuleSchedule: (params) => ipcRenderer.invoke('set-smart-rule-schedule', params),
+    // クラッシュレポート / ログ
+    getLogPath: () => ipcRenderer.invoke('get-log-path'),
+    getLogContent: () => ipcRenderer.invoke('get-log-content'),
+    openLogFile: () => ipcRenderer.invoke('open-log-file'),
+    sendRendererError: (err) => ipcRenderer.send('renderer-error', { message: err.message, stack: err.stack }),
+    // インストール後の再起動
+    relaunchApp: () => { ipcRenderer.invoke('relaunch-app'); },
 });
