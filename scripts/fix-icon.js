@@ -40,28 +40,17 @@ module.exports = async function (context) {
 
     // ロックフラグ（immutable）を解除 — これが「一部の項目をスキップ」エラーの主因
     try {
-        execSync(`chflags -R nouchg,noschg,nosappnd,noschg "${appPath}"`, { stdio: 'pipe' });
+        execSync(`chflags -R nouchg,noschg,nosappnd "${appPath}"`, { stdio: 'pipe' });
         console.log('  Cleared immutable/locked flags (chflags)');
     } catch (_) {
         console.log('  Warning: chflags failed (may need sudo)');
     }
 
-    // アプリバンドル全体の権限を修正（ディレクトリ: 755、ファイル: 644）
+    // ディレクトリを 755 に設定
     execSync(`find "${appPath}" -type d -exec chmod 755 {} \\;`, { stdio: 'pipe' });
-    execSync(`find "${appPath}" -type f -exec chmod 644 {} \\;`, { stdio: 'pipe' });
-    console.log('  Fixed permissions: dirs=755, files=644');
-
-    // 実行ファイル・dylib・so には 755 を設定
-    const macosDir = path.join(appPath, 'Contents', 'MacOS');
-    execSync(`chmod -R 755 "${macosDir}"`, { stdio: 'pipe' });
-    execSync(`find "${appPath}" -name "*.dylib" -exec chmod 755 {} \\;`, { stdio: 'pipe' });
-    execSync(`find "${appPath}" -name "*.so" -exec chmod 755 {} \\;`, { stdio: 'pipe' });
-    execSync(`find "${appPath}" -name "*.node" -exec chmod 755 {} \\;`, { stdio: 'pipe' });
-    console.log('  Fixed executable permissions (MacOS/, dylib, so, node)');
-
-    // Resources内の権限も再確認
-    execSync(`chmod -R a+rX "${resourcesDir}"`, { stdio: 'pipe' });
-    console.log('  Fixed permissions on Resources/');
+    // ファイルは a+rX（既に実行可能なファイルの実行ビットを維持、非実行ファイルは触らない）
+    execSync(`chmod -R a+rX "${appPath}"`, { stdio: 'pipe' });
+    console.log('  Fixed permissions (dirs=755, a+rX preserving executables)');
 
     // ._ファイル（リソースフォーク）を除去 — 外付けドライブでのビルド時に「破損」エラーを防止
     try {
