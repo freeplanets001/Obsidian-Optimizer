@@ -7168,6 +7168,7 @@ ipcMain.handle('add-project-task', (_, { projectId, text, dueDate, priority }) =
         };
         p.tasks.push(task);
         p.updatedAt = new Date().toISOString();
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, task, project: p };
     } catch (e) {
@@ -7193,6 +7194,7 @@ ipcMain.handle('toggle-project-task', (_, { projectId, taskId }) => {
         } else if (p.status === 'completed' && p.tasks.some(t => !t.done)) {
             p.status = 'active'; // タスクを未完了に戻したら再開
         }
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, project: p };
     } catch (e) {
@@ -7208,6 +7210,7 @@ ipcMain.handle('delete-project-task', (_, { projectId, taskId }) => {
         if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
         p.tasks = p.tasks.filter(t => t.id !== taskId);
         p.updatedAt = new Date().toISOString();
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, project: p };
     } catch (e) {
@@ -7224,6 +7227,7 @@ ipcMain.handle('add-project-milestone', (_, { projectId, name, dueDate }) => {
         const ms = { id: uuidv4(), name: name.trim(), dueDate: dueDate || null, done: false };
         p.milestones.push(ms);
         p.updatedAt = new Date().toISOString();
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, milestone: ms, project: p };
     } catch (e) {
@@ -7241,6 +7245,7 @@ ipcMain.handle('toggle-project-milestone', (_, { projectId, milestoneId }) => {
         if (!ms) return { success: false, error: 'マイルストーンが見つかりません' };
         ms.done = !ms.done;
         p.updatedAt = new Date().toISOString();
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, project: p };
     } catch (e) {
@@ -7256,6 +7261,7 @@ ipcMain.handle('delete-project-milestone', (_, { projectId, milestoneId }) => {
         if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
         p.milestones = p.milestones.filter(m => m.id !== milestoneId);
         p.updatedAt = new Date().toISOString();
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, project: p };
     } catch (e) {
@@ -7271,6 +7277,7 @@ ipcMain.handle('update-project-notes', (_, { projectId, notes }) => {
         if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
         p.notes = notes;
         p.updatedAt = new Date().toISOString();
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true };
     } catch (e) {
@@ -7278,28 +7285,25 @@ ipcMain.handle('update-project-notes', (_, { projectId, notes }) => {
     }
 });
 
-// VaultにプロジェクトノートをMarkdown形式で生成
-ipcMain.handle('generate-project-note', async (_, { projectId }) => {
+// ======================================================
+// プロジェクトノート生成ヘルパー（タスク/マイルストーン変更時に自動呼び出し）
+// ======================================================
+function refreshProjectVaultNote(p) {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return;
     try {
-        const vaultPath = getCurrentVault();
-        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
-        const projects = getProjects();
-        const p = projects.find(p => p.id === projectId);
-        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
-
         const doneTasks = p.tasks.filter(t => t.done).length;
         const progress = p.tasks.length > 0 ? Math.round(doneTasks / p.tasks.length * 100) : 0;
         const statusLabel = { active: '進行中', completed: '完了', 'on-hold': '保留中', archived: 'アーカイブ' }[p.status] || p.status;
         const priorityLabel = { high: '🔴 高', medium: '🟡 中', low: '🔵 低' }[p.priority] || p.priority;
 
-        // Dataview が file.tasks で集計できる形式（- [ ] / - [x]）でタスクを出力
         const taskLines = p.tasks.length > 0
             ? p.tasks.map(t => {
                 const check = t.done ? '[x]' : '[ ]';
                 const due = t.dueDate ? ` 📅 ${t.dueDate}` : '';
                 return `- ${check} ${t.text}${due}`;
             }).join('\n')
-            : '- [ ] （タスクを追加してください）';  // 空でもDataviewが検出できるダミータスク
+            : '- [ ] （タスクを追加してください）';
 
         const msLines = p.milestones.map(m => {
             const check = m.done ? '[x]' : '[ ]';
@@ -7307,16 +7311,12 @@ ipcMain.handle('generate-project-note', async (_, { projectId }) => {
             return `- ${check} ${m.name}${due}`;
         }).join('\n') || '';
 
-        // タグ: type/project を必須追加（Project Board Dataviewクエリ対応）
         const isArchived = p.status === 'archived' || p.status === 'completed';
         const baseTags = ['type/project', ...(p.tags || [])];
         if (isArchived) baseTags.push('status/done');
         const tagsYaml = baseTags.join(', ');
-
-        // タスクタブから #project/tag で紐づけたVaultタスクをDataviewで表示
         const projectTag = p.name.replace(/\s+/g, '-');
 
-        // タスクセクション（プロジェクトタスク + Vault連動タスクを統合）
         const unifiedTasksSection =
 `## タスク (${doneTasks}/${p.tasks.length})
 
@@ -7355,26 +7355,36 @@ SORT file.mtime DESC
             p.notes ? `## メモ\n\n${p.notes}\n` : '',
         ].filter(l => l !== null).join('\n');
 
-        // 保存先: アーカイブ済みは "04 Archives"、それ以外は "01 Projects"
         const targetFolder = isArchived ? '04 Archives' : '01 Projects';
         const folderPath = path.join(vaultPath, targetFolder);
         fs.mkdirSync(folderPath, { recursive: true });
-
         const safeFileName = p.name.replace(/[/\\:*?"<>|]/g, '-');
         const notePath = path.join(folderPath, `📁 ${safeFileName}.md`);
         fs.writeFileSync(notePath, content, 'utf-8');
 
-        // 古いパスにファイルが残っていれば削除（移動対応）
         if (p.vaultNotePath && p.vaultNotePath !== notePath && fs.existsSync(p.vaultNotePath)) {
             try { fs.unlinkSync(p.vaultNotePath); } catch (_) {}
         }
-
-        // vaultNotePathを更新
         p.vaultNotePath = notePath;
+    } catch (_) {
+        // Vault書き込み失敗は無視（操作自体は成功させる）
+    }
+}
+
+// VaultにプロジェクトノートをMarkdown形式で生成
+ipcMain.handle('generate-project-note', async (_, { projectId }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        const projects = getProjects();
+        const p = projects.find(p => p.id === projectId);
+        if (!p) return { success: false, error: 'プロジェクトが見つかりません' };
+
+        refreshProjectVaultNote(p);
         p.updatedAt = new Date().toISOString();
         saveProjects(projects);
 
-        return { success: true, notePath };
+        return { success: true, notePath: p.vaultNotePath };
     } catch (e) {
         return { success: false, error: e.message };
     }
