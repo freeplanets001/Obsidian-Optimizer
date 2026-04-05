@@ -18,6 +18,43 @@ function esc(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+// GitHubリリースノート（Markdown）を簡易HTMLにレンダリング
+function renderReleaseNotes(md) {
+    if (!md) return '';
+    const lines = md.split('\n');
+    let html = '';
+    let inList = false;
+    for (const raw of lines) {
+        const line = raw.trimEnd();
+        // テーブル行・区切り行はスキップ
+        if (/^\|/.test(line) || /^[\s|:-]+$/.test(line)) continue;
+        // H2見出し
+        if (/^## /.test(line)) {
+            if (inList) { html += '</ul>'; inList = false; }
+            html += `<p style="font-weight:700;margin-top:8px;margin-bottom:2px">${esc(line.slice(3))}</p>`;
+            continue;
+        }
+        // リスト（- / * で始まる）
+        if (/^(\s*[-*] )/.test(line)) {
+            if (!inList) { html += '<ul style="margin:2px 0 4px 1em;padding:0">'; inList = true; }
+            const text = line.replace(/^\s*[-*] /, '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html += `<li style="margin:2px 0">${esc(text).replace(/&lt;strong&gt;/g, '<strong>').replace(/&lt;\/strong&gt;/g, '</strong>')}</li>`;
+            continue;
+        }
+        // 空行
+        if (line === '') {
+            if (inList) { html += '</ul>'; inList = false; }
+            continue;
+        }
+        // 通常テキスト
+        if (inList) { html += '</ul>'; inList = false; }
+        const text = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html += `<p style="margin:2px 0">${esc(text).replace(/&lt;strong&gt;/g, '<strong>').replace(/&lt;\/strong&gt;/g, '</strong>')}</p>`;
+    }
+    if (inList) html += '</ul>';
+    return html;
+}
+
 // ============================================================
 // 統一プレビューモーダル API
 // ============================================================
@@ -9082,7 +9119,7 @@ async function checkForUpdates(silent) {
                 infoEl.innerHTML = `
                     <div style="padding:12px;background:var(--glass);border:1px solid var(--accent);border-radius:12px">
                         <p><strong>v${esc(result.latestVersion)}</strong> が利用可能です（現在: v${esc(result.currentVersion)}）</p>
-                        ${result.releaseNotes ? `<p style="margin-top:6px;opacity:.65;font-size:.78rem;white-space:pre-wrap">${esc(result.releaseNotes.slice(0, 300))}</p>` : ''}
+                        ${result.releaseNotes ? `<div style="margin-top:8px;opacity:.75;font-size:.78rem;line-height:1.5">${renderReleaseNotes(result.releaseNotes)}</div>` : ''}
                         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                             ${hasDirectDL
                                 ? `<button class="primary-btn" id="btn-do-download-update">⬇️ ダウンロード＆インストール</button>`
