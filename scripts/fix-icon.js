@@ -38,6 +38,14 @@ module.exports = async function (context) {
         console.error('  WARNING: icon.icns not found in Resources!');
     }
 
+    // ロックフラグ（immutable）を解除 — これが「一部の項目をスキップ」エラーの主因
+    try {
+        execSync(`chflags -R nouchg,noschg,nosappnd,noschg "${appPath}"`, { stdio: 'pipe' });
+        console.log('  Cleared immutable/locked flags (chflags)');
+    } catch (_) {
+        console.log('  Warning: chflags failed (may need sudo)');
+    }
+
     // アプリバンドル全体の権限を修正（ディレクトリ: 755、ファイル: 644）
     execSync(`find "${appPath}" -type d -exec chmod 755 {} \\;`, { stdio: 'pipe' });
     execSync(`find "${appPath}" -type f -exec chmod 644 {} \\;`, { stdio: 'pipe' });
