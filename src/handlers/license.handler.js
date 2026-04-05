@@ -72,11 +72,13 @@ function register(ipcMain, ctx) {
             const base = `https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v${v}`;
             if (platform === 'darwin') {
                 const archSuffix = arch === 'arm64' ? 'arm64' : 'x64';
-                fileName = `Obsidian.Optimizer-${v}-mac-${archSuffix}.dmg`;
+                // arm64 は PKG インストーラー、x64 は DMG
+                const ext = arch === 'arm64' ? 'pkg' : 'dmg';
+                fileName = `Obsidian Optimizer-${v}-mac-${archSuffix}.${ext}`;
             } else if (platform === 'win32') {
-                fileName = `Obsidian.Optimizer-${v}-win-x64.exe`;
+                fileName = `Obsidian Optimizer-${v}-win-x64.exe`;
             }
-            if (fileName) directDownloadUrl = `${base}/${fileName}`;
+            if (fileName) directDownloadUrl = `${base}/${encodeURIComponent(fileName)}`;
         }
 
         return {
