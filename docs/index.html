@@ -446,6 +446,88 @@ footer {
   .screen-cell { border-right: none !important; }
   .screen-cell:last-child { border-bottom: none; }
 }
+/* ─── Download section ───────────────────────────────────── */
+.dl-section {
+  border-bottom: 1px solid var(--rule-w);
+}
+.dl-inner {
+  max-width: 1200px; margin: 0 auto; padding: 96px 48px;
+}
+.dl-tier {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  border: 1px solid var(--rule-w); margin-bottom: 64px;
+  border-radius: 2px; overflow: hidden;
+}
+.dl-tier-col {
+  padding: 40px; background: rgba(255,255,255,.02);
+}
+.dl-tier-col:first-child { border-right: 1px solid var(--rule-w); }
+.dl-tier-label {
+  font-size: .68rem; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; margin-bottom: 20px;
+}
+.dl-tier-col.free .dl-tier-label { color: rgba(255,255,255,.4); }
+.dl-tier-col.full .dl-tier-label { color: var(--accent-l); }
+.dl-tier-title {
+  font-size: 1.3rem; font-weight: 900; letter-spacing: -.02em;
+  margin-bottom: 20px; line-height: 1.2;
+}
+.dl-feat-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.dl-feat-list li {
+  font-size: .83rem; display: flex; align-items: flex-start; gap: 10px;
+  line-height: 1.5;
+}
+.dl-feat-list li .ok  { color: #34d399; flex-shrink: 0; font-weight: 700; }
+.dl-feat-list li .ng  { color: rgba(255,255,255,.2); flex-shrink: 0; }
+.dl-feat-list li span { color: rgba(255,255,255,.55); }
+.dl-feat-list li.muted span { color: rgba(255,255,255,.25); }
+
+.dl-platforms {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+  border: 1px solid var(--rule-w); border-radius: 2px; overflow: hidden;
+}
+.dl-platform {
+  display: block; padding: 32px 28px;
+  background: rgba(255,255,255,.02);
+  text-decoration: none; color: var(--white);
+  transition: background .2s;
+  border-right: 1px solid var(--rule-w);
+}
+.dl-platform:last-child { border-right: none; }
+.dl-platform:hover { background: rgba(255,255,255,.06); }
+.dl-p-os {
+  font-size: .68rem; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: rgba(255,255,255,.3);
+  margin-bottom: 10px;
+}
+.dl-p-name {
+  font-size: 1.1rem; font-weight: 900; letter-spacing: -.02em;
+  margin-bottom: 6px;
+}
+.dl-p-ext {
+  font-size: .75rem; color: rgba(255,255,255,.3);
+  margin-bottom: 20px; font-family: monospace; letter-spacing: .04em;
+}
+.dl-p-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .75rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--white);
+  border-bottom: 1px solid rgba(255,255,255,.3);
+  padding-bottom: 2px; transition: border-color .2s;
+}
+.dl-platform:hover .dl-p-btn { border-color: rgba(255,255,255,.8); }
+.dl-note {
+  margin-top: 20px; font-size: .72rem; color: rgba(255,255,255,.25);
+  text-align: center; line-height: 1.7;
+}
+@media (max-width: 960px) {
+  .dl-inner { padding: 72px 24px; }
+  .dl-tier { grid-template-columns: 1fr; }
+  .dl-tier-col:first-child { border-right: none; border-bottom: 1px solid var(--rule-w); }
+  .dl-platforms { grid-template-columns: 1fr; }
+  .dl-platform { border-right: none; border-bottom: 1px solid var(--rule-w); }
+  .dl-platform:last-child { border-bottom: none; }
+}
 </style>
 </head>
 <body>
@@ -456,6 +538,7 @@ footer {
   <div class="nav-links">
     <a href="#features">機能</a>
     <a href="#screens">画面</a>
+    <a href="#download">ダウンロード</a>
     <a href="#get">記事を読む</a>
   </div>
   <a class="nav-cta" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">使い方ガイド</a>
@@ -819,6 +902,75 @@ footer {
       <div class="sc-title">スマートルール</div>
       <div class="sc-desc">トリガー × アクションで Vault 整理を完全自動化</div>
     </div>
+  </div>
+</div>
+
+<!-- ══ Download ═══════════════════════════════════════════════ -->
+<div class="dl-section" id="download">
+  <div class="dl-inner">
+    <div class="section-label">無料ダウンロード</div>
+    <p class="pain-headline" style="margin-bottom:56px">まず無料で<br>試してみる</p>
+
+    <!-- Tier comparison -->
+    <div class="dl-tier">
+      <div class="dl-tier-col free">
+        <div class="dl-tier-label">Trial — 無料</div>
+        <div class="dl-tier-title">ダウンロードして<br>すぐ使い始められる</div>
+        <ul class="dl-feat-list">
+          <li><span class="ok">✓</span><span>Vault スキャン（孤立ノート・壊れたリンク検出）</span></li>
+          <li><span class="ok">✓</span><span>ダッシュボード（Vault 統計・アクティビティ閲覧）</span></li>
+          <li><span class="ok">✓</span><span>設定・ヘルプ・プライバシーポリシー</span></li>
+          <li class="muted"><span class="ng">—</span><span>MOC 自動生成</span></li>
+          <li class="muted"><span class="ng">—</span><span>分析・知識グラフ</span></li>
+          <li class="muted"><span class="ng">—</span><span>AI 機能 19 種</span></li>
+          <li class="muted"><span class="ng">—</span><span>整備ツール 19 種</span></li>
+          <li class="muted"><span class="ng">—</span><span>タスク・プロジェクト管理</span></li>
+          <li class="muted"><span class="ng">—</span><span>スマートルール・Git バックアップ</span></li>
+        </ul>
+      </div>
+      <div class="dl-tier-col full">
+        <div class="dl-tier-label">Licensed — フル機能</div>
+        <div class="dl-tier-title">ライセンスキーで<br>すべての機能を解放</div>
+        <ul class="dl-feat-list">
+          <li><span class="ok">✓</span><span>Trial のすべての機能</span></li>
+          <li><span class="ok">✓</span><span>一括最適化・ドライランで安全修正</span></li>
+          <li><span class="ok">✓</span><span>MOC 自動生成・バッチ更新</span></li>
+          <li><span class="ok">✓</span><span>知識グラフ分析・ノートスコア</span></li>
+          <li><span class="ok">✓</span><span>AI 機能 19 種（Claude / GPT-4o / Gemini）</span></li>
+          <li><span class="ok">✓</span><span>整備ツール 19 種（タグ管理・ノート分割など）</span></li>
+          <li><span class="ok">✓</span><span>タスク・プロジェクト管理・Vault 双方向同期</span></li>
+          <li><span class="ok">✓</span><span>スマートルール・自動化スケジュール</span></li>
+          <li><span class="ok">✓</span><span>Git バックアップ・履歴管理</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Platform downloads -->
+    <div class="dl-platforms">
+      <a class="dl-platform" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.4.4/Obsidian.Optimizer-5.4.4-mac-arm64.pkg" target="_blank" rel="noopener">
+        <div class="dl-p-os">macOS · Apple Silicon</div>
+        <div class="dl-p-name">Mac (M1 / M2 / M3)</div>
+        <div class="dl-p-ext">.pkg · arm64</div>
+        <div class="dl-p-btn">ダウンロード →</div>
+      </a>
+      <a class="dl-platform" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.4.4/Obsidian.Optimizer-5.4.4-mac-x64.dmg" target="_blank" rel="noopener">
+        <div class="dl-p-os">macOS · Intel</div>
+        <div class="dl-p-name">Mac (Intel)</div>
+        <div class="dl-p-ext">.dmg · x64</div>
+        <div class="dl-p-btn">ダウンロード →</div>
+      </a>
+      <a class="dl-platform" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.4.4/Obsidian.Optimizer-5.4.4-win-x64.exe" target="_blank" rel="noopener">
+        <div class="dl-p-os">Windows 10 / 11</div>
+        <div class="dl-p-name">Windows</div>
+        <div class="dl-p-ext">.exe · x64</div>
+        <div class="dl-p-btn">ダウンロード →</div>
+      </a>
+    </div>
+
+    <p class="dl-note">
+      v5.4.4 · 完全ローカル動作 · データはクラウドに送られません<br>
+      macOS で「開発元を確認できません」と表示された場合は右クリック →「開く」を選択してください
+    </p>
   </div>
 </div>
 
