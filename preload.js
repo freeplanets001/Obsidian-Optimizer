@@ -332,4 +332,6 @@ contextBridge.exposeInMainWorld('api', {
     sendRendererError: (err) => ipcRenderer.send('renderer-error', { message: err.message, stack: err.stack }),
     // インストール後の再起動
     relaunchApp: () => { ipcRenderer.invoke('relaunch-app'); },
+    // 外部URLをシステムブラウザで開く
+    openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
 });

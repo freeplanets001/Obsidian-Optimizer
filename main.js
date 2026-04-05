@@ -7672,6 +7672,13 @@ ipcMain.handle('relaunch-app', () => {
     app.exit(0);
 });
 
+// 外部URLをシステムブラウザで開く
+ipcMain.handle('open-external-url', async (_, url) => {
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return { success: false };
+    await shell.openExternal(url);
+    return { success: true };
+});
+
 // ======================================================
 // Feature 3: スキャンデータエクスポート（CSV/JSON）
 // ======================================================
