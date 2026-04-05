@@ -38,7 +38,20 @@ module.exports = async function (context) {
         console.error('  WARNING: icon.icns not found in Resources!');
     }
 
-    // Resources内の全ファイルの権限を修正
+    // アプリバンドル全体の権限を修正（ディレクトリ: 755、ファイル: 644）
+    execSync(`find "${appPath}" -type d -exec chmod 755 {} \\;`, { stdio: 'pipe' });
+    execSync(`find "${appPath}" -type f -exec chmod 644 {} \\;`, { stdio: 'pipe' });
+    console.log('  Fixed permissions: dirs=755, files=644');
+
+    // 実行ファイル・dylib・so には 755 を設定
+    const macosDir = path.join(appPath, 'Contents', 'MacOS');
+    execSync(`chmod -R 755 "${macosDir}"`, { stdio: 'pipe' });
+    execSync(`find "${appPath}" -name "*.dylib" -exec chmod 755 {} \\;`, { stdio: 'pipe' });
+    execSync(`find "${appPath}" -name "*.so" -exec chmod 755 {} \\;`, { stdio: 'pipe' });
+    execSync(`find "${appPath}" -name "*.node" -exec chmod 755 {} \\;`, { stdio: 'pipe' });
+    console.log('  Fixed executable permissions (MacOS/, dylib, so, node)');
+
+    // Resources内の権限も再確認
     execSync(`chmod -R a+rX "${resourcesDir}"`, { stdio: 'pipe' });
     console.log('  Fixed permissions on Resources/');
 
