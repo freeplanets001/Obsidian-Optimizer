@@ -5,810 +5,850 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Obsidian Optimizer — Vault を自動で整理・最適化するデスクトップアプリ</title>
 <meta name="description" content="Obsidian Vault の孤立ノート検出・MOC自動生成・AI分析・Git バックアップを1つのアプリに。Mac/Windows対応。日本語ファースト。">
-<meta property="og:title" content="Obsidian Optimizer — Vault 最適化デスクトップアプリ">
-<meta property="og:description" content="孤立ノート検出・MOC自動生成・AI分析・Gitバックアップ。Obsidianユーザー専用の全部入りツール。">
+<meta property="og:title" content="Obsidian Optimizer">
+<meta property="og:description" content="Vault を自動で整理・最適化する、Obsidian ユーザーのための専用デスクトップアプリ">
 <meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
-/* ── Design tokens ─────────────────────────────────────── */
+/* ─── Reset ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; font-size: 16px; }
+
+/* ─── Tokens ─────────────────────────────────────────────── */
 :root {
-  --bg:       #08080f;
-  --bg2:      #0e0e1a;
-  --surface:  rgba(255,255,255,.035);
-  --surface2: rgba(255,255,255,.06);
-  --border:   rgba(255,255,255,.07);
-  --border2:  rgba(255,255,255,.12);
-  --accent:   #6f5ce6;
-  --accent-g: linear-gradient(135deg,#6f5ce6,#a78bfa);
-  --pink:     #e879a0;
-  --teal:     #2dd4bf;
-  --amber:    #fbbf24;
-  --green:    #34d399;
-  --text:     #ededf5;
-  --muted:    rgba(237,237,245,.5);
-  --muted2:   rgba(237,237,245,.3);
-  --r:        14px;
-  --r2:       22px;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
-body{
-  background:var(--bg);
-  color:var(--text);
-  font-family:-apple-system,'Hiragino Sans','Yu Gothic UI',sans-serif;
-  line-height:1.75;
-  -webkit-font-smoothing:antialiased;
+  --ink:     #0a0a0f;
+  --paper:   #f5f4f0;
+  --white:   #ffffff;
+  --accent:  #5b45d4;
+  --accent-l:#7c6cff;
+  --muted:   #6b6b7a;
+  --rule:    rgba(10,10,15,.1);
+  --rule-w:  rgba(255,255,255,.12);
+  --serif: 'Noto Sans JP', 'Hiragino Mincho ProN', 'Yu Mincho', Georgia, serif;
+  --sans:  'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', system-ui, sans-serif;
 }
 
-/* ── Utility ───────────────────────────────────────────── */
-.container{max-width:1080px;margin:0 auto;padding:0 24px}
-.gradient-text{background:var(--accent-g);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.label{
-  font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
-  color:var(--accent);opacity:.9;display:block;margin-bottom:10px
+/* ─── Base ────────────────────────────────────────────────── */
+body {
+  background: var(--ink);
+  color: var(--white);
+  font-family: var(--sans);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
 }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
 
-/* ── Nav ───────────────────────────────────────────────── */
-nav{
-  position:sticky;top:0;z-index:200;
-  background:rgba(8,8,15,.88);
-  backdrop-filter:blur(20px) saturate(180%);
-  border-bottom:1px solid var(--border);
+/* ─── Nav ─────────────────────────────────────────────────── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 48px; height: 64px;
+  border-bottom: 1px solid var(--rule-w);
+  background: rgba(10,10,15,.92);
+  backdrop-filter: blur(16px);
 }
-.nav-inner{
-  max-width:1080px;margin:0 auto;padding:0 24px;
-  display:flex;align-items:center;justify-content:space-between;
-  height:62px;
+.nav-wordmark {
+  font-size: .875rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: rgba(255,255,255,.9);
 }
-.nav-logo{
-  display:flex;align-items:center;gap:9px;
-  font-size:1rem;font-weight:800;letter-spacing:-.02em;color:var(--text);
-  text-decoration:none;
+.nav-links {
+  display: flex; align-items: center; gap: 32px;
 }
-.nav-logo-icon{
-  width:28px;height:28px;border-radius:8px;
-  background:var(--accent-g);
-  display:flex;align-items:center;justify-content:center;
-  font-size:.9rem;flex-shrink:0;
+.nav-links a {
+  font-size: .8rem; letter-spacing: .06em; text-transform: uppercase;
+  color: rgba(255,255,255,.45); font-weight: 500;
+  transition: color .2s;
 }
-.nav-links{display:flex;align-items:center;gap:6px}
-.nav-links a{
-  color:var(--muted);text-decoration:none;font-size:.875rem;
-  padding:6px 12px;border-radius:8px;transition:all .18s;
+.nav-links a:hover { color: rgba(255,255,255,.9); }
+.nav-cta {
+  font-size: .8rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--white);
+  border-bottom: 2px solid var(--accent-l);
+  padding-bottom: 1px;
+  transition: border-color .2s;
 }
-.nav-links a:hover{color:var(--text);background:var(--surface2)}
-.nav-cta{
-  background:var(--accent-g);color:#fff;
-  padding:8px 18px;border-radius:9px;
-  font-size:.84rem;font-weight:700;text-decoration:none;
-  transition:opacity .18s;white-space:nowrap;
-}
-.nav-cta:hover{opacity:.85}
+.nav-cta:hover { border-color: rgba(255,255,255,.4); }
 
-/* ── Hero ──────────────────────────────────────────────── */
-.hero{
-  padding:110px 24px 90px;
-  text-align:center;
-  position:relative;overflow:hidden;
+/* ─── Hero ────────────────────────────────────────────────── */
+.hero {
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 48px 80px;
+  position: relative; overflow: hidden;
+  border-bottom: 1px solid var(--rule-w);
 }
-.hero::before{
-  content:'';position:absolute;inset:0;
+.hero-bg {
+  position: absolute; inset: 0; z-index: 0;
   background:
-    radial-gradient(ellipse 800px 500px at 50% -60px, rgba(111,92,230,.18) 0%, transparent 70%),
-    radial-gradient(ellipse 400px 300px at 80% 40%, rgba(231,121,160,.07) 0%, transparent 60%);
-  pointer-events:none;
+    radial-gradient(ellipse 120% 80% at 60% 20%, rgba(91,69,212,.22) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 60% at 10% 80%, rgba(91,69,212,.1) 0%, transparent 50%);
 }
-.hero-eyebrow{
-  display:inline-flex;align-items:center;gap:8px;
-  background:rgba(111,92,230,.1);
-  border:1px solid rgba(111,92,230,.25);
-  color:rgba(167,139,250,.9);
-  padding:5px 14px 5px 10px;
-  border-radius:999px;
-  font-size:.78rem;font-weight:700;
-  margin-bottom:32px;
-  letter-spacing:.02em;
+.hero-inner { position: relative; z-index: 1; max-width: 1200px; }
+.hero-kicker {
+  font-size: .72rem; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--accent-l);
+  margin-bottom: 32px; display: flex; align-items: center; gap: 12px;
 }
-.hero-eyebrow span{
-  background:var(--accent-g);
-  color:#fff;padding:2px 8px;border-radius:999px;font-size:.72rem;
+.hero-kicker::before {
+  content: ''; display: block; width: 32px; height: 1px;
+  background: var(--accent-l);
 }
-.hero h1{
-  font-size:clamp(2.2rem,6vw,4rem);
-  font-weight:900;line-height:1.15;
-  letter-spacing:-.04em;
-  margin-bottom:22px;
-  max-width:760px;margin-left:auto;margin-right:auto;
+.hero h1 {
+  font-size: clamp(3rem, 8vw, 7rem);
+  font-weight: 900; line-height: 1.05;
+  letter-spacing: -.04em;
+  max-width: 14ch;
+  margin-bottom: 40px;
 }
-.hero-sub{
-  font-size:clamp(.95rem,2vw,1.1rem);
-  color:var(--muted);
-  max-width:520px;margin:0 auto 44px;
-  line-height:1.8;
+.hero h1 em {
+  font-style: normal;
+  color: var(--accent-l);
 }
-.hero-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
-.btn-note{
-  display:inline-flex;align-items:center;gap:8px;
-  background:linear-gradient(135deg,#41c9a0,#1ea97c);
-  color:#fff;padding:13px 26px;border-radius:11px;
-  font-size:.95rem;font-weight:700;text-decoration:none;
-  transition:all .2s;box-shadow:0 4px 20px rgba(29,169,124,.25);
+.hero-body {
+  display: flex; align-items: flex-end;
+  justify-content: space-between; gap: 40px;
 }
-.btn-note:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(29,169,124,.35)}
-.btn-brain{
-  display:inline-flex;align-items:center;gap:8px;
-  background:linear-gradient(135deg,#f59e0b,#ef4444);
-  color:#fff;padding:13px 26px;border-radius:11px;
-  font-size:.95rem;font-weight:700;text-decoration:none;
-  transition:all .2s;box-shadow:0 4px 20px rgba(245,158,11,.2);
+.hero-desc {
+  font-size: 1rem; color: rgba(255,255,255,.55); line-height: 1.85;
+  max-width: 400px;
 }
-.btn-brain:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(245,158,11,.3)}
-.hero-note{
-  margin-top:28px;font-size:.78rem;color:var(--muted2);
+.hero-actions { display: flex; flex-direction: column; gap: 12px; align-items: flex-end; flex-shrink: 0; }
+.hero-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 28px;
+  font-size: .875rem; font-weight: 700; letter-spacing: .04em;
+  border: 1px solid; border-radius: 2px;
+  transition: background .2s, color .2s;
 }
-
-/* ── Section base ──────────────────────────────────────── */
-section{padding:96px 0}
-.section-head{margin-bottom:56px}
-.section-head h2{
-  font-size:clamp(1.7rem,3.5vw,2.6rem);
-  font-weight:900;letter-spacing:-.03em;line-height:1.2;
-  margin-bottom:14px;
+.hero-btn-primary {
+  background: var(--white); color: var(--ink);
+  border-color: var(--white);
 }
-.section-head p{
-  font-size:1rem;color:var(--muted);max-width:480px;line-height:1.8;
+.hero-btn-primary:hover { background: rgba(255,255,255,.85); }
+.hero-btn-ghost {
+  background: transparent; color: rgba(255,255,255,.7);
+  border-color: rgba(255,255,255,.2);
+}
+.hero-btn-ghost:hover { border-color: rgba(255,255,255,.6); color: var(--white); }
+.hero-note {
+  font-size: .72rem; color: rgba(255,255,255,.3);
+  text-align: right; letter-spacing: .04em; margin-top: 8px;
 }
 
-/* ── Stats bar ─────────────────────────────────────────── */
-.stats-bar{
-  background:var(--bg2);
-  border-top:1px solid var(--border);
-  border-bottom:1px solid var(--border);
-  padding:0;
+/* ─── Index bar ───────────────────────────────────────────── */
+.index-bar {
+  display: flex; align-items: center;
+  border-bottom: 1px solid var(--rule-w);
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
-.stats-inner{
-  display:grid;
-  grid-template-columns:repeat(5,1fr);
-  max-width:1080px;margin:0 auto;
+.index-bar::-webkit-scrollbar { display: none; }
+.index-item {
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 8px;
+  padding: 20px 32px;
+  border-right: 1px solid var(--rule-w);
+  font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+  color: rgba(255,255,255,.35); font-weight: 600;
 }
-.stat-item{
-  padding:28px 20px;text-align:center;
-  border-right:1px solid var(--border);
+.index-item-num {
+  font-size: .7rem; color: var(--accent-l); font-weight: 700;
 }
-.stat-item:last-child{border-right:none}
-.stat-num{
-  font-size:2rem;font-weight:900;letter-spacing:-.04em;
-  background:var(--accent-g);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-}
-.stat-label{font-size:.78rem;color:var(--muted);margin-top:3px;line-height:1.4}
 
-/* ── Pain ──────────────────────────────────────────────── */
-.pain-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
-  gap:1px;
-  background:var(--border);
-  border:1px solid var(--border);
-  border-radius:var(--r2);
-  overflow:hidden;
+/* ─── Section base ────────────────────────────────────────── */
+.section { border-bottom: 1px solid var(--rule-w); }
+.section-inner {
+  max-width: 1200px; margin: 0 auto;
+  padding: 96px 48px;
 }
-.pain-card{
-  background:var(--bg2);
-  padding:30px 28px;
-  transition:background .2s;
+.section-label {
+  display: flex; align-items: center; gap: 12px;
+  font-size: .7rem; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: rgba(255,255,255,.3);
+  margin-bottom: 48px;
 }
-.pain-card:hover{background:rgba(111,92,230,.05)}
-.pain-icon{
-  width:40px;height:40px;border-radius:10px;
-  display:flex;align-items:center;justify-content:center;
-  font-size:1.1rem;margin-bottom:14px;
-  background:var(--surface2);border:1px solid var(--border2);
+.section-label::before {
+  content: ''; display: block;
+  width: 24px; height: 1px;
+  background: rgba(255,255,255,.3);
 }
-.pain-card h3{font-size:.95rem;font-weight:800;margin-bottom:7px}
-.pain-card p{font-size:.84rem;color:var(--muted);line-height:1.7}
 
-/* ── Feature (alternating layout) ─────────────────────── */
-.feature-row{
-  display:grid;grid-template-columns:1fr 1fr;gap:56px;
-  align-items:center;margin-bottom:80px;
+/* ─── Pain section ────────────────────────────────────────── */
+.pain-headline {
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: 900; letter-spacing: -.03em; line-height: 1.1;
+  max-width: 18ch; margin-bottom: 80px;
 }
-.feature-row:last-child{margin-bottom:0}
-.feature-row.reverse .feature-shot{order:-1}
+.pain-list { display: flex; flex-direction: column; }
+.pain-row {
+  display: flex; align-items: baseline; gap: 40px;
+  padding: 28px 0;
+  border-top: 1px solid var(--rule-w);
+  cursor: default;
+  transition: padding-left .25s;
+}
+.pain-row:last-child { border-bottom: 1px solid var(--rule-w); }
+.pain-row:hover { padding-left: 12px; }
+.pain-num {
+  font-size: .72rem; color: rgba(255,255,255,.25);
+  font-weight: 600; letter-spacing: .06em;
+  width: 28px; flex-shrink: 0;
+}
+.pain-title {
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  font-weight: 800; letter-spacing: -.01em;
+  flex: 1;
+}
+.pain-desc {
+  font-size: .875rem; color: rgba(255,255,255,.45);
+  line-height: 1.75; max-width: 360px;
+}
 
-.feature-content{}
-.feature-num{
-  font-size:.72rem;font-weight:800;letter-spacing:.1em;
-  color:var(--muted2);text-transform:uppercase;margin-bottom:10px;
+/* ─── Stats strip ─────────────────────────────────────────── */
+.stats-strip {
+  border-bottom: 1px solid var(--rule-w);
+  display: grid; grid-template-columns: repeat(5, 1fr);
 }
-.feature-content h3{
-  font-size:clamp(1.3rem,2.5vw,1.8rem);
-  font-weight:900;letter-spacing:-.025em;line-height:1.25;
-  margin-bottom:14px;
+.stat-cell {
+  padding: 48px 32px;
+  border-right: 1px solid var(--rule-w);
 }
-.feature-content p{
-  font-size:.9rem;color:var(--muted);line-height:1.8;margin-bottom:18px;
+.stat-cell:last-child { border-right: none; }
+.stat-n {
+  font-size: clamp(2.4rem, 4vw, 3.8rem);
+  font-weight: 900; letter-spacing: -.04em;
+  line-height: 1; color: var(--white);
+  margin-bottom: 10px;
 }
-.feature-bullets{list-style:none;display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
-.feature-bullets li{
-  display:flex;align-items:flex-start;gap:8px;
-  font-size:.85rem;color:var(--muted);
+.stat-n sup { font-size: .45em; color: var(--accent-l); vertical-align: super; }
+.stat-l {
+  font-size: .72rem; color: rgba(255,255,255,.35);
+  letter-spacing: .08em; text-transform: uppercase;
+  font-weight: 600; line-height: 1.5;
 }
-.feature-bullets li::before{
-  content:'';width:5px;height:5px;border-radius:50%;
-  background:var(--accent);flex-shrink:0;margin-top:7px;
-}
-.feature-chips{display:flex;gap:6px;flex-wrap:wrap}
-.chip{
-  background:rgba(111,92,230,.1);
-  border:1px solid rgba(111,92,230,.2);
-  color:rgba(167,139,250,.9);
-  padding:3px 10px;border-radius:999px;
-  font-size:.73rem;font-weight:700;
-}
-.chip.teal{background:rgba(45,212,191,.1);border-color:rgba(45,212,191,.2);color:var(--teal)}
-.chip.pink{background:rgba(232,121,160,.1);border-color:rgba(232,121,160,.2);color:var(--pink)}
-.chip.amber{background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.2);color:var(--amber)}
-.chip.green{background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.2);color:var(--green)}
 
-/* ── Screenshot frame ──────────────────────────────────── */
-.feature-shot{
-  background:var(--bg2);
-  border:1px solid var(--border2);
-  border-radius:var(--r2);
-  overflow:hidden;
-  aspect-ratio:16/10;
-  position:relative;
-  box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06);
+/* ─── Features ────────────────────────────────────────────── */
+.feature-block {
+  display: grid; grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--rule-w);
 }
-.feature-shot img{
-  width:100%;height:100%;object-fit:cover;display:block;
+.feature-block:last-of-type { border-bottom: none; }
+.feature-info {
+  padding: 80px 48px;
+  border-right: 1px solid var(--rule-w);
+  display: flex; flex-direction: column; justify-content: center;
 }
-.shot-placeholder{
-  width:100%;height:100%;
-  display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  gap:10px;
-  background:linear-gradient(135deg,rgba(111,92,230,.06),rgba(45,212,191,.04));
+.feature-block.flip .feature-info { order: 2; border-right: none; border-left: 1px solid var(--rule-w); }
+.feature-block.flip .feature-visual { order: 1; }
+.feat-num {
+  font-size: .68rem; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--accent-l);
+  margin-bottom: 24px;
 }
-.shot-placeholder .ph-icon{font-size:2.2rem;opacity:.35}
-.shot-placeholder .ph-label{font-size:.78rem;color:var(--muted2);letter-spacing:.05em}
+.feat-title {
+  font-size: clamp(1.5rem, 3vw, 2.4rem);
+  font-weight: 900; letter-spacing: -.025em; line-height: 1.15;
+  margin-bottom: 20px;
+}
+.feat-desc {
+  font-size: .9rem; color: rgba(255,255,255,.5);
+  line-height: 1.85; margin-bottom: 28px;
+}
+.feat-list {
+  list-style: none;
+  display: flex; flex-direction: column; gap: 10px;
+  margin-bottom: 32px;
+}
+.feat-list li {
+  font-size: .85rem; color: rgba(255,255,255,.55);
+  display: flex; align-items: flex-start; gap: 10px; line-height: 1.6;
+}
+.feat-list li::before {
+  content: '—'; color: var(--accent-l); flex-shrink: 0; font-weight: 700;
+}
+.feat-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.feat-tag {
+  font-size: .7rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; padding: 4px 10px;
+  border: 1px solid rgba(255,255,255,.15);
+  color: rgba(255,255,255,.45);
+  border-radius: 1px;
+}
 
-/* ── Tabs grid ─────────────────────────────────────────── */
-.tabs-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
-  gap:10px;
+/* ─── Screenshot frame ────────────────────────────────────── */
+.feature-visual {
+  position: relative; overflow: hidden;
+  min-height: 400px;
+  background: #0f0f18;
 }
-.tab-card{
-  background:var(--surface);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:20px 18px;
-  transition:all .2s;
-  cursor:default;
+.feature-visual img {
+  width: 100%; height: 100%;
+  object-fit: cover; object-position: top left;
+  opacity: .95;
 }
-.tab-card:hover{
-  background:rgba(111,92,230,.07);
-  border-color:rgba(111,92,230,.3);
-  transform:translateY(-2px);
+.visual-placeholder {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 14px; min-height: 400px;
 }
-.tab-num{
-  font-size:1.6rem;margin-bottom:8px;line-height:1;
+.vph-icon { font-size: 2.4rem; opacity: .2; }
+.vph-label {
+  font-size: .72rem; letter-spacing: .1em; text-transform: uppercase;
+  color: rgba(255,255,255,.2); font-weight: 600;
 }
-.tab-card h4{font-size:.88rem;font-weight:800;margin-bottom:4px}
-.tab-card p{font-size:.78rem;color:var(--muted);line-height:1.55}
+/* 画像読み込み失敗時 */
+.feature-visual img[data-error] { display: none; }
 
-/* ── CTA ───────────────────────────────────────────────── */
-.cta-section{
-  padding:96px 24px;
-  background:var(--bg2);
-  border-top:1px solid var(--border);
-  border-bottom:1px solid var(--border);
+/* ─── Pull quote ──────────────────────────────────────────── */
+.pull-quote-section {
+  border-bottom: 1px solid var(--rule-w);
+  padding: 96px 48px;
 }
-.cta-inner{
-  max-width:960px;margin:0 auto;
-  display:grid;grid-template-columns:1fr 1fr;gap:24px;
+.pull-quote {
+  max-width: 900px; margin: 0 auto;
+  font-size: clamp(1.8rem, 4vw, 3.2rem);
+  font-weight: 900; letter-spacing: -.03em; line-height: 1.2;
+  text-align: center;
 }
-.cta-card{
-  border-radius:var(--r2);
-  padding:44px 40px;
-  position:relative;overflow:hidden;
-}
-.cta-card.note-card{
-  background:linear-gradient(135deg,rgba(65,201,160,.12),rgba(30,169,124,.06));
-  border:1px solid rgba(65,201,160,.25);
-}
-.cta-card.brain-card{
-  background:linear-gradient(135deg,rgba(245,158,11,.1),rgba(239,68,68,.06));
-  border:1px solid rgba(245,158,11,.22);
-}
-.cta-card::before{
-  content:'';position:absolute;
-  top:-60px;right:-60px;
-  width:200px;height:200px;border-radius:50%;
-  opacity:.07;
-}
-.note-card::before{background:radial-gradient(circle,#41c9a0,transparent)}
-.brain-card::before{background:radial-gradient(circle,#f59e0b,transparent)}
-.cta-service{
-  font-size:.72rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
-  margin-bottom:12px;opacity:.7;
-}
-.note-card .cta-service{color:#41c9a0}
-.brain-card .cta-service{color:#f59e0b}
-.cta-card h3{
-  font-size:1.4rem;font-weight:900;letter-spacing:-.02em;
-  line-height:1.3;margin-bottom:12px;
-}
-.cta-card p{
-  font-size:.875rem;color:var(--muted);line-height:1.75;margin-bottom:28px;
-}
-.cta-btn{
-  display:inline-flex;align-items:center;gap:7px;
-  padding:11px 22px;border-radius:10px;
-  font-size:.875rem;font-weight:700;text-decoration:none;
-  transition:all .2s;
-}
-.btn-note-sm{
-  background:linear-gradient(135deg,#41c9a0,#1ea97c);
-  color:#fff;box-shadow:0 3px 14px rgba(29,169,124,.25);
-}
-.btn-note-sm:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(29,169,124,.35)}
-.btn-brain-sm{
-  background:linear-gradient(135deg,#f59e0b,#ef4444);
-  color:#fff;box-shadow:0 3px 14px rgba(245,158,11,.22);
-}
-.btn-brain-sm:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(245,158,11,.32)}
+.pull-quote span { color: var(--accent-l); }
 
-/* ── Footer ────────────────────────────────────────────── */
-footer{
-  padding:48px 24px;
-  text-align:center;
-  color:var(--muted2);
-  font-size:.82rem;
-  border-top:1px solid var(--border);
+/* ─── Screens grid ────────────────────────────────────────── */
+.screens-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
 }
-footer strong{color:var(--muted);font-weight:700}
-.footer-links{
-  display:flex;gap:20px;justify-content:center;flex-wrap:wrap;
-  margin:12px 0 16px;
+.screen-cell {
+  padding: 32px 36px;
+  border-right: 1px solid var(--rule-w);
+  border-bottom: 1px solid var(--rule-w);
 }
-.footer-links a{color:var(--muted);text-decoration:none;transition:color .18s}
-.footer-links a:hover{color:var(--text)}
+.screen-cell:nth-child(3n) { border-right: none; }
+.screen-cell:nth-last-child(-n+3) { border-bottom: none; }
+.sc-num {
+  font-size: 2.4rem; font-weight: 900; letter-spacing: -.04em;
+  color: rgba(255,255,255,.08); line-height: 1; margin-bottom: 12px;
+}
+.sc-title { font-size: .95rem; font-weight: 800; margin-bottom: 6px; }
+.sc-desc { font-size: .8rem; color: rgba(255,255,255,.4); line-height: 1.65; }
 
-/* ── Responsive ────────────────────────────────────────── */
-@media(max-width:900px){
-  .stats-inner{grid-template-columns:repeat(3,1fr)}
-  .stat-item:nth-child(3){border-right:none}
-  .stat-item:nth-child(4){border-top:1px solid var(--border)}
-  .stat-item:nth-child(5){border-top:1px solid var(--border);border-right:none}
-  .feature-row{grid-template-columns:1fr;gap:32px}
-  .feature-row.reverse .feature-shot{order:0}
-  .cta-inner{grid-template-columns:1fr}
+/* ─── CTA ─────────────────────────────────────────────────── */
+.cta-section {
+  padding: 120px 48px;
+  text-align: center;
+  border-bottom: 1px solid var(--rule-w);
 }
-@media(max-width:640px){
-  nav .nav-links{display:none}
-  .hero{padding:80px 20px 64px}
-  .stats-inner{grid-template-columns:repeat(2,1fr)}
-  .stat-item:nth-child(2){border-right:none}
-  .stat-item:nth-child(3){border-top:1px solid var(--border)}
-  .stat-item:nth-child(4){border-top:1px solid var(--border);border-right:none}
-  .stat-item:nth-child(5){border-top:1px solid var(--border);grid-column:1/-1;border-right:none}
-  .cta-card{padding:32px 24px}
-  section{padding:72px 0}
+.cta-eyebrow {
+  font-size: .7rem; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: rgba(255,255,255,.3);
+  margin-bottom: 24px;
+}
+.cta-headline {
+  font-size: clamp(2.4rem, 6vw, 5rem);
+  font-weight: 900; letter-spacing: -.04em; line-height: 1.05;
+  margin-bottom: 56px;
+}
+.cta-cards {
+  display: flex; gap: 1px; justify-content: center;
+  max-width: 720px; margin: 0 auto;
+  border: 1px solid var(--rule-w); border-radius: 2px; overflow: hidden;
+}
+.cta-card {
+  flex: 1; padding: 48px 40px; text-align: left;
+  background: rgba(255,255,255,.03);
+  transition: background .2s;
+}
+.cta-card:first-child { border-right: 1px solid var(--rule-w); }
+.cta-card:hover { background: rgba(255,255,255,.06); }
+.cta-platform {
+  font-size: .68rem; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; margin-bottom: 16px;
+}
+.cta-card.note-c .cta-platform { color: #41c9a0; }
+.cta-card.brain-c .cta-platform { color: #f59e0b; }
+.cta-card h3 {
+  font-size: 1.3rem; font-weight: 900; letter-spacing: -.02em;
+  line-height: 1.3; margin-bottom: 12px;
+}
+.cta-card p {
+  font-size: .83rem; color: rgba(255,255,255,.45);
+  line-height: 1.75; margin-bottom: 28px;
+}
+.cta-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .8rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid;
+  padding-bottom: 2px;
+  transition: opacity .2s;
+}
+.cta-card.note-c .cta-link { color: #41c9a0; border-color: #41c9a0; }
+.cta-card.brain-c .cta-link { color: #f59e0b; border-color: #f59e0b; }
+.cta-link:hover { opacity: .65; }
+.cta-link::after { content: '→'; }
+
+/* ─── Footer ──────────────────────────────────────────────── */
+footer {
+  padding: 40px 48px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 16px;
+}
+.footer-copy {
+  font-size: .75rem; color: rgba(255,255,255,.25);
+  letter-spacing: .04em;
+}
+.footer-links { display: flex; gap: 24px; }
+.footer-links a {
+  font-size: .75rem; color: rgba(255,255,255,.3);
+  letter-spacing: .04em; transition: color .2s;
+}
+.footer-links a:hover { color: rgba(255,255,255,.7); }
+
+/* ─── Responsive ──────────────────────────────────────────── */
+@media (max-width: 960px) {
+  nav { padding: 0 24px; }
+  .nav-links { display: none; }
+  .hero { padding: 0 24px 64px; }
+  .hero h1 { font-size: clamp(2.6rem, 10vw, 4rem); }
+  .hero-body { flex-direction: column; align-items: flex-start; }
+  .hero-actions { align-items: flex-start; }
+  .hero-note { text-align: left; }
+  .section-inner { padding: 72px 24px; }
+  .pull-quote-section { padding: 72px 24px; }
+  .stats-strip { grid-template-columns: repeat(3, 1fr); }
+  .stat-cell:nth-child(3) { border-right: none; }
+  .stat-cell:nth-child(4) { border-top: 1px solid var(--rule-w); }
+  .stat-cell:nth-child(5) { border-top: 1px solid var(--rule-w); border-right: none; }
+  .feature-block { grid-template-columns: 1fr; }
+  .feature-info { border-right: none; border-left: none !important; padding: 48px 24px; }
+  .feature-block.flip .feature-info { order: 0; }
+  .feature-block.flip .feature-visual { order: 0; }
+  .feature-visual { min-height: 280px; }
+  .screens-grid { grid-template-columns: repeat(2, 1fr); }
+  .screen-cell:nth-child(2n) { border-right: none; }
+  .screen-cell:nth-child(3n) { border-right: 1px solid var(--rule-w); }
+  .screen-cell:last-child { border-right: none; }
+  .cta-section { padding: 80px 24px; }
+  .cta-cards { flex-direction: column; }
+  .cta-card:first-child { border-right: none; border-bottom: 1px solid var(--rule-w); }
+  footer { padding: 32px 24px; }
+  .index-item { padding: 16px 20px; }
+  .pain-row { flex-direction: column; gap: 8px; }
+  .pain-desc { max-width: 100%; }
+}
+@media (max-width: 640px) {
+  .screens-grid { grid-template-columns: 1fr; }
+  .screen-cell { border-right: none !important; }
+  .screen-cell:last-child { border-bottom: none; }
 }
 </style>
 </head>
 <body>
 
-<!-- ══ Nav ════════════════════════════════════════════════ -->
+<!-- ══ Nav ═══════════════════════════════════════════════════ -->
 <nav>
-  <div class="nav-inner">
-    <a class="nav-logo" href="#">
-      <div class="nav-logo-icon">⚡</div>
-      Obsidian Optimizer
-    </a>
-    <div class="nav-links">
-      <a href="#features">機能</a>
-      <a href="#screens">画面構成</a>
-      <a href="#get">詳しく読む</a>
-    </div>
-    <a class="nav-cta" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">使い方ガイドを読む →</a>
+  <div class="nav-wordmark">Obsidian Optimizer</div>
+  <div class="nav-links">
+    <a href="#features">機能</a>
+    <a href="#screens">画面</a>
+    <a href="#get">記事を読む</a>
   </div>
+  <a class="nav-cta" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">使い方ガイド</a>
 </nav>
 
-<!-- ══ Hero ═══════════════════════════════════════════════ -->
+<!-- ══ Hero ══════════════════════════════════════════════════ -->
 <div class="hero">
-  <div class="hero-eyebrow">
-    <span>NEW</span>
-    日本語ファースト &nbsp;·&nbsp; Mac / Windows 対応
-  </div>
-  <h1>Obsidian の Vault が<br><span class="gradient-text">散らかったまま</span>に<br>なっていませんか？</h1>
-  <p class="hero-sub">孤立ノート・壊れたリンク・タグの乱立・Git バックアップ未実施——すべてをワンクリックで解決するデスクトップアプリ。</p>
-  <div class="hero-actions">
-    <a class="btn-note" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H7v-2h5v2zm5-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-      note で使い方を読む
-    </a>
-    <a class="btn-brain" href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      Brain で詳しく見る
-    </a>
-  </div>
-  <p class="hero-note">完全ローカル動作 · データはクラウドに送られません · AI 機能は自前の API キーを使用</p>
-</div>
-
-<!-- ══ Stats ═══════════════════════════════════════════════ -->
-<div class="stats-bar">
-  <div class="stats-inner">
-    <div class="stat-item"><div class="stat-num">100<span style="font-size:1.2rem">+</span></div><div class="stat-label">実装済み<br>機能数</div></div>
-    <div class="stat-item"><div class="stat-num">127</div><div class="stat-label">バックエンド<br>API エンドポイント</div></div>
-    <div class="stat-item"><div class="stat-num">19</div><div class="stat-label">AI<br>機能</div></div>
-    <div class="stat-item"><div class="stat-num">9</div><div class="stat-label">メイン<br>タブ</div></div>
-    <div class="stat-item"><div class="stat-num">173</div><div class="stat-label">自動テスト<br>全グリーン ✅</div></div>
+  <div class="hero-bg"></div>
+  <div class="hero-inner">
+    <div class="hero-kicker">AI寺子屋LAB &nbsp;—&nbsp; Obsidian Optimizer</div>
+    <h1>Vault の<br>散らかりを<br><em>終わらせる</em></h1>
+    <div class="hero-body">
+      <p class="hero-desc">
+        孤立ノート・壊れたリンク・タグの乱立・バックアップ未実施——<br>
+        Obsidian ユーザーが抱えるすべての問題を、<br>
+        1 つのデスクトップアプリで解決します。
+      </p>
+      <div>
+        <div class="hero-actions">
+          <a class="hero-btn hero-btn-primary" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">
+            note で使い方を読む
+          </a>
+          <a class="hero-btn hero-btn-ghost" href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">
+            Brain でも読む
+          </a>
+        </div>
+        <p class="hero-note">完全ローカル動作 · Mac / Windows 対応 · v5.4.3</p>
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- ══ Pain ════════════════════════════════════════════════ -->
-<section>
-  <div class="container">
-    <div class="section-head">
-      <span class="label">こんな悩みはありませんか？</span>
-      <h2>Obsidian ユーザーが<br>抱えがちな 6 つの課題</h2>
-    </div>
-    <div class="pain-grid">
-      <div class="pain-card">
-        <div class="pain-icon">🕸️</div>
-        <h3>孤立ノートが増え続ける</h3>
-        <p>どこにも繋がっていないノートが数百個。検索しても辿り着けない「知識の孤島」になっています。</p>
+<!-- ══ Index bar ══════════════════════════════════════════════ -->
+<div class="index-bar">
+  <div class="index-item"><span class="index-item-num">01</span>スキャン・最適化</div>
+  <div class="index-item"><span class="index-item-num">02</span>MOC 自動生成</div>
+  <div class="index-item"><span class="index-item-num">03</span>AI 分析</div>
+  <div class="index-item"><span class="index-item-num">04</span>知識グラフ</div>
+  <div class="index-item"><span class="index-item-num">05</span>プロジェクト</div>
+  <div class="index-item"><span class="index-item-num">06</span>スマートルール</div>
+  <div class="index-item"><span class="index-item-num">07</span>整備ツール</div>
+  <div class="index-item"><span class="index-item-num">08</span>Git バックアップ</div>
+</div>
+
+<!-- ══ Pain ═══════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-inner">
+    <div class="section-label">こんな悩みはありませんか</div>
+    <p class="pain-headline">Vault が抱える<br>6 つの課題</p>
+    <div class="pain-list">
+      <div class="pain-row">
+        <span class="pain-num">01</span>
+        <span class="pain-title">孤立ノートが増え続ける</span>
+        <span class="pain-desc">どこにも繋がっていないノートが数百個。検索しても辿り着けない「知識の孤島」が積み上がっていく。</span>
       </div>
-      <div class="pain-card">
-        <div class="pain-icon">🏷️</div>
-        <h3>タグが増えすぎて管理不能</h3>
-        <p>似たようなタグが乱立し、統一できないまま放置。一括リネームも手作業では限界があります。</p>
+      <div class="pain-row">
+        <span class="pain-num">02</span>
+        <span class="pain-title">タグが増えすぎて管理不能</span>
+        <span class="pain-desc">似たようなタグが乱立し、一括リネームも手作業では限界。どこから手をつければいいかわからない。</span>
       </div>
-      <div class="pain-card">
-        <div class="pain-icon">📋</div>
-        <h3>MOC を手動で作るのが面倒</h3>
-        <p>目次ノートを作ろうとしても、ノートを一つひとつ手動でリンクするのに時間がかかります。</p>
+      <div class="pain-row">
+        <span class="pain-num">03</span>
+        <span class="pain-title">MOC を手動で作るのが面倒</span>
+        <span class="pain-desc">目次ノートを作ろうとしても、ノートを一つひとつ手動でリンクするのに時間がかかりすぎる。</span>
       </div>
-      <div class="pain-card">
-        <div class="pain-icon">💾</div>
-        <h3>Git バックアップが億劫</h3>
-        <p>「あとで」と思いながらバックアップしないまま日が過ぎる。コマンドを打つのが面倒で続かない。</p>
+      <div class="pain-row">
+        <span class="pain-num">04</span>
+        <span class="pain-title">Git バックアップが億劫</span>
+        <span class="pain-desc">「あとで」と思いながらバックアップしないまま日が過ぎる。コマンドを打つのが面倒で続かない。</span>
       </div>
-      <div class="pain-card">
-        <div class="pain-icon">🤖</div>
-        <h3>AI 連携の設定が難しい</h3>
-        <p>Claude や GPT-4 でノートを分析・要約したいのに、連携の手間がかかって諦めていませんか？</p>
+      <div class="pain-row">
+        <span class="pain-num">05</span>
+        <span class="pain-title">AI 連携の設定が難しい</span>
+        <span class="pain-desc">Claude や GPT-4o でノートを分析・要約したいのに、連携の手間がかかって諦めていませんか？</span>
       </div>
-      <div class="pain-card">
-        <div class="pain-icon">📊</div>
-        <h3>Vault の全体像が見えない</h3>
-        <p>ノートが何個あって、どのくらい使われているか、健康状態がどうなのか、全く把握できていない。</p>
+      <div class="pain-row">
+        <span class="pain-num">06</span>
+        <span class="pain-title">Vault の全体像が見えない</span>
+        <span class="pain-desc">ノートが何個あって、どのくらい使われているか。健康状態がどうなのか、把握できていない。</span>
       </div>
     </div>
   </div>
-</section>
+</div>
 
-<!-- ══ Features ════════════════════════════════════════════ -->
-<section id="features" style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
-  <div class="container">
-    <div class="section-head">
-      <span class="label">機能紹介</span>
-      <h2>Vault 管理に必要な<br>すべてが 1 つに</h2>
-      <p>バラバラなプラグインを入れる必要はありません。Obsidian Optimizer 1 つですべてが完結します。</p>
-    </div>
-
-    <!-- Feature 1 -->
-    <div class="feature-row">
-      <div class="feature-content">
-        <div class="feature-num">Feature 01</div>
-        <h3>スキャン &amp; 最適化</h3>
-        <p>Vault 全体を深くスキャンし、孤立ノート・ゴミファイル・放置ノート・破損リンクを一括検出。ドライランで影響範囲を確認してから安全に修正できます。</p>
-        <ul class="feature-bullets">
-          <li>孤立ノート・デッドリンクの一括検出</li>
-          <li>ゴミファイル・孤立画像の削除</li>
-          <li>ドライランモードで安全確認</li>
-          <li>修正前後の差分プレビュー</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip">孤立ノート</span>
-          <span class="chip">破損リンク</span>
-          <span class="chip teal">ドライラン</span>
-          <span class="chip teal">ゴミ削除</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <!-- スクリーンショット差し替え用: images/feature-scan.png を配置してください -->
-        <img src="images/feature-scan.png" alt="スキャン・最適化画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">🔍</div>
-          <div class="ph-label">スキャン・最適化のスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature 2 -->
-    <div class="feature-row reverse">
-      <div class="feature-content">
-        <div class="feature-num">Feature 02</div>
-        <h3>MOC 自動生成</h3>
-        <p>タグ・フォルダ・テンプレートから MOC（目次ノート）を自動生成。ウィザードで初心者でも 3 ステップで完成し、既存の MOC をワンクリックで更新できます。</p>
-        <ul class="feature-bullets">
-          <li>タグ・フォルダ別 MOC を一括生成</li>
-          <li>カスタムテンプレート対応</li>
-          <li>既存 MOC を差分更新</li>
-          <li>バッチ生成でまとめて作成</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip">テンプレート</span>
-          <span class="chip">バッチ生成</span>
-          <span class="chip pink">AI 支援</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <img src="images/feature-moc.png" alt="MOC自動生成画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">🗺️</div>
-          <div class="ph-label">MOC 自動生成のスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature 3 -->
-    <div class="feature-row">
-      <div class="feature-content">
-        <div class="feature-num">Feature 03</div>
-        <h3>AI 分析（19 機能）</h3>
-        <p>Claude / GPT-4o / Gemini と接続して、ノート要約・タグ提案・重複検出・翻訳・Vault Q&A・自動分類など 19 種類の AI 機能を使えます。API キーを入れるだけで即使用可能。</p>
-        <ul class="feature-bullets">
-          <li>Claude / GPT-4o / Gemini に対応</li>
-          <li>RAG で Vault に質問（Vault Q&A）</li>
-          <li>自動タグ提案・重複ノート検出</li>
-          <li>翻訳・要約・ライティングフィードバック</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip">Claude</span>
-          <span class="chip">GPT-4o</span>
-          <span class="chip">Gemini</span>
-          <span class="chip pink">RAG</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <img src="images/feature-ai.png" alt="AI分析画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">🤖</div>
-          <div class="ph-label">AI 機能のスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature 4 -->
-    <div class="feature-row reverse">
-      <div class="feature-content">
-        <div class="feature-num">Feature 04</div>
-        <h3>知識グラフ分析</h3>
-        <p>ノート間のリンク接続をリアルタイムに可視化。ライティング分析・ノートスコア・クラスター検出で Vault の健康状態を数値で把握できます。</p>
-        <ul class="feature-bullets">
-          <li>インタラクティブなリンクグラフ</li>
-          <li>ノートスコアで品質を定量化</li>
-          <li>ライティング統計（語数・更新頻度）</li>
-          <li>クラスター検出で知識の偏りを発見</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip teal">グラフ可視化</span>
-          <span class="chip teal">ノートスコア</span>
-          <span class="chip">統計</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <img src="images/feature-graph.png" alt="知識グラフ分析画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">📊</div>
-          <div class="ph-label">知識グラフ分析のスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature 5 -->
-    <div class="feature-row">
-      <div class="feature-content">
-        <div class="feature-num">Feature 05</div>
-        <h3>プロジェクト管理</h3>
-        <p>プロジェクト・タスク・マイルストーンを Vault ノートと双方向でリアルタイム同期。アプリ上でチェックを入れると Obsidian 側のノートも即座に更新されます。</p>
-        <ul class="feature-bullets">
-          <li>アプリ ↔ Vault の双方向リアルタイム同期</li>
-          <li>8 種以上のプロジェクトテンプレート</li>
-          <li>マイルストーン・進捗バー</li>
-          <li>カレンダービューで期限管理</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip green">Vault 同期</span>
-          <span class="chip">マイルストーン</span>
-          <span class="chip">カレンダー</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <img src="images/feature-project.png" alt="プロジェクト管理画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">🗂️</div>
-          <div class="ph-label">プロジェクト管理のスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature 6 -->
-    <div class="feature-row reverse">
-      <div class="feature-content">
-        <div class="feature-num">Feature 06</div>
-        <h3>スマートルール</h3>
-        <p>「条件 → アクション」形式のルールで Vault 整理を完全自動化。タグの付け直し・ノート移動・MOC 更新を、毎日・毎週・毎月のスケジュールで自動実行できます。</p>
-        <ul class="feature-bullets">
-          <li>30 種類以上の条件 × アクション</li>
-          <li>毎日・毎週・毎月のスケジュール実行</li>
-          <li>実行ログで動作を確認</li>
-          <li>通知機能でルール完了を通知</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip amber">スケジュール</span>
-          <span class="chip amber">自動化</span>
-          <span class="chip">通知</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <img src="images/feature-rules.png" alt="スマートルール画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">⚡</div>
-          <div class="ph-label">スマートルールのスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature 7 -->
-    <div class="feature-row">
-      <div class="feature-content">
-        <div class="feature-num">Feature 07</div>
-        <h3>整備ツール集（19 種）</h3>
-        <p>タグ一括リネーム・フロントマター一括編集・ノート分割・孤立画像削除・シークレット検出など、日常の Vault メンテナンスに欠かせない 19 種のツールを搭載。</p>
-        <ul class="feature-bullets">
-          <li>タグ一括リネーム・マージ・削除</li>
-          <li>フロントマターの一括追加・更新</li>
-          <li>長文ノートを見出しで自動分割</li>
-          <li>孤立画像・シークレット検出</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip">タグ管理</span>
-          <span class="chip">フロントマター</span>
-          <span class="chip teal">ノート分割</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <img src="images/feature-tools.png" alt="整備ツール画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">🔧</div>
-          <div class="ph-label">整備ツール集のスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Feature 8 -->
-    <div class="feature-row reverse">
-      <div class="feature-content">
-        <div class="feature-num">Feature 08</div>
-        <h3>Git バックアップ</h3>
-        <p>ワンクリックで Vault を Git コミット。カスタムコミットメッセージ・定期自動バックアップ・バックアップ履歴管理。コマンドラインを触らずに Vault を守れます。</p>
-        <ul class="feature-bullets">
-          <li>ワンクリックでコミット＆プッシュ</li>
-          <li>毎日・毎週の自動バックアップ</li>
-          <li>コミット履歴の閲覧・差分確認</li>
-          <li>SSH / HTTPS どちらにも対応</li>
-        </ul>
-        <div class="feature-chips">
-          <span class="chip green">自動バックアップ</span>
-          <span class="chip">履歴管理</span>
-          <span class="chip">Git</span>
-        </div>
-      </div>
-      <div class="feature-shot">
-        <img src="images/feature-git.png" alt="Gitバックアップ画面" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-        <div class="shot-placeholder" style="display:none">
-          <div class="ph-icon">🔒</div>
-          <div class="ph-label">Git バックアップのスクリーンショット</div>
-        </div>
-      </div>
-    </div>
-
+<!-- ══ Stats ══════════════════════════════════════════════════ -->
+<div class="stats-strip">
+  <div class="stat-cell">
+    <div class="stat-n">100<sup>+</sup></div>
+    <div class="stat-l">実装済み<br>機能数</div>
   </div>
-</section>
+  <div class="stat-cell">
+    <div class="stat-n">127</div>
+    <div class="stat-l">バックエンド<br>API</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-n">19</div>
+    <div class="stat-l">AI<br>機能</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-n">9</div>
+    <div class="stat-l">メイン<br>タブ</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-n">173</div>
+    <div class="stat-l">自動テスト<br>全グリーン</div>
+  </div>
+</div>
 
-<!-- ══ Tabs ════════════════════════════════════════════════ -->
-<section id="screens">
-  <div class="container">
-    <div class="section-head">
-      <span class="label">画面構成</span>
-      <h2>9 つのタブで<br>すべてが完結</h2>
-      <p>ダッシュボードから AI 機能まで、すべての操作を 1 つのアプリ内で完結。タブ切り替えだけでどこへでも。</p>
+<!-- ══ Features ═══════════════════════════════════════════════ -->
+<div id="features">
+
+  <!-- 01 -->
+  <div class="feature-block">
+    <div class="feature-info">
+      <div class="feat-num">Feature 01</div>
+      <h2 class="feat-title">スキャン &amp;<br>最適化</h2>
+      <p class="feat-desc">Vault 全体を深くスキャンし、孤立ノート・ゴミファイル・破損リンクを一括検出。ドライランで影響範囲を確認してから安全に修正できます。</p>
+      <ul class="feat-list">
+        <li>孤立ノート・デッドリンクの一括検出</li>
+        <li>ゴミファイル・孤立画像の削除</li>
+        <li>ドライランモードで安全確認</li>
+        <li>修正前後の差分プレビュー</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">孤立ノート</span>
+        <span class="feat-tag">破損リンク</span>
+        <span class="feat-tag">ドライラン</span>
+      </div>
     </div>
-    <div class="tabs-grid">
-      <div class="tab-card">
-        <div class="tab-num">①</div>
-        <h4>ダッシュボード</h4>
-        <p>今日のタスク・Vault 統計・アクティビティ・クイックアクション</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">②</div>
-        <h4>スキャン・最適化</h4>
-        <p>孤立ノート・破損リンク・ゴミファイルを一括検出・修正</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">③</div>
-        <h4>MOC 作成</h4>
-        <p>目次ノートをウィザードで自動生成・既存 MOC を差分更新</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">④</div>
-        <h4>分析</h4>
-        <p>知識グラフ・ライティング統計・ノートスコア・クラスター</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">⑤</div>
-        <h4>AI 機能</h4>
-        <p>19 種類の AI 分析・生成・Vault Q&A・翻訳・要約</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">⑥</div>
-        <h4>タスク管理</h4>
-        <p>Vault 連動タスク・カレンダービュー・繰り返しタスク</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">⑦</div>
-        <h4>プロジェクト</h4>
-        <p>プロジェクト・マイルストーン・Vault 双方向同期</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">⑧</div>
-        <h4>ツール</h4>
-        <p>タグリネーム・ノート分割・フロントマター管理など 19 種</p>
-      </div>
-      <div class="tab-card">
-        <div class="tab-num">⑨</div>
-        <h4>スマートルール</h4>
-        <p>トリガー × アクションで Vault 整理を完全自動化</p>
-      </div>
+    <div class="feature-visual">
+      <img src="images/feature-scan.png" alt="スキャン・最適化" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">🔍</div><div class="vph-label">Screenshot · feature-scan.png</div></div>
     </div>
   </div>
-</section>
 
-<!-- ══ CTA ═════════════════════════════════════════════════ -->
+  <!-- 02 -->
+  <div class="feature-block flip">
+    <div class="feature-info">
+      <div class="feat-num">Feature 02</div>
+      <h2 class="feat-title">MOC<br>自動生成</h2>
+      <p class="feat-desc">タグ・フォルダ・テンプレートから MOC（目次ノート）を自動生成。3 ステップのウィザードで初心者でも完成し、既存の MOC をワンクリックで更新できます。</p>
+      <ul class="feat-list">
+        <li>タグ・フォルダ別 MOC を一括生成</li>
+        <li>カスタムテンプレート対応</li>
+        <li>既存 MOC を差分更新</li>
+        <li>バッチ生成でまとめて作成</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">テンプレート</span>
+        <span class="feat-tag">バッチ生成</span>
+        <span class="feat-tag">AI 支援</span>
+      </div>
+    </div>
+    <div class="feature-visual">
+      <img src="images/feature-moc.png" alt="MOC自動生成" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">🗺️</div><div class="vph-label">Screenshot · feature-moc.png</div></div>
+    </div>
+  </div>
+
+  <!-- 03 -->
+  <div class="feature-block">
+    <div class="feature-info">
+      <div class="feat-num">Feature 03</div>
+      <h2 class="feat-title">AI 分析<br>19 機能</h2>
+      <p class="feat-desc">Claude / GPT-4o / Gemini と接続して、ノート要約・タグ提案・重複検出・翻訳・Vault Q&A など 19 種類の AI 機能を使えます。API キーを入れるだけで即使用可能。</p>
+      <ul class="feat-list">
+        <li>Claude / GPT-4o / Gemini に対応</li>
+        <li>RAG で Vault に質問（Vault Q&A）</li>
+        <li>自動タグ提案・重複ノート検出</li>
+        <li>翻訳・要約・ライティングフィードバック</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">Claude</span>
+        <span class="feat-tag">GPT-4o</span>
+        <span class="feat-tag">Gemini</span>
+        <span class="feat-tag">RAG</span>
+      </div>
+    </div>
+    <div class="feature-visual">
+      <img src="images/feature-ai.png" alt="AI分析" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">🤖</div><div class="vph-label">Screenshot · feature-ai.png</div></div>
+    </div>
+  </div>
+
+  <!-- 04 -->
+  <div class="feature-block flip">
+    <div class="feature-info">
+      <div class="feat-num">Feature 04</div>
+      <h2 class="feat-title">知識グラフ<br>分析</h2>
+      <p class="feat-desc">ノート間のリンク接続をリアルタイムに可視化。ライティング分析・ノートスコア・クラスター検出で Vault の健康状態を数値で把握できます。</p>
+      <ul class="feat-list">
+        <li>インタラクティブなリンクグラフ</li>
+        <li>ノートスコアで品質を定量化</li>
+        <li>ライティング統計（語数・更新頻度）</li>
+        <li>クラスター検出で知識の偏りを発見</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">グラフ可視化</span>
+        <span class="feat-tag">ノートスコア</span>
+        <span class="feat-tag">統計</span>
+      </div>
+    </div>
+    <div class="feature-visual">
+      <img src="images/feature-graph.png" alt="知識グラフ分析" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">📊</div><div class="vph-label">Screenshot · feature-graph.png</div></div>
+    </div>
+  </div>
+
+  <!-- 05 -->
+  <div class="feature-block">
+    <div class="feature-info">
+      <div class="feat-num">Feature 05</div>
+      <h2 class="feat-title">プロジェクト<br>管理</h2>
+      <p class="feat-desc">プロジェクト・タスク・マイルストーンを Vault ノートと双方向でリアルタイム同期。アプリ上でチェックを入れると Obsidian 側のノートも即座に更新されます。</p>
+      <ul class="feat-list">
+        <li>アプリ ↔ Vault の双方向リアルタイム同期</li>
+        <li>8 種以上のプロジェクトテンプレート</li>
+        <li>マイルストーン・進捗バー</li>
+        <li>カレンダービューで期限管理</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">Vault 同期</span>
+        <span class="feat-tag">マイルストーン</span>
+        <span class="feat-tag">カレンダー</span>
+      </div>
+    </div>
+    <div class="feature-visual">
+      <img src="images/feature-project.png" alt="プロジェクト管理" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">🗂️</div><div class="vph-label">Screenshot · feature-project.png</div></div>
+    </div>
+  </div>
+
+  <!-- 06 -->
+  <div class="feature-block flip">
+    <div class="feature-info">
+      <div class="feat-num">Feature 06</div>
+      <h2 class="feat-title">スマート<br>ルール</h2>
+      <p class="feat-desc">「条件 → アクション」形式のルールで Vault 整理を完全自動化。タグの付け直し・ノート移動・MOC 更新を、毎日・毎週・毎月のスケジュールで自動実行できます。</p>
+      <ul class="feat-list">
+        <li>30 種類以上の条件 × アクション</li>
+        <li>毎日・毎週・毎月のスケジュール実行</li>
+        <li>実行ログで動作を確認</li>
+        <li>通知機能でルール完了を通知</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">スケジュール</span>
+        <span class="feat-tag">自動化</span>
+        <span class="feat-tag">通知</span>
+      </div>
+    </div>
+    <div class="feature-visual">
+      <img src="images/feature-rules.png" alt="スマートルール" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">⚡</div><div class="vph-label">Screenshot · feature-rules.png</div></div>
+    </div>
+  </div>
+
+  <!-- 07 -->
+  <div class="feature-block">
+    <div class="feature-info">
+      <div class="feat-num">Feature 07</div>
+      <h2 class="feat-title">整備ツール<br>19 種</h2>
+      <p class="feat-desc">タグ一括リネーム・フロントマター一括編集・ノート分割・孤立画像削除・シークレット検出など、日常の Vault メンテナンスに欠かせない 19 種のツールを搭載。</p>
+      <ul class="feat-list">
+        <li>タグ一括リネーム・マージ・削除</li>
+        <li>フロントマターの一括追加・更新</li>
+        <li>長文ノートを見出しで自動分割</li>
+        <li>孤立画像・シークレット検出</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">タグ管理</span>
+        <span class="feat-tag">フロントマター</span>
+        <span class="feat-tag">ノート分割</span>
+      </div>
+    </div>
+    <div class="feature-visual">
+      <img src="images/feature-tools.png" alt="整備ツール集" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">🔧</div><div class="vph-label">Screenshot · feature-tools.png</div></div>
+    </div>
+  </div>
+
+  <!-- 08 -->
+  <div class="feature-block flip">
+    <div class="feature-info">
+      <div class="feat-num">Feature 08</div>
+      <h2 class="feat-title">Git<br>バックアップ</h2>
+      <p class="feat-desc">ワンクリックで Vault を Git コミット。カスタムコミットメッセージ・定期自動バックアップ・バックアップ履歴管理。コマンドラインを触らずに Vault を守れます。</p>
+      <ul class="feat-list">
+        <li>ワンクリックでコミット＆プッシュ</li>
+        <li>毎日・毎週の自動バックアップ</li>
+        <li>コミット履歴の閲覧・差分確認</li>
+        <li>SSH / HTTPS どちらにも対応</li>
+      </ul>
+      <div class="feat-tags">
+        <span class="feat-tag">自動バックアップ</span>
+        <span class="feat-tag">履歴管理</span>
+        <span class="feat-tag">Git</span>
+      </div>
+    </div>
+    <div class="feature-visual">
+      <img src="images/feature-git.png" alt="Gitバックアップ" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="visual-placeholder" style="display:none"><div class="vph-icon">🔒</div><div class="vph-label">Screenshot · feature-git.png</div></div>
+    </div>
+  </div>
+
+</div><!-- /features -->
+
+<!-- ══ Pull quote ═════════════════════════════════════════════ -->
+<div class="pull-quote-section">
+  <p class="pull-quote">プラグインを集める必要はない。<br><span>1 つのアプリで、すべてが完結する。</span></p>
+</div>
+
+<!-- ══ Screens ════════════════════════════════════════════════ -->
+<div class="section" id="screens">
+  <div class="section-inner">
+    <div class="section-label">画面構成</div>
+    <p class="pain-headline" style="margin-bottom:56px">9 つのタブで<br>すべてが完結</p>
+  </div>
+  <div class="screens-grid">
+    <div class="screen-cell">
+      <div class="sc-num">01</div>
+      <div class="sc-title">ダッシュボード</div>
+      <div class="sc-desc">今日のタスク・Vault 統計・アクティビティ・クイックアクション</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">02</div>
+      <div class="sc-title">スキャン・最適化</div>
+      <div class="sc-desc">孤立ノート・破損リンク・ゴミファイルを一括検出・修正</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">03</div>
+      <div class="sc-title">MOC 作成</div>
+      <div class="sc-desc">目次ノートをウィザードで自動生成・既存 MOC を差分更新</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">04</div>
+      <div class="sc-title">分析</div>
+      <div class="sc-desc">知識グラフ・ライティング統計・ノートスコア・クラスター</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">05</div>
+      <div class="sc-title">AI 機能</div>
+      <div class="sc-desc">19 種類の AI 分析・生成・Vault Q&A・翻訳・要約</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">06</div>
+      <div class="sc-title">タスク管理</div>
+      <div class="sc-desc">Vault 連動タスク・カレンダービュー・繰り返しタスク</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">07</div>
+      <div class="sc-title">プロジェクト</div>
+      <div class="sc-desc">プロジェクト・マイルストーン・Vault 双方向同期</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">08</div>
+      <div class="sc-title">ツール</div>
+      <div class="sc-desc">タグリネーム・ノート分割・フロントマター管理など 19 種</div>
+    </div>
+    <div class="screen-cell">
+      <div class="sc-num">09</div>
+      <div class="sc-title">スマートルール</div>
+      <div class="sc-desc">トリガー × アクションで Vault 整理を完全自動化</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CTA ════════════════════════════════════════════════════ -->
 <div class="cta-section" id="get">
-  <div class="cta-inner">
-    <div class="cta-card note-card">
-      <div class="cta-service">note</div>
+  <p class="cta-eyebrow">使い方を読む</p>
+  <h2 class="cta-headline">さっそく<br>始めてみませんか</h2>
+  <div class="cta-cards">
+    <div class="cta-card note-c">
+      <div class="cta-platform">note</div>
       <h3>使い方完全ガイド<br>を読む</h3>
-      <p>インストール手順・各機能の使い方・活用シナリオを詳しく解説。Obsidian Optimizer を最大限に活かすための公式ガイド記事。</p>
-      <a class="cta-btn btn-note-sm" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">
-        note で読む →
-      </a>
+      <p>インストール手順・各機能の使い方・活用シナリオを詳しく解説した公式ガイド記事。</p>
+      <a class="cta-link" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">note で読む</a>
     </div>
-    <div class="cta-card brain-card">
-      <div class="cta-service">Brain</div>
+    <div class="cta-card brain-c">
+      <div class="cta-platform">Brain</div>
       <h3>同じ内容を<br>Brain でも読む</h3>
-      <p>note と同じ使い方ガイドを Brain でも公開しています。普段 Brain をご利用の方はこちらからどうぞ。</p>
-      <a class="cta-btn btn-brain-sm" href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">
-        Brain で読む →
-      </a>
+      <p>普段 Brain をご利用の方はこちらからどうぞ。note と同じ内容を公開しています。</p>
+      <a class="cta-link" href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">Brain で読む</a>
     </div>
   </div>
 </div>
 
-<!-- ══ Footer ══════════════════════════════════════════════ -->
+<!-- ══ Footer ═════════════════════════════════════════════════ -->
 <footer>
-  <strong>Obsidian Optimizer</strong> — Developed by AI寺子屋 CraftLab
+  <span class="footer-copy">© 2025-2026 AI寺子屋 CraftLab · データはローカルに保存されます</span>
   <div class="footer-links">
     <a href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">使い方ガイド (note)</a>
     <a href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">使い方ガイド (Brain)</a>
   </div>
-  <div style="font-size:.74rem;opacity:.35;margin-top:4px">© 2025-2026 AI寺子屋 CraftLab · データはローカルに保存されます</div>
 </footer>
 
 </body>

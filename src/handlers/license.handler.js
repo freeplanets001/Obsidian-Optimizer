@@ -73,12 +73,13 @@ function register(ipcMain, ctx) {
             if (platform === 'darwin') {
                 const archSuffix = arch === 'arm64' ? 'arm64' : 'x64';
                 // arm64 は PKG インストーラー、x64 は DMG
+                // ※ GitHub は gh CLI アップロード時にスペース→ドットに変換するため Obsidian.Optimizer を使用
                 const ext = arch === 'arm64' ? 'pkg' : 'dmg';
-                fileName = `Obsidian Optimizer-${v}-mac-${archSuffix}.${ext}`;
+                fileName = `Obsidian.Optimizer-${v}-mac-${archSuffix}.${ext}`;
             } else if (platform === 'win32') {
-                fileName = `Obsidian Optimizer-${v}-win-x64.exe`;
+                fileName = `Obsidian.Optimizer-${v}-win-x64.exe`;
             }
-            if (fileName) directDownloadUrl = `${base}/${encodeURIComponent(fileName)}`;
+            if (fileName) directDownloadUrl = `${base}/${fileName}`;
         }
 
         return {
