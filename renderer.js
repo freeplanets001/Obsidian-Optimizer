@@ -432,7 +432,7 @@ async function initAsync() {
         if (cfg.appVersion) {
             const sidebarVer = $('app-version-sidebar');
             const infoVer    = $('app-version-info');
-            if (sidebarVer) sidebarVer.textContent = `v${cfg.appVersion} World-Class Edition`;
+            if (sidebarVer) sidebarVer.textContent = `v${cfg.appVersion} AI寺子屋LAB`;
             if (infoVer)    infoVer.textContent     = `v${cfg.appVersion}`;
         }
         // vault selector の更新
