@@ -336,4 +336,21 @@ contextBridge.exposeInMainWorld('api', {
     relaunchApp: () => { ipcRenderer.invoke('relaunch-app'); },
     // 外部URLをシステムブラウザで開く
     openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
+    // 1-1: クイックキャプチャ フォーカスイベント受け取り
+    onQuickCaptureFocus: (cb) => {
+        ipcRenderer.removeAllListeners('quick-capture-focus');
+        ipcRenderer.on('quick-capture-focus', cb);
+    },
+    // 4-6: SNS投稿文生成
+    generateSnsPost: (params) => ipcRenderer.invoke('ai-generate-sns-post', params),
+    // 2-2: ノートテンプレートエンジン
+    getNoteTemplates: () => ipcRenderer.invoke('get-note-templates'),
+    saveNoteTemplate: (tpl) => ipcRenderer.invoke('save-note-template', tpl),
+    deleteNoteTemplate: (id) => ipcRenderer.invoke('delete-note-template', id),
+    applyNoteTemplate: (params) => ipcRenderer.invoke('apply-note-template', params),
+    // 5-2: ウィークリーレビュー
+    getWeeklyNotes: () => ipcRenderer.invoke('get-weekly-notes'),
+    aiWeeklyReview: (params) => ipcRenderer.invoke('ai-weekly-review', params),
+    // 4-3: Vault Chat（会話履歴付き）
+    aiVaultChat: (params) => ipcRenderer.invoke('ai-vault-chat', params),
 });

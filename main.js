@@ -11016,3 +11016,159 @@ ipcMain.handle('import-preset', async () => {
         return { success: false, error: e.message };
     }
 });
+
+// ======================================================
+// 4-6: SNS投稿文生成
+// ======================================================
+ipcMain.handle('ai-generate-sns-post', async (_, { content, platform }) => {
+    try {
+        const platformPrompts = {
+            twitter: 'X（Twitter）の投稿文を生成してください。140〜280文字以内で、読者が反応したくなる内容にしてください。適切なハッシュタグを3〜5個末尾に付けてください。',
+            note:    'note記事の導入文（リード文）を生成してください。200〜400文字で読者の興味を引き付ける書き出しにし、最後に記事タイトル案を1行添えてください。',
+            linkedin:'LinkedInの投稿文を生成してください。プロフェッショナルなトーンで400〜600文字程度にし、ビジネス的な洞察や学びを強調してください。',
+        };
+        const instruction = platformPrompts[platform] || platformPrompts['twitter'];
+        const prompt = `以下のノート内容をもとに、${instruction}\n\n【ノート内容】\n${content.slice(0, 3000)}`;
+        const post = await callLLM(prompt, 'あなたはSNSマーケティングの専門家です。コンテンツを各プラットフォームに最適化した投稿文に変換してください。', 'SNS投稿文生成');
+        return { success: true, post: post.trim() };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ======================================================
+// 2-2: ノートテンプレートエンジン
+// ======================================================
+ipcMain.handle('get-note-templates', () => {
+    return { success: true, templates: config.noteTemplates || [] };
+});
+
+ipcMain.handle('save-note-template', (_, template) => {
+    try {
+        if (!config.noteTemplates) config.noteTemplates = [];
+        const idx = config.noteTemplates.findIndex(t => t.id === template.id);
+        const entry = { ...template, id: template.id || `tpl-${Date.now()}`, updatedAt: new Date().toISOString() };
+        if (idx >= 0) config.noteTemplates[idx] = entry;
+        else config.noteTemplates.push(entry);
+        saveConfig(config);
+        return { success: true, template: entry };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('delete-note-template', (_, templateId) => {
+    try {
+        config.noteTemplates = (config.noteTemplates || []).filter(t => t.id !== templateId);
+        saveConfig(config);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('apply-note-template', async (_, { templateId, title, targetFolder }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        const template = (config.noteTemplates || []).find(t => t.id === templateId);
+        if (!template) return { success: false, error: 'テンプレートが見つかりません' };
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10);
+        const timeStr = now.toTimeString().slice(0, 5);
+        const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+        const weekday = weekdays[now.getDay()];
+        const noteTitle = (title || `${template.name}-${dateStr}`).replace(/[/\\:*?"<>|]/g, '-');
+        let body = (template.content || '')
+            .replace(/\{\{date\}\}/g, dateStr)
+            .replace(/\{\{time\}\}/g, timeStr)
+            .replace(/\{\{title\}\}/g, noteTitle)
+            .replace(/\{\{weekday\}\}/g, weekday)
+            .replace(/\{\{datetime\}\}/g, `${dateStr} ${timeStr}`);
+        const folder = targetFolder ? path.join(vaultPath, targetFolder) : vaultPath;
+        if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+        const filePath = path.join(folder, `${noteTitle}.md`);
+        if (fs.existsSync(filePath)) return { success: false, error: 'このファイル名は既に存在します' };
+        fs.writeFileSync(filePath, body, 'utf-8');
+        return { success: true, filePath, title: noteTitle };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ======================================================
+// 5-2: ウィークリーレビュー
+// ======================================================
+ipcMain.handle('get-weekly-notes', async () => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        const weekAgoTime = weekAgo.getTime();
+        const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+        const notes = [];
+        for (const file of allFiles) {
+            try {
+                const stat = fs.statSync(file);
+                if (stat.mtimeMs < weekAgoTime) continue;
+                const content = fs.readFileSync(file, 'utf-8');
+                const preview = content.replace(/^---[\s\S]*?---\n?/, '').replace(/#+\s/g, '').trim().slice(0, 120);
+                notes.push({ filePath: file, title: path.basename(file, '.md'), modifiedAt: stat.mtime.toISOString(), wordCount: content.length, preview });
+            } catch (_) { continue; }
+        }
+        notes.sort((a, b) => new Date(b.modifiedAt) - new Date(a.modifiedAt));
+        return { success: true, notes };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+ipcMain.handle('ai-weekly-review', async (_, { notes, tasks, projects }) => {
+    try {
+        const notesSummary = (notes || []).slice(0, 10).map(n => `- ${n.title}: ${n.preview}`).join('\n') || 'なし';
+        const tasksSummary = (tasks || []).slice(0, 20).map(t => `- [${t.done ? 'x' : ' '}] ${t.text}${t.dueDate ? ` (期限:${t.dueDate})` : ''}`).join('\n') || 'なし';
+        const projSummary = (projects || []).slice(0, 10).map(p => {
+            const total = (p.tasks || []).length;
+            const done = (p.tasks || []).filter(t => t.done).length;
+            return `- ${p.name}: ${done}/${total}タスク完了`;
+        }).join('\n') || 'なし';
+        const prompt = `今週の活動を振り返り、洞察と来週のアクションを提案してください。\n\n【今週のノート(${(notes||[]).length}件)】\n${notesSummary}\n\n【タスク状況】\n${tasksSummary}\n\n【プロジェクト進捗】\n${projSummary}\n\n以下の形式で回答:\n## 今週のハイライト\n（主な成果・学びを3点）\n\n## 気になるポイント\n（改善できそうなことを2点）\n\n## 来週のおすすめアクション\n（具体的なアクションを3点）`;
+        const review = await callLLM(prompt, 'あなたはナレッジマネジメントのコーチです。Vault活動データから週次レビューの洞察を提供してください。', 'ウィークリーレビュー');
+        return { success: true, review: review.trim() };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// ======================================================
+// 4-3: Vault Chat（会話履歴付き）
+// ======================================================
+ipcMain.handle('ai-vault-chat', async (_, { messages, question }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        let contextText = '';
+        if (vaultPath) {
+            try {
+                const keywords = question.split(/[\s、。！？\n]/g).filter(k => k.length >= 2);
+                const allFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
+                const relevant = [];
+                for (const file of allFiles) {
+                    try {
+                        const content = fs.readFileSync(file, 'utf-8');
+                        const hits = keywords.filter(k => content.includes(k)).length;
+                        if (hits > 0) relevant.push({ file, hits, snippet: content.slice(0, 800) });
+                    } catch (_) {}
+                }
+                relevant.sort((a, b) => b.hits - a.hits);
+                contextText = relevant.slice(0, 5).map(r => `[${path.basename(r.file, '.md')}]\n${r.snippet}`).join('\n\n---\n\n');
+            } catch (_) {}
+        }
+        const history = (messages || []).slice(-8).map(m => `${m.role === 'user' ? 'ユーザー' : 'AI'}: ${m.content}`).join('\n');
+        const prompt = `${contextText ? `【参考Vaultコンテンツ】\n${contextText}\n\n` : ''}${history ? `【会話履歴】\n${history}\n\n` : ''}【今の質問】\n${question}`;
+        const answer = await callLLM(prompt, 'あなたはObsidian VaultのAIアシスタントです。Vaultコンテンツを参考にしながら会話の流れを踏まえて回答してください。', 'Vault Chat');
+        return { success: true, answer: answer.trim() };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});

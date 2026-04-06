@@ -336,12 +336,18 @@
 
                 <!-- AIチャット -->
                 <div class="glass-card" data-widget="aiChat">
-                    <h3 class="card-title" style="font-size:.88rem">🤖 Vaultに質問する</h3>
-                    <p class="muted-hint" style="font-size:.72rem;margin:2px 0 6px">AI設定でAPIキーが必要</p>
-                    <div id="ai-chat-messages" style="max-height:200px;overflow-y:auto;margin-bottom:8px"></div>
+                    <h3 class="card-title" style="font-size:.88rem">🤖 Vault Chat</h3>
+                    <p class="muted-hint" style="font-size:.72rem;margin:2px 0 6px">AI設定でAPIキーが必要 · 会話履歴を保持</p>
+                    <div id="ai-chat-messages" style="max-height:220px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:4px"></div>
                     <div style="display:flex;gap:6px">
                         <input type="text" id="ai-chat-input" class="text-input" placeholder="例: AIツールについてまとめて" style="flex:1">
-                        <button class="primary-btn small-btn" id="btn-ai-ask">質問</button>
+                        <button class="primary-btn small-btn" id="btn-ai-ask">送信</button>
+                    </div>
+                    <div style="display:flex;gap:6px;margin-top:6px">
+                        <button class="ghost-btn small-btn" id="btn-ai-chat-clear" style="flex:1;font-size:.72rem">🗑 履歴クリア</button>
+                        <button class="ghost-btn small-btn" id="btn-open-weekly-review" style="flex:1;font-size:.72rem">📋 週次レビュー</button>
+                        <button class="ghost-btn small-btn" id="btn-open-sns-modal" style="flex:1;font-size:.72rem">📣 SNS投稿文</button>
+                        <button class="ghost-btn small-btn" id="btn-open-template-modal" style="flex:1;font-size:.72rem">📄 テンプレート</button>
                     </div>
                 </div>
 
@@ -3916,6 +3922,143 @@
     </div>
 
     <script src="renderer.js"></script>
+
+    <!-- ====== クイックキャプチャ オーバーレイ ====== -->
+    <div id="quick-capture-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;padding-top:80px">
+        <div style="background:var(--card-bg);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:20px 24px;width:520px;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <span style="font-size:1.1rem">⚡</span>
+                <h3 style="margin:0;font-size:.95rem">クイックキャプチャ</h3>
+                <span style="margin-left:auto;font-size:.7rem;opacity:.4">Esc で閉じる</span>
+            </div>
+            <textarea id="quick-capture-text" rows="4" class="text-input" placeholder="アイデア・メモ・タスクを入力..." style="width:100%;resize:vertical;font-size:.9rem;padding:10px 12px;box-sizing:border-box"></textarea>
+            <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+                <select id="quick-capture-dest" class="search-input" style="flex:1;font-size:.8rem">
+                    <option value="inbox">📋 Inbox（デフォルト）</option>
+                    <option value="task">✅ タスクとして追加</option>
+                    <option value="daily">📅 デイリーノートに追記</option>
+                </select>
+                <button class="primary-btn" id="btn-quick-capture-save" style="white-space:nowrap">保存 ↵</button>
+                <button class="ghost-btn" id="btn-quick-capture-cancel">✕</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== SNS投稿文生成 モーダル ====== -->
+    <div id="sns-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;backdrop-filter:blur(4px);align-items:center;justify-content:center">
+        <div style="background:var(--card-bg);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px;width:600px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+                <span style="font-size:1.1rem">📣</span>
+                <h3 style="margin:0;font-size:.95rem">SNS投稿文生成</h3>
+                <button id="btn-sns-modal-close" class="ghost-btn" style="margin-left:auto;padding:2px 8px">✕</button>
+            </div>
+            <div style="margin-bottom:12px">
+                <label style="font-size:.8rem;opacity:.6;display:block;margin-bottom:4px">ノート内容（貼り付けまたは自動取得）</label>
+                <textarea id="sns-note-content" rows="6" class="text-input" placeholder="ノートの内容を貼り付けてください..." style="width:100%;resize:vertical;font-size:.82rem;padding:10px;box-sizing:border-box"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:12px">
+                <button class="ghost-btn sns-platform-btn active" data-platform="twitter" style="flex:1;font-size:.8rem">🐦 X (Twitter)</button>
+                <button class="ghost-btn sns-platform-btn" data-platform="note" style="flex:1;font-size:.8rem">📝 note</button>
+                <button class="ghost-btn sns-platform-btn" data-platform="linkedin" style="flex:1;font-size:.8rem">💼 LinkedIn</button>
+            </div>
+            <button class="primary-btn" id="btn-sns-generate" style="width:100%;margin-bottom:12px">✨ 投稿文を生成</button>
+            <div id="sns-result" style="display:none">
+                <label style="font-size:.8rem;opacity:.6;display:block;margin-bottom:4px">生成された投稿文</label>
+                <textarea id="sns-result-text" rows="8" class="text-input" style="width:100%;resize:vertical;font-size:.85rem;padding:10px;box-sizing:border-box"></textarea>
+                <button class="ghost-btn" id="btn-sns-copy" style="margin-top:8px;width:100%">📋 コピー</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== ノートテンプレートエンジン モーダル ====== -->
+    <div id="template-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;backdrop-filter:blur(4px);align-items:center;justify-content:center">
+        <div style="background:var(--card-bg);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px;width:680px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+                <span style="font-size:1.1rem">📄</span>
+                <h3 style="margin:0;font-size:.95rem">ノートテンプレート</h3>
+                <button id="btn-template-modal-close" class="ghost-btn" style="margin-left:auto;padding:2px 8px">✕</button>
+            </div>
+            <div style="display:flex;gap:12px;height:500px">
+                <!-- テンプレートリスト -->
+                <div style="width:200px;flex-shrink:0;border-right:1px solid rgba(255,255,255,.08);padding-right:12px;display:flex;flex-direction:column;gap:6px;overflow-y:auto">
+                    <button class="primary-btn" id="btn-template-new" style="font-size:.78rem;padding:6px">＋ 新規作成</button>
+                    <div id="template-list" style="display:flex;flex-direction:column;gap:4px"></div>
+                </div>
+                <!-- テンプレート編集 -->
+                <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+                    <input type="text" id="template-name-input" class="text-input" placeholder="テンプレート名" style="font-size:.85rem">
+                    <input type="text" id="template-desc-input" class="text-input" placeholder="説明（任意）" style="font-size:.82rem">
+                    <div style="font-size:.72rem;opacity:.5">変数: {{date}} {{time}} {{title}} {{weekday}} {{datetime}}</div>
+                    <textarea id="template-content-input" rows="14" class="text-input" placeholder="ノート内容を入力..." style="flex:1;resize:none;font-size:.82rem;font-family:monospace;padding:10px;box-sizing:border-box"></textarea>
+                    <div style="display:flex;gap:8px">
+                        <button class="primary-btn" id="btn-template-save" style="flex:1;font-size:.82rem">💾 保存</button>
+                        <button class="ghost-btn danger-btn" id="btn-template-delete" style="font-size:.82rem">削除</button>
+                    </div>
+                    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
+                        <div style="font-size:.8rem;opacity:.6;margin-bottom:6px">テンプレートを適用してノートを作成</div>
+                        <input type="text" id="template-apply-title" class="text-input" placeholder="ノートタイトル（省略可）" style="font-size:.82rem;margin-bottom:6px">
+                        <button class="primary-btn" id="btn-template-apply" style="width:100%;font-size:.82rem">📝 このテンプレートで作成</button>
+                        <div id="template-apply-result" style="font-size:.78rem;margin-top:6px"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== ウィークリーレビュー ウィザードモーダル ====== -->
+    <div id="weekly-review-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;backdrop-filter:blur(4px);align-items:center;justify-content:center">
+        <div style="background:var(--card-bg);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:24px;width:660px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+                <span style="font-size:1.1rem">📋</span>
+                <h3 style="margin:0;font-size:.95rem">ウィークリーレビュー</h3>
+                <div id="weekly-review-steps" style="display:flex;gap:4px;margin-left:auto">
+                    <span class="wr-step active" data-step="1" style="width:24px;height:24px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:.7rem;cursor:pointer">1</span>
+                    <span class="wr-step" data-step="2" style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.7rem;cursor:pointer">2</span>
+                    <span class="wr-step" data-step="3" style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.7rem;cursor:pointer">3</span>
+                    <span class="wr-step" data-step="4" style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:.7rem;cursor:pointer">4</span>
+                </div>
+                <button id="btn-weekly-review-close" class="ghost-btn" style="padding:2px 8px">✕</button>
+            </div>
+            <!-- Step 1: 今週のノート -->
+            <div class="wr-step-content" id="wr-step-1">
+                <h4 style="font-size:.88rem;margin:0 0 8px">📝 Step 1 — 今週のノート</h4>
+                <p style="font-size:.78rem;opacity:.6;margin:0 0 10px">過去7日間に作成・更新したノートです</p>
+                <div id="wr-notes-list" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+                    <div class="list-empty">読み込み中...</div>
+                </div>
+                <button class="primary-btn" id="btn-wr-next-1" style="width:100%;margin-top:12px">次へ →</button>
+            </div>
+            <!-- Step 2: タスク・プロジェクト確認 -->
+            <div class="wr-step-content" id="wr-step-2" style="display:none">
+                <h4 style="font-size:.88rem;margin:0 0 8px">✅ Step 2 — タスク・プロジェクト状況</h4>
+                <div id="wr-tasks-summary" style="max-height:280px;overflow-y:auto;font-size:.82rem"></div>
+                <div style="display:flex;gap:8px;margin-top:12px">
+                    <button class="ghost-btn" id="btn-wr-back-2" style="flex:1">← 戻る</button>
+                    <button class="primary-btn" id="btn-wr-next-2" style="flex:2">AIレビューを生成 →</button>
+                </div>
+            </div>
+            <!-- Step 3: AIレビュー -->
+            <div class="wr-step-content" id="wr-step-3" style="display:none">
+                <h4 style="font-size:.88rem;margin:0 0 8px">🤖 Step 3 — AIによる振り返り</h4>
+                <div id="wr-ai-review" style="max-height:320px;overflow-y:auto;font-size:.82rem;line-height:1.6;white-space:pre-wrap">生成中...</div>
+                <div style="display:flex;gap:8px;margin-top:12px">
+                    <button class="ghost-btn" id="btn-wr-back-3" style="flex:1">← 戻る</button>
+                    <button class="primary-btn" id="btn-wr-next-3" style="flex:2">来週の計画へ →</button>
+                </div>
+            </div>
+            <!-- Step 4: 来週の計画 -->
+            <div class="wr-step-content" id="wr-step-4" style="display:none">
+                <h4 style="font-size:.88rem;margin:0 0 8px">🎯 Step 4 — 来週の計画</h4>
+                <p style="font-size:.78rem;opacity:.6;margin:0 0 8px">AIの提案を参考に、来週のアクションを記録してください</p>
+                <textarea id="wr-next-week-plan" rows="8" class="text-input" placeholder="来週やること、目標、優先タスクを自由に記入..." style="width:100%;resize:vertical;font-size:.85rem;padding:10px;box-sizing:border-box"></textarea>
+                <div style="display:flex;gap:8px;margin-top:10px">
+                    <button class="ghost-btn" id="btn-wr-back-4" style="flex:1">← 戻る</button>
+                    <button class="primary-btn" id="btn-wr-save-plan" style="flex:2">📓 計画をVaultに保存</button>
+                </div>
+                <div id="wr-save-result" style="font-size:.78rem;margin-top:6px"></div>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

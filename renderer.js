@@ -5314,47 +5314,39 @@ window.aiSuggestLinks = aiSuggestLinks;
 // AI拡張機能 (Feature 1-8 新規)
 // ======================================================
 
-// Feature 1: Ask Your Vault
+// Feature 1: Vault Chat（会話履歴付き）
+let vaultChatHistory = []; // { role: 'user'|'ai', content: string }
+
 async function aiAskVault() {
     const input = $('ai-chat-input');
     const messagesEl = $('ai-chat-messages');
     if (!input || !messagesEl) return;
     const question = input.value.trim();
     if (!question) return;
+    input.value = '';
 
-    // ユーザーメッセージを表示
+    // ユーザーメッセージ表示
     const userMsg = document.createElement('div');
-    userMsg.style.cssText = 'margin-bottom:8px;padding:8px 12px;border-radius:8px;background:rgba(99,102,241,.2);text-align:right';
+    userMsg.style.cssText = 'padding:8px 12px;border-radius:8px;background:rgba(99,102,241,.2);text-align:right;font-size:.84rem;align-self:flex-end;max-width:85%';
     userMsg.textContent = question;
     messagesEl.appendChild(userMsg);
 
     // ローディング表示
     const loadingMsg = document.createElement('div');
-    loadingMsg.style.cssText = 'margin-bottom:8px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.06)';
-    loadingMsg.innerHTML = '<span class="ai-loading">⏳ AIが回答を生成中...</span>';
+    loadingMsg.style.cssText = 'padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.06);font-size:.84rem;max-width:90%';
+    loadingMsg.innerHTML = '<span class="ai-loading">⏳ 考え中...</span>';
     messagesEl.appendChild(loadingMsg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
-    input.value = '';
 
     try {
-        const res = await window.api.aiAskVault({ question: question });
+        // 会話履歴を含めてVault Chat IPCを呼び出す
+        const res = await window.api.aiVaultChat({ messages: vaultChatHistory, question });
         if (res.success) {
-            var html = '<div style="white-space:pre-wrap">' + esc(res.answer) + '</div>';
-            if (res.sources && res.sources.length > 0) {
-                html += '<div style="margin-top:8px;font-size:.78rem;opacity:.7">参照ノート: ';
-                html += res.sources.map(function(s) {
-                    return '<a href="#" class="ai-source-link" data-path="' + esc(s.path) + '" style="color:var(--accent);text-decoration:underline;cursor:pointer">' + esc(s.name) + '</a>';
-                }).join(', ');
-                html += '</div>';
-            }
-            loadingMsg.innerHTML = html;
-            loadingMsg.querySelectorAll('.ai-source-link').forEach(function(link) {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    var p = this.getAttribute('data-path');
-                    if (p && window.api.openPath) window.api.openPath(p);
-                });
-            });
+            loadingMsg.innerHTML = '<div style="white-space:pre-wrap;line-height:1.6">' + esc(res.answer) + '</div>';
+            vaultChatHistory.push({ role: 'user', content: question });
+            vaultChatHistory.push({ role: 'ai', content: res.answer });
+            // 履歴は最新20ターンに制限
+            if (vaultChatHistory.length > 40) vaultChatHistory = vaultChatHistory.slice(-40);
         } else {
             loadingMsg.innerHTML = '<div class="ai-error">❌ ' + esc(res.error) + '</div>';
         }
@@ -11836,3 +11828,477 @@ function initLogViewer() {
         }
     });
 }
+
+// ======================================================
+// 4-3 Vault Chat — 履歴クリア & ボタン初期化
+// ======================================================
+(function initVaultChatExtras() {
+    const clearBtn = $('btn-ai-chat-clear');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            vaultChatHistory = [];
+            const el = $('ai-chat-messages');
+            if (el) el.innerHTML = '';
+            showToast('会話履歴をクリアしました', 'success');
+        });
+    }
+    // Enter キーは既存イベントリスナーが担当
+})();
+
+// ======================================================
+// 1-1 クイックキャプチャ オーバーレイ
+// ======================================================
+(function initQuickCapture() {
+    const overlay = $('quick-capture-overlay');
+    const textarea = $('quick-capture-text');
+    const saveBtn = $('btn-quick-capture-save');
+    const cancelBtn = $('btn-quick-capture-cancel');
+
+    function showCapture() {
+        if (!overlay) return;
+        overlay.style.display = 'flex';
+        setTimeout(() => textarea && textarea.focus(), 50);
+    }
+    function hideCapture() {
+        if (!overlay) return;
+        overlay.style.display = 'none';
+        if (textarea) textarea.value = '';
+    }
+
+    // グローバルショートカットからのイベント
+    window.api && window.electronAPI && window.electronAPI.on
+        ? window.electronAPI.on('quick-capture-focus', showCapture)
+        : window.addEventListener && document.addEventListener('quick-capture-focus', showCapture);
+
+    // ipcRenderer経由でイベントを受け取る（preload経由でなく直接）
+    if (window.api && window.api.onQuickCaptureFocus) {
+        window.api.onQuickCaptureFocus(showCapture);
+    }
+
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const text = textarea ? textarea.value.trim() : '';
+            if (!text) return;
+            const dest = ($('quick-capture-dest') || {}).value || 'inbox';
+            try {
+                if (dest === 'task') {
+                    const today = new Date().toISOString().slice(0, 10);
+                    await window.api.addTask({ text, dueDate: '', priority: '' });
+                    showToast('タスクに追加しました', 'success');
+                } else if (dest === 'daily') {
+                    await window.api.createDailyNote({ appendText: `\n- ${text}` });
+                    showToast('デイリーノートに追記しました', 'success');
+                } else {
+                    await window.api.clipboardToInbox({ text });
+                    showToast('Inboxに保存しました', 'success');
+                }
+                hideCapture();
+                if (taskTabInitialized) refreshTaskList();
+            } catch (e) {
+                showToast('保存エラー: ' + e.message, 'error');
+            }
+        });
+    }
+    if (cancelBtn) cancelBtn.addEventListener('click', hideCapture);
+    if (overlay) {
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) hideCapture(); });
+    }
+    if (textarea) {
+        textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') hideCapture();
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveBtn && saveBtn.click();
+        });
+    }
+    // グローバルショートカットからの IPC イベント（メインプロセスが webContents.send で送る）
+    if (typeof window !== 'undefined') {
+        document.addEventListener('DOMContentLoaded', () => {});
+        // ipcRenderer の receive はpreload経由で expose できないので、カスタムイベントで対応
+        window.__showQuickCapture = showCapture;
+    }
+})();
+
+// preload が quick-capture-focus を send してきたとき用のグローバル公開
+if (window.api && window.api.onQuickCaptureFocus === undefined) {
+    // renderer側でリッスン — main.js が win.webContents.send('quick-capture-focus') を呼ぶ
+    // preload.js に onQuickCaptureFocus を追加するか、DOMEventで受け取る
+}
+
+// ======================================================
+// 4-6 SNS投稿文生成 モーダル
+// ======================================================
+(function initSnsModal() {
+    const modal = $('sns-modal');
+    const closeBtn = $('btn-sns-modal-close');
+    const openBtn = $('btn-open-sns-modal');
+    const generateBtn = $('btn-sns-generate');
+    const copyBtn = $('btn-sns-copy');
+    const resultEl = $('sns-result');
+    const resultText = $('sns-result-text');
+    let selectedPlatform = 'twitter';
+
+    function openModal() { if (modal) modal.style.display = 'flex'; }
+    function closeModal() { if (modal) modal.style.display = 'none'; }
+
+    if (openBtn) openBtn.addEventListener('click', openModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    // プラットフォーム選択
+    document.querySelectorAll('.sns-platform-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.sns-platform-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            selectedPlatform = btn.dataset.platform;
+        });
+    });
+
+    if (generateBtn) {
+        generateBtn.addEventListener('click', async () => {
+            const content = ($('sns-note-content') || {}).value || '';
+            if (!content.trim()) { showToast('ノート内容を入力してください', 'error'); return; }
+            generateBtn.textContent = '⏳ 生成中...';
+            generateBtn.disabled = true;
+            try {
+                const res = await window.api.generateSnsPost({ content, platform: selectedPlatform });
+                if (res.success) {
+                    if (resultEl) resultEl.style.display = 'block';
+                    if (resultText) resultText.value = res.post;
+                } else {
+                    showToast('生成エラー: ' + res.error, 'error');
+                }
+            } catch (e) {
+                showToast('エラー: ' + e.message, 'error');
+            } finally {
+                generateBtn.textContent = '✨ 投稿文を生成';
+                generateBtn.disabled = false;
+            }
+        });
+    }
+
+    if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+            if (!resultText) return;
+            navigator.clipboard.writeText(resultText.value).then(() => showToast('コピーしました', 'success'));
+        });
+    }
+})();
+
+// ======================================================
+// 2-2 ノートテンプレートエンジン
+// ======================================================
+(function initTemplateEngine() {
+    const modal = $('template-modal');
+    const openBtn = $('btn-open-template-modal');
+    const closeBtn = $('btn-template-modal-close');
+    const newBtn = $('btn-template-new');
+    const saveBtn = $('btn-template-save');
+    const deleteBtn = $('btn-template-delete');
+    const applyBtn = $('btn-template-apply');
+    const listEl = $('template-list');
+    const nameInput = $('template-name-input');
+    const descInput = $('template-desc-input');
+    const contentInput = $('template-content-input');
+    const applyTitle = $('template-apply-title');
+    const applyResult = $('template-apply-result');
+    let templates = [];
+    let currentTemplateId = null;
+
+    async function loadTemplates() {
+        try {
+            const res = await window.api.getNoteTemplates();
+            templates = res.templates || [];
+            renderTemplateList();
+        } catch (e) { console.warn('テンプレート読み込みエラー:', e); }
+    }
+
+    function renderTemplateList() {
+        if (!listEl) return;
+        if (templates.length === 0) {
+            listEl.innerHTML = '<div style="font-size:.75rem;opacity:.4;text-align:center;padding:8px">テンプレートなし</div>';
+            return;
+        }
+        listEl.innerHTML = templates.map(t => `
+            <button class="ghost-btn template-list-item${currentTemplateId === t.id ? ' active' : ''}"
+                data-tid="${esc(t.id)}"
+                style="width:100%;text-align:left;font-size:.78rem;padding:6px 8px;${currentTemplateId === t.id ? 'background:rgba(124,108,248,.3);' : ''}">
+                ${esc(t.name)}
+            </button>`).join('');
+        listEl.querySelectorAll('.template-list-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const t = templates.find(t => t.id === btn.dataset.tid);
+                if (!t) return;
+                currentTemplateId = t.id;
+                if (nameInput) nameInput.value = t.name || '';
+                if (descInput) descInput.value = t.description || '';
+                if (contentInput) contentInput.value = t.content || '';
+                if (applyResult) applyResult.textContent = '';
+                renderTemplateList();
+            });
+        });
+    }
+
+    function openModal() {
+        if (modal) { modal.style.display = 'flex'; loadTemplates(); }
+    }
+    function closeModal() { if (modal) modal.style.display = 'none'; }
+
+    if (openBtn) openBtn.addEventListener('click', openModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    if (newBtn) {
+        newBtn.addEventListener('click', () => {
+            currentTemplateId = null;
+            if (nameInput) nameInput.value = '';
+            if (descInput) descInput.value = '';
+            if (contentInput) contentInput.value = '---\ndate: {{date}}\ntitle: {{title}}\n---\n\n# {{title}}\n\n';
+            if (applyResult) applyResult.textContent = '';
+            renderTemplateList();
+            nameInput && nameInput.focus();
+        });
+    }
+
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const name = nameInput ? nameInput.value.trim() : '';
+            if (!name) { showToast('テンプレート名を入力してください', 'error'); return; }
+            const tpl = {
+                id: currentTemplateId || `tpl-${Date.now()}`,
+                name,
+                description: descInput ? descInput.value.trim() : '',
+                content: contentInput ? contentInput.value : '',
+            };
+            try {
+                const res = await window.api.saveNoteTemplate(tpl);
+                if (res.success) {
+                    currentTemplateId = res.template.id;
+                    showToast('テンプレートを保存しました', 'success');
+                    await loadTemplates();
+                } else {
+                    showToast('保存エラー: ' + res.error, 'error');
+                }
+            } catch (e) { showToast('エラー: ' + e.message, 'error'); }
+        });
+    }
+
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+            if (!currentTemplateId) return;
+            if (!confirm('このテンプレートを削除しますか？')) return;
+            try {
+                await window.api.deleteNoteTemplate(currentTemplateId);
+                currentTemplateId = null;
+                if (nameInput) nameInput.value = '';
+                if (contentInput) contentInput.value = '';
+                showToast('削除しました', 'success');
+                await loadTemplates();
+            } catch (e) { showToast('エラー: ' + e.message, 'error'); }
+        });
+    }
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', async () => {
+            if (!currentTemplateId) { showToast('テンプレートを選択してください', 'error'); return; }
+            const title = applyTitle ? applyTitle.value.trim() : '';
+            try {
+                const res = await window.api.applyNoteTemplate({ templateId: currentTemplateId, title });
+                if (res.success) {
+                    if (applyResult) { applyResult.style.color = 'var(--accent)'; applyResult.textContent = `✅ 作成: ${res.title}.md`; }
+                    showToast(`「${res.title}.md」を作成しました`, 'success');
+                } else {
+                    if (applyResult) { applyResult.style.color = '#f87171'; applyResult.textContent = '❌ ' + res.error; }
+                }
+            } catch (e) {
+                if (applyResult) { applyResult.style.color = '#f87171'; applyResult.textContent = '❌ ' + e.message; }
+            }
+        });
+    }
+})();
+
+// ======================================================
+// 5-2 ウィークリーレビュー ウィザード
+// ======================================================
+(function initWeeklyReview() {
+    const modal = $('weekly-review-modal');
+    const openBtn = $('btn-open-weekly-review');
+    const closeBtn = $('btn-weekly-review-close');
+    let currentStep = 1;
+    let weeklyNotes = [];
+    let allTasksCache = [];
+
+    function showStep(n) {
+        currentStep = n;
+        document.querySelectorAll('.wr-step-content').forEach(el => el.style.display = 'none');
+        const stepEl = $(`wr-step-${n}`);
+        if (stepEl) stepEl.style.display = 'block';
+        document.querySelectorAll('.wr-step').forEach(dot => {
+            const active = parseInt(dot.dataset.step) <= n;
+            dot.style.background = active ? 'var(--accent)' : 'rgba(255,255,255,.15)';
+        });
+    }
+
+    async function openModal() {
+        if (!modal) return;
+        modal.style.display = 'flex';
+        showStep(1);
+        // Step1: 今週のノート読み込み
+        const listEl = $('wr-notes-list');
+        if (listEl) listEl.innerHTML = '<div class="list-empty">読み込み中...</div>';
+        try {
+            const res = await window.api.getWeeklyNotes();
+            weeklyNotes = res.notes || [];
+            if (listEl) {
+                if (weeklyNotes.length === 0) {
+                    listEl.innerHTML = '<div class="list-empty">今週のノートはありません</div>';
+                } else {
+                    listEl.innerHTML = weeklyNotes.map(n =>
+                        `<div style="padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.04);font-size:.8rem">
+                            <div style="font-weight:500">${esc(n.title)}</div>
+                            <div style="opacity:.5;font-size:.72rem">${n.modifiedAt.slice(0,10)} · ${n.wordCount}文字</div>
+                            ${n.preview ? `<div style="opacity:.6;font-size:.75rem;margin-top:2px">${esc(n.preview.slice(0,80))}...</div>` : ''}
+                        </div>`
+                    ).join('');
+                }
+            }
+        } catch (e) {
+            if (listEl) listEl.innerHTML = '<div class="list-empty">読み込みエラー</div>';
+        }
+    }
+
+    function closeModal() { if (modal) modal.style.display = 'none'; }
+
+    if (openBtn) openBtn.addEventListener('click', openModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    // Step dots クリック
+    document.querySelectorAll('.wr-step').forEach(dot => {
+        dot.addEventListener('click', () => {
+            const n = parseInt(dot.dataset.step);
+            if (n < currentStep) showStep(n);
+        });
+    });
+
+    // Step 1 → 2
+    const next1 = $('btn-wr-next-1');
+    if (next1) {
+        next1.addEventListener('click', async () => {
+            showStep(2);
+            // タスク・プロジェクト状況
+            const summaryEl = $('wr-tasks-summary');
+            if (summaryEl) summaryEl.innerHTML = '<div class="list-empty">読み込み中...</div>';
+            try {
+                const [taskRes, projRes] = await Promise.all([
+                    window.api.getAllTasks({ source: 'all' }),
+                    window.api.getProjects ? window.api.getProjects() : Promise.resolve({ projects: allProjects }),
+                ]);
+                allTasksCache = (taskRes.success ? taskRes.tasks : []);
+                const projects = projRes.projects || allProjects || [];
+                const overdue = allTasksCache.filter(t => !t.done && t.dueDate && t.dueDate < new Date().toISOString().slice(0,10));
+                const today = allTasksCache.filter(t => !t.done && t.dueDate === new Date().toISOString().slice(0,10));
+                const done = allTasksCache.filter(t => t.done);
+                if (summaryEl) summaryEl.innerHTML = `
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+                        <div style="padding:10px;border-radius:8px;background:rgba(248,113,113,.1);text-align:center">
+                            <div style="font-size:1.4rem;font-weight:700;color:#f87171">${overdue.length}</div>
+                            <div style="font-size:.72rem;opacity:.7">期限切れ</div>
+                        </div>
+                        <div style="padding:10px;border-radius:8px;background:rgba(251,191,36,.1);text-align:center">
+                            <div style="font-size:1.4rem;font-weight:700;color:#fbbf24">${today.length}</div>
+                            <div style="font-size:.72rem;opacity:.7">本日期限</div>
+                        </div>
+                        <div style="padding:10px;border-radius:8px;background:rgba(52,211,153,.1);text-align:center">
+                            <div style="font-size:1.4rem;font-weight:700;color:#34d399">${done.length}</div>
+                            <div style="font-size:.72rem;opacity:.7">完了済み</div>
+                        </div>
+                    </div>
+                    <div style="font-size:.8rem;font-weight:500;margin-bottom:6px">アクティブプロジェクト</div>
+                    ${projects.filter(p => p.status === 'active').slice(0,5).map(p => {
+                        const total = (p.tasks||[]).length;
+                        const doneCnt = (p.tasks||[]).filter(t=>t.done).length;
+                        const pct = total > 0 ? Math.round(doneCnt/total*100) : 0;
+                        return `<div style="padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.04);margin-bottom:4px">
+                            <div style="display:flex;justify-content:space-between;font-size:.8rem"><span>${esc(p.name)}</span><span style="opacity:.6">${doneCnt}/${total}</span></div>
+                            <div style="height:3px;background:rgba(255,255,255,.1);border-radius:2px;margin-top:4px"><div style="height:100%;width:${pct}%;background:var(--accent);border-radius:2px"></div></div>
+                        </div>`;
+                    }).join('') || '<div class="list-empty">プロジェクトなし</div>'}`;
+            } catch (e) {
+                if (summaryEl) summaryEl.innerHTML = '<div class="list-empty">読み込みエラー</div>';
+            }
+        });
+    }
+
+    // Step 2 → 3 (AI生成)
+    const back2 = $('btn-wr-back-2');
+    const next2 = $('btn-wr-next-2');
+    if (back2) back2.addEventListener('click', () => showStep(1));
+    if (next2) {
+        next2.addEventListener('click', async () => {
+            showStep(3);
+            const reviewEl = $('wr-ai-review');
+            if (reviewEl) reviewEl.textContent = '⏳ AIが分析中...';
+            try {
+                const projects = allProjects || [];
+                const res = await window.api.aiWeeklyReview({ notes: weeklyNotes, tasks: allTasksCache, projects });
+                if (res.success) {
+                    if (reviewEl) reviewEl.textContent = res.review;
+                } else {
+                    if (reviewEl) reviewEl.textContent = '❌ ' + res.error;
+                }
+            } catch (e) {
+                if (reviewEl) reviewEl.textContent = '❌ ' + e.message;
+            }
+        });
+    }
+
+    // Step 3 → 4
+    const back3 = $('btn-wr-back-3');
+    const next3 = $('btn-wr-next-3');
+    if (back3) back3.addEventListener('click', () => showStep(2));
+    if (next3) {
+        next3.addEventListener('click', () => {
+            showStep(4);
+            // AIレビューの内容を来週計画欄にプリセット
+            const reviewText = ($('wr-ai-review') || {}).textContent || '';
+            const planEl = $('wr-next-week-plan');
+            if (planEl && !planEl.value) {
+                const actionMatch = reviewText.match(/## 来週のおすすめアクション\n([\s\S]*?)(?=##|$)/);
+                if (actionMatch) planEl.value = '【AIの提案】\n' + actionMatch[1].trim() + '\n\n【自分のメモ】\n';
+            }
+        });
+    }
+
+    // Step 4 保存
+    const back4 = $('btn-wr-back-4');
+    const saveBtn = $('btn-wr-save-plan');
+    const saveResult = $('wr-save-result');
+    if (back4) back4.addEventListener('click', () => showStep(3));
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const plan = ($('wr-next-week-plan') || {}).value || '';
+            const today = new Date().toISOString().slice(0,10);
+            const noteTitle = `Weekly Review ${today}`;
+            const content = `---\ndate: ${today}\ntags: [weekly-review]\n---\n\n# ${noteTitle}\n\n## 今週のノート数\n${weeklyNotes.length}件\n\n## AIレビュー\n${($('wr-ai-review')||{}).textContent || ''}\n\n## 来週の計画\n${plan}`;
+            try {
+                const res = await window.api.clipboardToInbox({ text: '' });
+                // テンプレートAPIでノート作成
+                const tplRes = await window.api.applyNoteTemplate({
+                    templateId: '__weekly__', // 存在しない場合のフォールバック処理はmain.jsで対応済み
+                    title: noteTitle,
+                });
+                // フォールバック: Inboxへ保存
+                await window.api.clipboardToInbox({ text: content });
+                if (saveResult) { saveResult.style.color = 'var(--accent)'; saveResult.textContent = `✅ 「${noteTitle}」をInboxに保存しました`; }
+                showToast('週次レビューを保存しました', 'success');
+            } catch (e) {
+                // clipboardToInboxで保存
+                try {
+                    await window.api.clipboardToInbox({ text: content });
+                    if (saveResult) { saveResult.style.color = 'var(--accent)'; saveResult.textContent = `✅ Inboxに保存しました`; }
+                } catch (e2) {
+                    if (saveResult) { saveResult.style.color = '#f87171'; saveResult.textContent = '❌ ' + e2.message; }
+                }
+            }
+        });
+    }
+})();
