@@ -1070,19 +1070,19 @@ footer {
 
     <!-- Platform downloads -->
     <div class="dl-platforms">
-      <a class="dl-platform" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.4.4/Obsidian.Optimizer-5.4.4-mac-arm64.pkg" target="_blank" rel="noopener">
+      <a class="dl-platform" id="dl-mac-arm64" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.5.6/Obsidian.Optimizer-5.5.6-mac-arm64.pkg" target="_blank" rel="noopener">
         <div class="dl-p-os">macOS · Apple Silicon</div>
         <div class="dl-p-name">Mac (M1 / M2 / M3)</div>
         <div class="dl-p-ext">.pkg · arm64</div>
         <div class="dl-p-btn">ダウンロード →</div>
       </a>
-      <a class="dl-platform" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.4.4/Obsidian.Optimizer-5.4.4-mac-x64.dmg" target="_blank" rel="noopener">
+      <a class="dl-platform" id="dl-mac-x64" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.5.6/Obsidian.Optimizer-5.5.6-mac-x64.dmg" target="_blank" rel="noopener">
         <div class="dl-p-os">macOS · Intel</div>
         <div class="dl-p-name">Mac (Intel)</div>
         <div class="dl-p-ext">.dmg · x64</div>
         <div class="dl-p-btn">ダウンロード →</div>
       </a>
-      <a class="dl-platform" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.4.4/Obsidian.Optimizer-5.4.4-win-x64.exe" target="_blank" rel="noopener">
+      <a class="dl-platform" id="dl-win-x64" href="https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v5.5.6/Obsidian.Optimizer-5.5.6-win-x64.exe" target="_blank" rel="noopener">
         <div class="dl-p-os">Windows 10 / 11</div>
         <div class="dl-p-name">Windows</div>
         <div class="dl-p-ext">.exe · x64</div>
@@ -1091,7 +1091,7 @@ footer {
     </div>
 
     <p class="dl-note">
-      v5.4.4 · 完全ローカル動作 · データはクラウドに送られません<br>
+      <span id="dl-version">v5.5.6</span> · 完全ローカル動作 · データはクラウドに送られません<br>
       macOS で「開発元を確認できません」と表示された場合は右クリック →「開く」を選択してください
     </p>
   </div>
@@ -1154,5 +1154,28 @@ footer {
   </div>
 </footer>
 
+<script>
+/* GitHub Releases API から最新バージョンを取得してダウンロードリンクを自動更新 */
+(async () => {
+  try {
+    const res = await fetch('https://api.github.com/repos/freeplanets001/Obsidian-Optimizer/releases/latest', {
+      headers: { 'Accept': 'application/vnd.github.v3+json' }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const v = (data.tag_name || '').replace(/^v/, '');
+    if (!v) return;
+    const base = `https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v${v}`;
+    const macArm = document.getElementById('dl-mac-arm64');
+    if (macArm) macArm.href = `${base}/Obsidian.Optimizer-${v}-mac-arm64.pkg`;
+    const macX64 = document.getElementById('dl-mac-x64');
+    if (macX64) macX64.href = `${base}/Obsidian.Optimizer-${v}-mac-x64.dmg`;
+    const win = document.getElementById('dl-win-x64');
+    if (win) win.href = `${base}/Obsidian.Optimizer-${v}-win-x64.exe`;
+    const ver = document.getElementById('dl-version');
+    if (ver) ver.textContent = `v${v}`;
+  } catch (_) { /* フォールバック: HTMLのデフォルトURLをそのまま使用 */ }
+})();
+</script>
 </body>
 </html>
