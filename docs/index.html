@@ -528,6 +528,71 @@ footer {
   .dl-platform { border-right: none; border-bottom: 1px solid var(--rule-w); }
   .dl-platform:last-child { border-bottom: none; }
 }
+
+/* ─── Collab Tools section ───────────────────────────────── */
+.collab-section {
+  padding: 96px 48px;
+  border-bottom: 1px solid var(--rule-w);
+  max-width: 1200px; margin: 0 auto;
+}
+.collab-kicker {
+  font-size: .68rem; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--accent-l);
+  margin-bottom: 16px;
+}
+.collab-headline {
+  font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 900;
+  letter-spacing: -.03em; line-height: 1.15;
+  margin-bottom: 12px;
+}
+.collab-sub {
+  font-size: .9rem; color: rgba(255,255,255,.45);
+  margin-bottom: 56px; max-width: 520px; line-height: 1.7;
+}
+.collab-cards {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  border: 1px solid var(--rule-w); border-radius: 2px; overflow: hidden;
+}
+.collab-card {
+  display: block; padding: 40px;
+  background: rgba(255,255,255,.02);
+  color: var(--white); text-decoration: none;
+  transition: background .2s;
+  border-right: 1px solid var(--rule-w);
+  position: relative;
+}
+.collab-card:last-child { border-right: none; }
+.collab-card:hover { background: rgba(91,69,212,.08); }
+.collab-card-badge {
+  display: inline-block;
+  font-size: .65rem; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--accent-l);
+  border: 1px solid rgba(91,69,212,.5);
+  padding: 3px 10px; border-radius: 2px;
+  margin-bottom: 24px;
+}
+.collab-card-title {
+  font-size: 1.25rem; font-weight: 900; letter-spacing: -.02em;
+  line-height: 1.25; margin-bottom: 14px;
+}
+.collab-card-desc {
+  font-size: .83rem; color: rgba(255,255,255,.5);
+  line-height: 1.65; margin-bottom: 28px;
+}
+.collab-card-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: .75rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--white);
+  border-bottom: 1px solid rgba(255,255,255,.3);
+  padding-bottom: 2px; transition: border-color .2s;
+}
+.collab-card:hover .collab-card-link { border-color: rgba(255,255,255,.8); }
+@media (max-width: 960px) {
+  .collab-section { padding: 72px 24px; }
+  .collab-cards { grid-template-columns: 1fr; }
+  .collab-card { border-right: none; border-bottom: 1px solid var(--rule-w); }
+  .collab-card:last-child { border-bottom: none; }
+}
 </style>
 </head>
 <body>
@@ -992,6 +1057,32 @@ footer {
       <a class="cta-link" href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">Brain で読む</a>
     </div>
   </div>
+</div>
+
+<!-- ══ Collab Tools ═══════════════════════════════════════════ -->
+<div style="border-bottom:1px solid var(--rule-w)">
+<div class="collab-section">
+  <div class="collab-kicker">コラボツール</div>
+  <h2 class="collab-headline">知識を、もっと先へ</h2>
+  <p class="collab-sub">Obsidian Optimizer と組み合わせることで、あなたの知識管理がさらに進化する厳選コラボツール。</p>
+  <div class="collab-cards">
+
+    <a class="collab-card" href="https://tqv.jp/u/yoh_nagano/a/aico/fkrH5jay" target="_blank" rel="noopener">
+      <div class="collab-card-badge">THE OKAN</div>
+      <div class="collab-card-title">あなたの知性を<br>資産に変えるSNS戦略OS</div>
+      <div class="collab-card-desc">蓄積した知識をSNS発信の武器に変える、永野式の戦略フレームワーク。Obsidianで育てたVaultの価値を外の世界へ届けるための実践OS。</div>
+      <span class="collab-card-link">詳細を見る →</span>
+    </a>
+
+    <a class="collab-card" href="https://the-okan-pro.pages.dev/" target="_blank" rel="noopener">
+      <div class="collab-card-badge">永野式</div>
+      <div class="collab-card-title">漫画プロンプトメーカー<br>あいこ</div>
+      <div class="collab-card-desc">永野式メソッドで作られた漫画向けAIプロンプト生成ツール。ノートに眠るアイデアをビジュアルコンテンツへ変換するクリエイター向けアシスタント。</div>
+      <span class="collab-card-link">ツールを使う →</span>
+    </a>
+
+  </div>
+</div>
 </div>
 
 <!-- ══ Footer ═════════════════════════════════════════════════ -->
