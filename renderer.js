@@ -3526,21 +3526,26 @@ async function loadVaultFolderList() {
     // 構造タブのフォルダ一覧表示
     const listEl = $('vault-folder-list');
     if (listEl && res.folders.length > 0) {
-        listEl.innerHTML = `<p style="font-size:.78rem;color:var(--text-dim);margin:0 0 6px">📂 既存フォルダ (${res.folders.length}件):</p><div style="display:flex;flex-wrap:wrap;gap:4px">${res.folders.map(f => `<span class="tag-chip" style="cursor:pointer" title="${esc(f)}" onclick="appendCustomFolder('${esc(f)}')">${esc(f)}</span>`).join('')}</div>`;
+        listEl.innerHTML = `<p style="font-size:.78rem;color:var(--text-dim);margin:0 0 6px">📂 既存フォルダ (${res.folders.length}件) — クリックで入力欄に追加:</p><div id="vault-folder-chips" style="display:flex;flex-wrap:wrap;gap:4px">${res.folders.map(f => `<span class="tag-chip" style="cursor:pointer" data-folder="${f.replace(/"/g, '&quot;')}" title="${esc(f)}">${esc(f)}</span>`).join('')}</div>`;
+        // イベント委譲でクリック処理（特殊文字を含むフォルダ名も安全に処理）
+        listEl.querySelector('#vault-folder-chips')?.addEventListener('click', (e) => {
+            const chip = e.target.closest('[data-folder]');
+            if (!chip) return;
+            const folder = chip.dataset.folder;
+            const ta = $('custom-folders-input');
+            if (!ta) return;
+            const lines = ta.value.split('\n').map(l => l.trim()).filter(Boolean);
+            if (!lines.includes(folder)) {
+                ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + folder;
+            }
+            ta.focus();
+        });
     } else if (listEl) {
         listEl.innerHTML = '<p style="font-size:.78rem;color:var(--text-dim)">フォルダなし（まずスキャンを実行してください）</p>';
     }
 }
 
-// タグチップクリックでテキストエリアにフォルダを追加するグローバル関数
-window.appendCustomFolder = function(folder) {
-    const ta = $('custom-folders-input');
-    if (!ta) return;
-    const lines = ta.value.split('\n').map(l => l.trim()).filter(Boolean);
-    if (!lines.includes(folder)) {
-        ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + folder;
-    }
-};
+// グローバル関数は削除（イベント委譲に変更済み）
 
 async function loadStructureTemplates() {
     const container = $('structure-template-list');
