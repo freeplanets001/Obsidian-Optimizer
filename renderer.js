@@ -7934,7 +7934,7 @@ function renderProjectDetail(p) {
     if (notesEl) notesEl.value = p.notes || '';
 }
 
-// プロジェクト名に対応する #project/tag を持つVaultタスクを表示
+// プロジェクト名に対応する #project/tag を持つVaultタスクを表示（チェック操作対応）
 async function renderVaultLinkedTasks(p) {
     const list = $('proj-vault-task-list');
     const countEl = $('proj-vault-task-count');
@@ -7951,16 +7951,37 @@ async function renderVaultLinkedTasks(p) {
             return;
         }
         const today = new Date().toISOString().slice(0, 10);
-        list.innerHTML = linked.map(t => {
+        list.innerHTML = '';
+        for (const t of linked) {
             const doneStyle = t.done ? 'opacity:.4;text-decoration:line-through;' : '';
             const overdueStyle = (!t.done && t.dueDate && t.dueDate < today) ? 'color:#f87171;' : '';
             const dueTxt = t.dueDate ? ` <span style="font-size:.7rem;opacity:.6">📅 ${t.dueDate}</span>` : '';
-            const check = t.done ? '✓' : '○';
-            return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;${doneStyle}${overdueStyle}">
-                <span style="font-size:.8rem;opacity:.6">${check}</span>
-                <span style="flex:1;font-size:.78rem">${esc(t.text)}</span>${dueTxt}
-            </div>`;
-        }).join('');
+            const row = document.createElement('div');
+            row.style.cssText = `display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;${doneStyle}${overdueStyle}`;
+            row.innerHTML = `<input type="checkbox" ${t.done ? 'checked' : ''} style="cursor:pointer;flex-shrink:0">
+                <span style="flex:1;font-size:.78rem">${esc(t.text)}</span>${dueTxt}`;
+            const cb = row.querySelector('input[type="checkbox"]');
+            cb.addEventListener('change', async () => {
+                const newDone = cb.checked;
+                const r = await window.api.toggleTask({ filePath: t.filePath, lineNumber: t.lineNumber, done: newDone });
+                if (r.success) {
+                    // プロジェクトのタスクも同名タスクがあれば同期
+                    const matchTask = (p.tasks || []).find(pt => pt.text === t.text);
+                    if (matchTask && matchTask.done !== newDone) {
+                        await window.api.toggleProjectTask({ projectId: p.id, taskId: matchTask.id });
+                    }
+                    await refreshProjects();
+                    const updated = allProjects.find(pr => pr.id === p.id);
+                    if (updated) { renderProjectDetail(updated); }
+                    // タスクタブが開いていれば更新
+                    if (taskTabInitialized) refreshTaskList();
+                } else {
+                    cb.checked = !newDone; // ロールバック
+                    showToast(`エラー: ${r.error}`, 'error');
+                }
+            });
+            list.appendChild(row);
+        }
     } catch (e) { list.innerHTML = `<span style="opacity:.4;font-size:.75rem">読み込みエラー</span>`; }
 }
 
@@ -7995,6 +8016,8 @@ function renderDetailTasks(p) {
             const p = allProjects.find(p => p.id === currentProjectId);
             if (p) renderProjectDetail(p);
             syncProjectToVault(currentProjectId);
+            // タスクタブが開いていれば更新（vault note が書き換わるため）
+            if (taskTabInitialized) refreshTaskList();
         });
     });
 

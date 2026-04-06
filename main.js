@@ -3755,8 +3755,8 @@ tags: [dashboard, project-board]
 ## 📊 サマリー
 
 \`\`\`dataviewjs
-const projects = dv.pages('"01 Projects" OR #type/project');
-const archived = dv.pages('"04 Archives"').where(p => p.file.tags && p.file.tags.includes("type/project"));
+const projects = dv.pages('#type/project');
+const archived = dv.pages('#type/project').where(p => p.status === "archived" || p.status === "completed" || (p.file.tags && p.file.tags.includes("status/done")));
 const total = projects.length;
 const active = projects.where(p => p.status === "active").length;
 const onHold = projects.where(p => p.status === "on-hold").length;
@@ -3786,7 +3786,7 @@ TABLE WITHOUT ID
   choice(due, dateformat(date(due), "MM/dd"), "—") AS "期限",
   choice(due AND date(due) < date(today), "⚠️ 期限切れ",
     choice(due AND date(due) <= date(today) + dur(7 days), "🔔 間近", "")) AS "アラート"
-FROM "01 Projects" OR #type/project
+FROM #type/project
 WHERE status = "active" OR (!status AND !contains(file.tags, "status/done"))
 SORT choice(priority = "high", 1, choice(priority = "medium", 2, 3)) ASC, due ASC
 \`\`\`
@@ -3800,7 +3800,7 @@ TABLE WITHOUT ID
   file.link AS "プロジェクト",
   dateformat(date(due), "yyyy-MM-dd") AS "期限",
   (date(today) - date(due)).days + " 日超過" AS "超過"
-FROM "01 Projects" OR #type/project
+FROM #type/project
 WHERE due AND date(due) < date(today) AND status != "archived" AND status != "completed"
 SORT due ASC
 \`\`\`
@@ -3815,7 +3815,7 @@ TABLE WITHOUT ID
   dateformat(date(due), "MM月dd日 (ddd)") AS "期限",
   (date(due) - date(today)).days + " 日後" AS "残り",
   (progress + "%") AS "進捗"
-FROM "01 Projects" OR #type/project
+FROM #type/project
 WHERE due
   AND date(due) >= date(today)
   AND date(due) <= date(today) + dur(30 days)
@@ -3832,7 +3832,7 @@ TABLE WITHOUT ID
   file.link AS "プロジェクト",
   (progress + "%") AS "進捗",
   file.mday AS "最終更新"
-FROM "01 Projects" OR #type/project
+FROM #type/project
 WHERE status = "on-hold"
 SORT file.mday DESC
 \`\`\`
@@ -3845,7 +3845,7 @@ SORT file.mday DESC
 TABLE WITHOUT ID
   file.link AS "プロジェクト",
   file.mday AS "完了日"
-FROM "04 Archives" OR #type/project
+FROM #type/project
 WHERE contains(file.tags, "status/done") OR status = "completed"
 SORT file.mday DESC
 LIMIT 10
@@ -3856,7 +3856,7 @@ LIMIT 10
 ## 🏷️ タグ別プロジェクト
 
 \`\`\`dataviewjs
-const projects = dv.pages('"01 Projects" OR #type/project');
+const projects = dv.pages('#type/project');
 const tagMap = {};
 for (const p of projects) {
   const tags = (p.file.tags || []).filter(t => t !== "type/project" && !t.startsWith("status/"));
@@ -6758,6 +6758,50 @@ ipcMain.handle('toggle-task', async (_, { filePath, lineNumber, done }) => {
         }
 
         fs.writeFileSync(filePath, lines.join('\n'), 'utf-8');
+
+        // プロジェクトノートのタスクが変更された場合、プロジェクト config を同期
+        try {
+            const updatedContent = fs.readFileSync(filePath, 'utf-8');
+            const fmMatch = updatedContent.match(/^---\n([\s\S]*?)\n---/);
+            if (fmMatch) {
+                const optimizerIdMatch = fmMatch[1].match(/optimizer-id:\s*"?([^"\n]+)"?/);
+                if (optimizerIdMatch) {
+                    const optimizerId = optimizerIdMatch[1].trim();
+                    const projects = getProjects();
+                    const project = projects.find(p => p.id === optimizerId);
+                    if (project) {
+                        // トグル後の行テキストからタスク名を抽出
+                        const toggledLine = lines[lineNumber] || '';
+                        const taskTextMatch = toggledLine.match(/^- \[[xX ]\] (.+)/);
+                        if (taskTextMatch) {
+                            // 📅 日付 / 優先度記号などを除去してテキストのみ抽出
+                            const rawText = taskTextMatch[1]
+                                .replace(/📅 \d{4}-\d{2}-\d{2}/, '')
+                                .replace(/🔴|🟡|🔵|🟢|🔁\s*(daily|weekly|monthly)/, '')
+                                .trim();
+                            const task = (project.tasks || []).find(t => t.text === rawText);
+                            if (task && task.done !== done) {
+                                task.done = done;
+                                project.updatedAt = new Date().toISOString();
+                                // 全タスク完了でプロジェクトを自動完了
+                                const allDone = project.tasks.every(t => t.done);
+                                if (allDone && project.tasks.length > 0 && project.status === 'active') {
+                                    project.status = 'completed';
+                                    project.completedAt = project.updatedAt;
+                                } else if (!done && project.status === 'completed') {
+                                    project.status = 'active';
+                                }
+                                saveProjects(projects);
+                                log.info(`[toggle-task] プロジェクト「${project.name}」タスク「${rawText}」を ${done ? '完了' : '未完了'} に同期`);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (syncErr) {
+            log.warn(`[toggle-task] プロジェクト同期スキップ: ${syncErr.message}`);
+        }
+
         // Dockバッジ更新
         updateDockBadge().catch(() => {});
         return { success: true };
