@@ -73,6 +73,8 @@ contextBridge.exposeInMainWorld('api', {
     getStructureTemplates: () => ipcRenderer.invoke('get-structure-templates'),
     analyzeVaultStructure: () => ipcRenderer.invoke('analyze-vault-structure'),
     applyStructureTemplate: (params) => ipcRenderer.invoke('apply-structure-template', params),
+    createVaultFolders: (params) => ipcRenderer.invoke('create-vault-folders', params),
+    getVaultFolderList: () => ipcRenderer.invoke('get-vault-folder-list'),
     getFullGraph: () => ipcRenderer.invoke('get-full-graph'),
     getAppLanguage: () => ipcRenderer.invoke('get-app-language'),
     setAppLanguage: (lang) => ipcRenderer.invoke('set-app-language', lang),

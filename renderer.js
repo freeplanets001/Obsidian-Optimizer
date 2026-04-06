@@ -981,6 +981,18 @@ async function runScan() {
                 destSel.appendChild(opt);
             });
         }
+        // 最適化タブの MOC 出力先セレクトも更新
+        const mocOptSel = $('opt-moc-folder');
+        if (mocOptSel) {
+            const prevVal = mocOptSel.value;
+            while (mocOptSel.options.length > 1) mocOptSel.remove(1);
+            folders.forEach(f => {
+                const opt = document.createElement('option');
+                opt.value = f; opt.textContent = f;
+                mocOptSel.appendChild(opt);
+            });
+            if (prevVal) mocOptSel.value = prevVal;
+        }
     }
 
     set('badge-orphan', scanData.orphanNotes);
@@ -1697,6 +1709,7 @@ async function runOptimize() {
 
     const deleteJunk = $('opt-junk')?.checked ?? true;
     const linkOrphans = $('opt-orphan')?.checked ?? true;
+    const mocOutputFolder = $('opt-moc-folder')?.value || null;
 
     const confirmParts = [];
     if (deleteJunk && scanData.junkFiles > 0) confirmParts.push(`ゴミファイル ${scanData.junkFiles}件 を削除`);
@@ -1718,7 +1731,7 @@ async function runOptimize() {
     }, 180);
 
     let res;
-    try { res = await window.api.optimizeVault({ deleteJunk, linkOrphans }); }
+    try { res = await window.api.optimizeVault({ deleteJunk, linkOrphans, mocOutputFolder }); }
     catch (e) { res = { success: false, error: e.message }; }
 
     clearInterval(timer);
@@ -3491,6 +3504,44 @@ async function initI18n() { try { const r = await window.api.getAppLanguage(); i
 // ============================================================
 let structureTabInitialized = false;
 
+// Vaultフォルダ一覧を取得し、MOC出力先セレクトと構造タブの一覧を更新
+async function loadVaultFolderList() {
+    const res = await window.api.getVaultFolderList().catch(() => null);
+    if (!res?.success) return;
+
+    // 最適化タブの MOC 出力先セレクトを更新
+    const mocSel = $('opt-moc-folder');
+    if (mocSel) {
+        const prev = mocSel.value;
+        while (mocSel.options.length > 1) mocSel.remove(1);
+        for (const f of res.folders) {
+            const opt = document.createElement('option');
+            opt.value = f;
+            opt.textContent = f;
+            mocSel.appendChild(opt);
+        }
+        if (prev) mocSel.value = prev;
+    }
+
+    // 構造タブのフォルダ一覧表示
+    const listEl = $('vault-folder-list');
+    if (listEl && res.folders.length > 0) {
+        listEl.innerHTML = `<p style="font-size:.78rem;color:var(--text-dim);margin:0 0 6px">📂 既存フォルダ (${res.folders.length}件):</p><div style="display:flex;flex-wrap:wrap;gap:4px">${res.folders.map(f => `<span class="tag-chip" style="cursor:pointer" title="${esc(f)}" onclick="appendCustomFolder('${esc(f)}')">${esc(f)}</span>`).join('')}</div>`;
+    } else if (listEl) {
+        listEl.innerHTML = '<p style="font-size:.78rem;color:var(--text-dim)">フォルダなし（まずスキャンを実行してください）</p>';
+    }
+}
+
+// タグチップクリックでテキストエリアにフォルダを追加するグローバル関数
+window.appendCustomFolder = function(folder) {
+    const ta = $('custom-folders-input');
+    if (!ta) return;
+    const lines = ta.value.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.includes(folder)) {
+        ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + folder;
+    }
+};
+
 async function loadStructureTemplates() {
     const container = $('structure-template-list');
     if (!container) return;
@@ -4613,7 +4664,7 @@ const _origActivateTab = activateTab;
 window.activateTab = function(tab) {
     _origActivateTab(tab);
     // タブ統合対応: tools タブにはstructureサブタブが含まれる
-    if ((tab === 'structure' || tab === 'tools') && !structureTabInitialized) { structureTabInitialized = true; loadStructureTemplates(); }
+    if ((tab === 'structure' || tab === 'tools') && !structureTabInitialized) { structureTabInitialized = true; loadStructureTemplates(); loadVaultFolderList(); }
     // analytics タブにはgraphサブタブが含まれる
     if ((tab === 'graph' || tab === 'analytics') && !graphTabInitialized) { graphTabInitialized = true; loadFullGraph(); }
     if ((tab === 'analytics') && !aiBatchInitialized) { aiBatchInitialized = true; initAiBatchTab(); }
@@ -4758,6 +4809,32 @@ async function confirmGenerateDashboard() {
 (function() {
     const safe = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
     safe('btn-analyze-structure', analyzeVaultStructure);
+
+    // カスタムフォルダ作成
+    safe('btn-create-custom-folders', async () => {
+        const ta = $('custom-folders-input');
+        const resultEl = $('custom-folders-result');
+        const folders = (ta?.value || '').split('\n').map(l => l.trim()).filter(Boolean);
+        if (folders.length === 0) { if (resultEl) resultEl.innerHTML = '<span style="color:var(--warning)">フォルダ名を入力してください</span>'; return; }
+        if (!await showConfirmModal('フォルダ作成の確認', `以下の ${folders.length} 件のフォルダを作成しますか？\n\n${folders.join('\n')}`, '作成する')) return;
+        const res = await window.api.createVaultFolders({ folders });
+        if (res.success) {
+            const lines = res.results.map(r => {
+                if (r.status === 'created') return `<span style="color:var(--green)">✅ ${esc(r.folder)}</span>`;
+                if (r.status === 'exists') return `<span style="color:var(--text-dim)">📂 ${esc(r.folder)}（既存）</span>`;
+                return `<span style="color:var(--danger)">❌ ${esc(r.folder)}: ${esc(r.message)}</span>`;
+            });
+            if (resultEl) resultEl.innerHTML = `<strong>完了</strong>: 作成 ${res.created}件 / 既存 ${res.exists}件<br>${lines.join('<br>')}`;
+            showToast(`フォルダ ${res.created}件 作成しました`, 'success');
+            loadVaultFolderList();
+        } else {
+            if (resultEl) resultEl.innerHTML = `<span style="color:var(--danger)">エラー: ${esc(res.error)}</span>`;
+            showToast(`エラー: ${res.error}`, 'error');
+        }
+    });
+
+    // Vaultフォルダ一覧を更新
+    safe('btn-refresh-vault-folders', () => loadVaultFolderList());
     safe('btn-load-graph', loadFullGraph);
     safe('btn-generate-report-note', generateReportNote);
     // ダッシュボード生成ボタン（ウィザード形式: 選択→プレビュー→確認）
@@ -7433,6 +7510,7 @@ function bindProjectEvents() {
         await refreshProjects();
         const p = allProjects.find(p => p.id === currentProjectId);
         if (p) renderProjectDetail(p);
+        syncProjectToVault(currentProjectId);
     });
 
     // 詳細パネル 編集

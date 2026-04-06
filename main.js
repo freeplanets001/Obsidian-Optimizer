@@ -1273,7 +1273,7 @@ ipcMain.handle('optimize-vault', async (event, options) => {
     if (!VAULT_PATH || !fs.existsSync(VAULT_PATH)) {
         return { success: false, error: 'Vault が設定されていません。「追加」ボタンから Vault フォルダを選択してください。' };
     }
-    const { deleteJunk = true, linkOrphans = true } = options || {};
+    const { deleteJunk = true, linkOrphans = true, mocOutputFolder = null } = options || {};
     const doBackup = config.backupBeforeDelete !== false;
     const junkRules = config.junkRules || DEFAULT_JUNK_RULES;
 
@@ -1437,8 +1437,14 @@ ipcMain.handle('optimize-vault', async (event, options) => {
                 try {
                     let mocPath = allFiles[targetMoc];
                     if (!mocPath) {
-                        mocPath = path.join(VAULT_PATH, '10 Atlas', `${targetMoc}.md`);
-                        fs.mkdirSync(path.dirname(mocPath), { recursive: true });
+                        // MOC出力先: オプション指定 → 既存の10 Atlas → Vaultルート（新規フォルダは作らない）
+                        let mocDir = VAULT_PATH;
+                        if (mocOutputFolder && fs.existsSync(path.join(VAULT_PATH, mocOutputFolder))) {
+                            mocDir = path.join(VAULT_PATH, mocOutputFolder);
+                        } else if (fs.existsSync(path.join(VAULT_PATH, '10 Atlas'))) {
+                            mocDir = path.join(VAULT_PATH, '10 Atlas');
+                        }
+                        mocPath = path.join(mocDir, `${targetMoc}.md`);
                         if (!fs.existsSync(mocPath)) {
                             const mocName = targetMoc.replace('_Uncategorized Orphans', 'カテゴリ未分類 孤立ノート');
                             fs.writeFileSync(mocPath, `# ${mocName}\ntags: ["type/moc", "auto-generated"]\n\n> 自動生成されたMOCです。\n\n`, 'utf-8');
@@ -3005,9 +3011,83 @@ const STRUCTURE_TEMPLATES = [
         folders: ['10-19 Administration', '20-29 Projects', '30-39 Resources', '40-49 Archive'],
         rules: { '10-19 Administration': { keywords: ['admin','管理','事務','財務','法務'] }, '20-29 Projects': { keywords: ['project','プロジェクト','クライアント','開発'] }, '30-39 Resources': { keywords: ['resource','テンプレート','参考','研修'] }, '40-49 Archive': { keywords: ['archive','完了','過去'] } },
     },
+    {
+        id: 'ai-knowledge-studio', name: 'AI Knowledge Studio',
+        description: 'AI・デジタルノートワーカー向け。Inbox→整理→アーカイブ＋Atlas（MOCハブ）・Templates完備',
+        folders: ['00 Inbox', '01 Projects', '02 Areas', '03 Resources', '04 Archives', '10 Atlas', '99 Templates'],
+        rules: { '00 Inbox': { keywords: ['inbox','メモ','draft','未整理','capture','new'] }, '01 Projects': { keywords: ['project','プロジェクト','todo','タスク','wip','開発'] }, '02 Areas': { keywords: ['area','エリア','習慣','健康','財務','学習'] }, '03 Resources': { keywords: ['resource','リソース','参考','howto','ガイド'] }, '04 Archives': { keywords: ['archive','アーカイブ','完了','done','過去'] } },
+    },
+    {
+        id: 'simple-gtd', name: 'シンプル GTD',
+        description: 'Getting Things Done。Next Actions → Projects → Reference → Someday/Maybe の4分類',
+        folders: ['00 Inbox', '10 Next Actions', '20 Projects', '30 Reference', '40 Someday-Maybe', '99 Archive'],
+        rules: { '00 Inbox': { keywords: ['inbox','未整理','new','capture'] }, '10 Next Actions': { keywords: ['next','action','タスク','todo','やること','urgent'] }, '20 Projects': { keywords: ['project','プロジェクト','目標','goal'] }, '30 Reference': { keywords: ['reference','参考','resource','howto','ガイド','知識'] }, '40 Someday-Maybe': { keywords: ['someday','maybe','いつか','アイデア','候補'] }, '99 Archive': { keywords: ['archive','完了','done','過去','old'] } },
+    },
 ];
 
 ipcMain.handle('get-structure-templates', () => ({ success: true, templates: STRUCTURE_TEMPLATES }));
+
+// カスタムフォルダ作成
+ipcMain.handle('create-vault-folders', async (_, { folders }) => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+        if (!Array.isArray(folders) || folders.length === 0) return { success: false, error: 'フォルダリストが空です' };
+
+        const results = [];
+        for (const rawFolder of folders) {
+            const folderName = rawFolder.trim();
+            if (!folderName) continue;
+            // セキュリティ: パストラバーサル防止
+            const resolved = path.resolve(path.join(vaultPath, folderName));
+            if (!resolved.startsWith(vaultPath + path.sep) && resolved !== vaultPath) {
+                results.push({ folder: folderName, status: 'error', message: 'パスが不正です' });
+                continue;
+            }
+            if (fs.existsSync(resolved)) {
+                results.push({ folder: folderName, status: 'exists' });
+            } else {
+                fs.mkdirSync(resolved, { recursive: true });
+                results.push({ folder: folderName, status: 'created' });
+            }
+        }
+        const created = results.filter(r => r.status === 'created').length;
+        const exists = results.filter(r => r.status === 'exists').length;
+        return { success: true, results, created, exists };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// Vault内フォルダ一覧取得（ネスト含む最大3階層）
+ipcMain.handle('get-vault-folder-list', async () => {
+    try {
+        const vaultPath = getCurrentVault();
+        if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+
+        const getFolders = (dir, depth = 0) => {
+            if (depth > 2) return [];
+            let result = [];
+            try {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (!entry.isDirectory()) continue;
+                    if (EXCLUDE_ENTRIES.has(entry.name) || entry.name.startsWith('.')) continue;
+                    const fullPath = path.join(dir, entry.name);
+                    const rel = path.relative(vaultPath, fullPath);
+                    result.push(rel);
+                    result = result.concat(getFolders(fullPath, depth + 1));
+                }
+            } catch (_) {}
+            return result;
+        };
+
+        const folders = getFolders(vaultPath);
+        return { success: true, folders };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
 
 ipcMain.handle('analyze-vault-structure', async () => {
     try {
@@ -7113,12 +7193,14 @@ ipcMain.handle('save-project', (_, project) => {
     try {
         const projects = getProjects();
         const now = new Date().toISOString();
+        let savedProject;
         if (project.id) {
             const idx = projects.findIndex(p => p.id === project.id);
             if (idx === -1) return { success: false, error: 'プロジェクトが見つかりません' };
             projects[idx] = { ...projects[idx], ...project, updatedAt: now };
+            savedProject = projects[idx];
         } else {
-            projects.push({
+            savedProject = {
                 id: uuidv4(),
                 name: project.name || '無題のプロジェクト',
                 description: project.description || '',
@@ -7134,8 +7216,10 @@ ipcMain.handle('save-project', (_, project) => {
                 vaultNotePath: project.vaultNotePath || null,
                 createdAt: now,
                 updatedAt: now,
-            });
+            };
+            projects.push(savedProject);
         }
+        refreshProjectVaultNote(savedProject);
         saveProjects(projects);
         return { success: true, projects };
     } catch (e) {
@@ -7146,7 +7230,13 @@ ipcMain.handle('save-project', (_, project) => {
 // プロジェクト削除
 ipcMain.handle('delete-project', (_, { id }) => {
     try {
-        const projects = getProjects().filter(p => p.id !== id);
+        const allProjects = getProjects();
+        const target = allProjects.find(p => p.id === id);
+        // Vaultノートが存在する場合は削除
+        if (target?.vaultNotePath && fs.existsSync(target.vaultNotePath)) {
+            try { fs.unlinkSync(target.vaultNotePath); } catch (_) {}
+        }
+        const projects = allProjects.filter(p => p.id !== id);
         saveProjects(projects);
         return { success: true, projects };
     } catch (e) {
@@ -7163,6 +7253,8 @@ ipcMain.handle('update-project-status', (_, { id, status }) => {
         p.status = status;
         p.updatedAt = new Date().toISOString();
         if (status === 'completed') p.completedAt = p.updatedAt;
+        // ステータス変更をVaultノートに反映（完了/アーカイブ時は04 Archivesへ移動）
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, project: p };
     } catch (e) {
@@ -7381,10 +7473,13 @@ SORT file.mtime DESC
         fs.writeFileSync(notePath, content, 'utf-8');
 
         if (p.vaultNotePath && p.vaultNotePath !== notePath && fs.existsSync(p.vaultNotePath)) {
-            try { fs.unlinkSync(p.vaultNotePath); } catch (_) {}
+            try { fs.unlinkSync(p.vaultNotePath); } catch (unlinkErr) {
+                log.warn(`[refreshProjectVaultNote] 旧ノート削除失敗: ${unlinkErr.message}`);
+            }
         }
         p.vaultNotePath = notePath;
-    } catch (_) {
+    } catch (e) {
+        log.error(`[refreshProjectVaultNote] Vault書き込みエラー (${p?.name}): ${e.message}`);
         // Vault書き込み失敗は無視（操作自体は成功させる）
     }
 }
@@ -7427,6 +7522,8 @@ ipcMain.handle('move-project-task', (_, { fromProjectId, taskId, toProjectId }) 
         toP.tasks.push(task);
         fromP.updatedAt = new Date().toISOString();
         toP.updatedAt   = new Date().toISOString();
+        refreshProjectVaultNote(fromP);
+        refreshProjectVaultNote(toP);
         saveProjects(projects);
         return { success: true };
     } catch (e) {
@@ -7490,7 +7587,7 @@ ipcMain.handle('sync-vault-to-project', async (_, { projectId }) => {
                 // 新しいタスクを追加
                 if (!p.tasks) p.tasks = [];
                 p.tasks.push({
-                    id: require('crypto').randomUUID(),
+                    id: uuidv4(),
                     text: vt.text,
                     done: vt.done,
                     dueDate: vt.dueDate || null,
