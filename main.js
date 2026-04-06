@@ -7495,6 +7495,18 @@ function refreshProjectVaultNote(p) {
     const vaultPath = getCurrentVault();
     if (!vaultPath) return;
     try {
+        // タスクテキストの正規化と重複除去（#project/xxxタグ混入による重複を自動クリーンアップ）
+        if (p.tasks && p.tasks.length > 0) {
+            const seen = new Set();
+            p.tasks = p.tasks.filter(t => {
+                const norm = t.text.replace(/#project\/[^\s]+/g, '').replace(/\s+/g, ' ').trim();
+                if (seen.has(norm)) return false; // 重複を除外
+                seen.add(norm);
+                t.text = norm; // テキストも正規化
+                return true;
+            });
+        }
+
         const doneTasks = p.tasks.filter(t => t.done).length;
         const progress = p.tasks.length > 0 ? Math.round(doneTasks / p.tasks.length * 100) : 0;
         const statusLabel = { active: '進行中', completed: '完了', 'on-hold': '保留中', archived: 'アーカイブ' }[p.status] || p.status;
@@ -7506,12 +7518,11 @@ function refreshProjectVaultNote(p) {
         const tagsYaml = baseTags.join(', ');
         const projectTag = p.name.replace(/\s+/g, '-');
 
-        // 各タスク行に #project/xxx インラインタグを付与 → Obsidian Tasks プラグインで可視化
         const taskLines = p.tasks.length > 0
             ? p.tasks.map(t => {
                 const check = t.done ? '[x]' : '[ ]';
                 const due = t.dueDate ? ` 📅 ${t.dueDate}` : '';
-                return `- ${check} ${t.text}${due} #project/${projectTag}`;
+                return `- ${check} ${t.text}${due}`;
             }).join('\n')
             : '- [ ] （タスクを追加してください）';
 
@@ -7655,16 +7666,34 @@ ipcMain.handle('sync-vault-to-project', async (_, { projectId }) => {
             if (!m) continue;
             const done = m[1].toLowerCase() === 'x';
             let text = m[2].trim();
-            // 📅 日付を除去してテキストのみ抽出
+            // 📅 日付 / #project/xxx などのインラインタグを除去してテキストのみ抽出
             const dueMatch = text.match(/📅 (\d{4}-\d{2}-\d{2})/);
             const dueDate = dueMatch ? dueMatch[1] : null;
-            text = text.replace(/📅 \d{4}-\d{2}-\d{2}/, '').trim();
+            text = text
+                .replace(/📅 \d{4}-\d{2}-\d{2}/, '')
+                .replace(/#project\/[^\s]+/g, '')   // #project/xxx タグを除去
+                .replace(/🔴|🟡|🔵|🟢/, '')         // 優先度記号を除去
+                .trim();
             if (text && !text.startsWith('（タスクを追加してください）')) {
                 vaultTasks.push({ text, done, dueDate });
             }
         }
 
         if (vaultTasks.length === 0) return { success: false, error: 'Vaultノートに有効なタスクが見つかりません' };
+
+        // ── 既存タスクの重複を先にクリーンアップ ──
+        // #project/xxx タグが混入したテキストによる重複タスクを除去する
+        if (p.tasks && p.tasks.length > 0) {
+            const seen = new Set();
+            p.tasks = p.tasks.filter(t => {
+                // テキストからタグを取り除いた正規化テキストで重複判定
+                const norm = t.text.replace(/#project\/[^\s]+/g, '').trim();
+                if (seen.has(norm)) return false;
+                seen.add(norm);
+                t.text = norm; // テキストも正規化
+                return true;
+            });
+        }
 
         // 既存のプロジェクトタスクをマージ（新しいタスクのみ追加、既存は更新）
         let added = 0;
@@ -7692,6 +7721,7 @@ ipcMain.handle('sync-vault-to-project', async (_, { projectId }) => {
             }
         }
         p.updatedAt = new Date().toISOString();
+        refreshProjectVaultNote(p);
         saveProjects(projects);
         return { success: true, added, updated, total: vaultTasks.length };
     } catch (e) {
