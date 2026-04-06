@@ -8508,6 +8508,12 @@ function renderTaskList(tasks, filter) {
                     const res = await window.api.toggleTask({ filePath, lineNumber, done: !isDone });
                     if (res.success) {
                         await refreshTaskList();
+                        // プロジェクト設定が更新された可能性があるためプロジェクトパネルも同期
+                        await refreshProjects();
+                        if (currentProjectId) {
+                            const syncedP = allProjects.find(pr => pr.id === currentProjectId);
+                            if (syncedP) renderProjectDetail(syncedP);
+                        }
                         window.api.updateDockBadge().catch(() => {});
                     } else addLog(`❌ タスク更新エラー: ${res.error}`, 'error', 'TASK');
                 } catch (err) { addLog(`❌ タスク更新エラー: ${err.message}`, 'error', 'TASK'); }

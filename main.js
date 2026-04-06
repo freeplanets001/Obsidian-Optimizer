@@ -6774,10 +6774,11 @@ ipcMain.handle('toggle-task', async (_, { filePath, lineNumber, done }) => {
                         const toggledLine = lines[lineNumber] || '';
                         const taskTextMatch = toggledLine.match(/^- \[[xX ]\] (.+)/);
                         if (taskTextMatch) {
-                            // 📅 日付 / 優先度記号などを除去してテキストのみ抽出
+                            // 📅 日付 / 優先度記号 / #project/xxx インラインタグを除去してテキストのみ抽出
                             const rawText = taskTextMatch[1]
                                 .replace(/📅 \d{4}-\d{2}-\d{2}/, '')
                                 .replace(/🔴|🟡|🔵|🟢|🔁\s*(daily|weekly|monthly)/, '')
+                                .replace(/#project\/[^\s]+/g, '')
                                 .trim();
                             const task = (project.tasks || []).find(t => t.text === rawText);
                             if (task && task.done !== done) {
@@ -7451,11 +7452,18 @@ function refreshProjectVaultNote(p) {
         const statusLabel = { active: '進行中', completed: '完了', 'on-hold': '保留中', archived: 'アーカイブ' }[p.status] || p.status;
         const priorityLabel = { high: '🔴 高', medium: '🟡 中', low: '🔵 低' }[p.priority] || p.priority;
 
+        const isArchived = p.status === 'archived' || p.status === 'completed';
+        const baseTags = ['type/project', ...(p.tags || [])];
+        if (isArchived) baseTags.push('status/done');
+        const tagsYaml = baseTags.join(', ');
+        const projectTag = p.name.replace(/\s+/g, '-');
+
+        // 各タスク行に #project/xxx インラインタグを付与 → Obsidian Tasks プラグインで可視化
         const taskLines = p.tasks.length > 0
             ? p.tasks.map(t => {
                 const check = t.done ? '[x]' : '[ ]';
                 const due = t.dueDate ? ` 📅 ${t.dueDate}` : '';
-                return `- ${check} ${t.text}${due}`;
+                return `- ${check} ${t.text}${due} #project/${projectTag}`;
             }).join('\n')
             : '- [ ] （タスクを追加してください）';
 
@@ -7465,23 +7473,17 @@ function refreshProjectVaultNote(p) {
             return `- ${check} ${m.name}${due}`;
         }).join('\n') || '';
 
-        const isArchived = p.status === 'archived' || p.status === 'completed';
-        const baseTags = ['type/project', ...(p.tags || [])];
-        if (isArchived) baseTags.push('status/done');
-        const tagsYaml = baseTags.join(', ');
-        const projectTag = p.name.replace(/\s+/g, '-');
-
         const unifiedTasksSection =
 `## タスク (${doneTasks}/${p.tasks.length})
 
 ${taskLines}
 
-> 以下はタスクタブで \`#project/${projectTag}\` タグを付けたVault連動タスクです
+> 以下は他のVaultファイルで \`#project/${projectTag}\` タグを付けた連動タスクです
 
 \`\`\`dataview
 TASK
 FROM ""
-WHERE contains(tags, "project/${projectTag}")
+WHERE contains(tags, "project/${projectTag}") AND file.path != this.file.path
 SORT file.mtime DESC
 \`\`\`
 `;
