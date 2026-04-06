@@ -529,6 +529,33 @@ footer {
   .dl-platform:last-child { border-bottom: none; }
 }
 
+/* ─── Hero 2-col split ────────────────────────────────────── */
+.hero-split { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: end; width: 100%; }
+.hero-collab-panel { padding-bottom: 4px; }
+.hero-collab-panel-label {
+  font-size: .62rem; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; color: rgba(255,255,255,.25);
+  margin-bottom: 18px; display: flex; align-items: center; gap: 10px;
+}
+.hero-collab-panel-label::before { content: ''; display: block; width: 18px; height: 1px; background: rgba(255,255,255,.2); }
+.hero-collab-c {
+  display: flex; color: var(--white); text-decoration: none;
+  border: 1px solid var(--rule-w); background: rgba(255,255,255,.02);
+  transition: background .2s, border-color .2s; overflow: hidden;
+}
+.hero-collab-c + .hero-collab-c { margin-top: 10px; }
+.hero-collab-c:hover { background: rgba(91,69,212,.1); border-color: rgba(91,69,212,.5); }
+.hero-collab-c-img { width: 130px; height: 86px; object-fit: cover; flex-shrink: 0; }
+.hero-collab-c-body { padding: 14px 18px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
+.hero-collab-c-badge { font-size: .58rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent-l); margin-bottom: 5px; }
+.hero-collab-c-name { font-size: .85rem; font-weight: 700; line-height: 1.3; }
+.hero-collab-c-arrow { font-size: .68rem; color: rgba(255,255,255,.3); margin-top: 8px; }
+.hero-collab-c:hover .hero-collab-c-arrow { color: var(--accent-l); }
+@media (max-width: 960px) {
+  .hero-split { grid-template-columns: 1fr; }
+  .hero-collab-panel { display: none; }
+}
+
 /* ─── Collab Tools section ───────────────────────────────── */
 .collab-section {
   padding: 96px 48px;
@@ -605,6 +632,7 @@ footer {
     <a href="#screens">画面</a>
     <a href="#download">ダウンロード</a>
     <a href="#get">記事を読む</a>
+    <a href="#collab">コラボツール</a>
   </div>
   <a class="nav-cta" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">使い方ガイド</a>
 </nav>
@@ -612,26 +640,56 @@ footer {
 <!-- ══ Hero ══════════════════════════════════════════════════ -->
 <div class="hero">
   <div class="hero-bg"></div>
-  <div class="hero-inner">
-    <div class="hero-kicker">AI寺子屋LAB &nbsp;—&nbsp; Obsidian Optimizer</div>
-    <h1>Vault の<br>散らかりを<br><em>終わらせる</em></h1>
-    <div class="hero-body">
-      <p class="hero-desc">
-        孤立ノート・壊れたリンク・タグの乱立・バックアップ未実施——<br>
-        Obsidian ユーザーが抱えるすべての問題を、<br>
-        1 つのデスクトップアプリで解決します。
-      </p>
-      <div>
-        <div class="hero-actions">
-          <a class="hero-btn hero-btn-primary" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">
-            note で使い方を読む
-          </a>
-          <a class="hero-btn hero-btn-ghost" href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">
-            Brain でも読む
-          </a>
+  <div class="hero-inner hero-split">
+    <!-- 左: メインコピー -->
+    <div class="hero-left">
+      <div class="hero-kicker">AI寺子屋LAB &nbsp;—&nbsp; Obsidian Optimizer</div>
+      <h1>Vault の<br>散らかりを<br><em>終わらせる</em></h1>
+      <div class="hero-body">
+        <p class="hero-desc">
+          孤立ノート・壊れたリンク・タグの乱立・バックアップ未実施——<br>
+          Obsidian ユーザーが抱えるすべての問題を、<br>
+          1 つのデスクトップアプリで解決します。
+        </p>
+        <div>
+          <div class="hero-actions">
+            <a class="hero-btn hero-btn-primary" href="https://note.com/ai_app_pro/n/n4e0c33c92d47" target="_blank" rel="noopener">
+              note で使い方を読む
+            </a>
+            <a class="hero-btn hero-btn-ghost" href="https://brain-market.com/u/difymaster/a/bzkDNzQjMgoTZsNWa0JXY" target="_blank" rel="noopener">
+              Brain でも読む
+            </a>
+          </div>
+          <p class="hero-note">完全ローカル動作 · Mac / Windows 対応 · v5.5.1</p>
         </div>
-        <p class="hero-note">完全ローカル動作 · Mac / Windows 対応 · v5.4.3</p>
       </div>
+    </div>
+
+    <!-- 右: コラボツール -->
+    <div class="hero-collab-panel">
+      <div class="hero-collab-panel-label">コラボツール</div>
+
+      <a class="hero-collab-c" href="https://the-okan-pro.pages.dev/" target="_blank" rel="noopener">
+        <img class="hero-collab-c-img" src="images/collab-okan.webp" alt="THE OKAN" onerror="this.style.display='none'">
+        <div class="hero-collab-c-body">
+          <div>
+            <div class="hero-collab-c-badge">THE OKAN</div>
+            <div class="hero-collab-c-name">SNS運用の「迷い」をゼロにし、<br>知性を「資産」に変える。</div>
+          </div>
+          <div class="hero-collab-c-arrow">詳細を見る →</div>
+        </div>
+      </a>
+
+      <a class="hero-collab-c" href="https://tqv.jp/u/yoh_nagano/a/aico/fkrH5jay" target="_blank" rel="noopener">
+        <img class="hero-collab-c-img" src="images/collab-aiko.png" alt="永野式漫画プロンプトメーカーあいこ" onerror="this.style.display='none'">
+        <div class="hero-collab-c-body">
+          <div>
+            <div class="hero-collab-c-badge">永野式</div>
+            <div class="hero-collab-c-name">漫画プロンプトメーカー<br>あいこ</div>
+          </div>
+          <div class="hero-collab-c-arrow">ツールを使う →</div>
+        </div>
+      </a>
     </div>
   </div>
 </div>
@@ -1060,21 +1118,23 @@ footer {
 </div>
 
 <!-- ══ Collab Tools ═══════════════════════════════════════════ -->
-<div style="border-bottom:1px solid var(--rule-w)">
+<div id="collab" style="border-bottom:1px solid var(--rule-w)">
 <div class="collab-section">
   <div class="collab-kicker">コラボツール</div>
   <h2 class="collab-headline">知識を、もっと先へ</h2>
   <p class="collab-sub">Obsidian Optimizer と組み合わせることで、あなたの知識管理がさらに進化する厳選コラボツール。</p>
   <div class="collab-cards">
 
-    <a class="collab-card" href="https://tqv.jp/u/yoh_nagano/a/aico/fkrH5jay" target="_blank" rel="noopener">
+    <a class="collab-card" href="https://the-okan-pro.pages.dev/" target="_blank" rel="noopener">
+      <img src="images/collab-okan.webp" alt="THE OKAN" style="width:100%;height:200px;object-fit:cover;display:block;margin-bottom:28px;" onerror="this.style.display='none'">
       <div class="collab-card-badge">THE OKAN</div>
       <div class="collab-card-title">あなたの知性を<br>資産に変えるSNS戦略OS</div>
-      <div class="collab-card-desc">蓄積した知識をSNS発信の武器に変える、永野式の戦略フレームワーク。Obsidianで育てたVaultの価値を外の世界へ届けるための実践OS。</div>
+      <div class="collab-card-desc">蓄積した知識をSNS発信の武器に変える、おかん式戦略フレームワーク。<br>Obsidianで育てたVaultの価値を外の世界へ届けるための実践OS。</div>
       <span class="collab-card-link">詳細を見る →</span>
     </a>
 
-    <a class="collab-card" href="https://the-okan-pro.pages.dev/" target="_blank" rel="noopener">
+    <a class="collab-card" href="https://tqv.jp/u/yoh_nagano/a/aico/fkrH5jay" target="_blank" rel="noopener">
+      <img src="images/collab-aiko.png" alt="永野式漫画プロンプトメーカーあいこ" style="width:100%;height:200px;object-fit:cover;display:block;margin-bottom:28px;" onerror="this.style.display='none'">
       <div class="collab-card-badge">永野式</div>
       <div class="collab-card-title">漫画プロンプトメーカー<br>あいこ</div>
       <div class="collab-card-desc">永野式メソッドで作られた漫画向けAIプロンプト生成ツール。ノートに眠るアイデアをビジュアルコンテンツへ変換するクリエイター向けアシスタント。</div>
