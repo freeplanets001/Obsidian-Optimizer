@@ -7350,6 +7350,8 @@ ipcMain.handle('toggle-project-task', (_, { projectId, taskId }) => {
             p.status = 'active'; // タスクを未完了に戻したら再開
         }
         refreshProjectVaultNote(p);
+        // Vault内の他ファイル（Tasksノートなど）でも同じタスクをチェック/アンチェック
+        syncMatchingVaultTasks(p, task.text, task.done);
         saveProjects(projects);
         return { success: true, project: p };
     } catch (e) {
@@ -7439,6 +7441,52 @@ ipcMain.handle('update-project-notes', (_, { projectId, notes }) => {
         return { success: false, error: e.message };
     }
 });
+
+// ======================================================
+// Vault内の全ファイルで #project/xxx タグ付きタスクを同期するヘルパー
+// プロジェクト vault note 以外のファイル（Tasks noteなど）の同期に使用
+// ======================================================
+function syncMatchingVaultTasks(p, taskText, done) {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return;
+    try {
+        const projectTag = p.name.replace(/\s+/g, '-');
+        const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // タスクテキスト + プロジェクトタグを含む行にマッチ（順不同で両方含む行）
+        const lineRegex = new RegExp(`^- \\[[xX ]\\] .*${esc(taskText)}.*#project/${esc(projectTag)}|^- \\[[xX ]\\] .*#project/${esc(projectTag)}.*${esc(taskText)}`);
+
+        const allMd = getFilesRecursively(vaultPath).filter(f => {
+            if (!f.endsWith('.md')) return false;
+            // プロジェクト vault note は refreshProjectVaultNote が担当するためスキップ
+            if (p.vaultNotePath && path.resolve(f) === path.resolve(p.vaultNotePath)) return false;
+            return true;
+        });
+
+        for (const mdFile of allMd) {
+            try {
+                const fc = fs.readFileSync(mdFile, 'utf-8');
+                if (!lineRegex.test(fc)) continue;
+                const lines = fc.split('\n');
+                let modified = false;
+                for (let i = 0; i < lines.length; i++) {
+                    if (!lineRegex.test(lines[i])) continue;
+                    const updated = done
+                        ? lines[i].replace(/- \[ \]/, '- [x]')
+                        : lines[i].replace(/- \[[xX]\]/, '- [ ]');
+                    if (updated !== lines[i]) { lines[i] = updated; modified = true; }
+                }
+                if (modified) {
+                    fs.writeFileSync(mdFile, lines.join('\n'), 'utf-8');
+                    log.info(`[syncMatchingVaultTasks] ${path.basename(mdFile)} のタスク「${taskText}」を ${done ? '完了' : '未完了'} に同期`);
+                }
+            } catch (fileErr) {
+                log.warn(`[syncMatchingVaultTasks] スキップ: ${mdFile} - ${fileErr.message}`);
+            }
+        }
+    } catch (e) {
+        log.warn(`[syncMatchingVaultTasks] 同期エラー: ${e.message}`);
+    }
+}
 
 // ======================================================
 // プロジェクトノート生成ヘルパー（タスク/マイルストーン変更時に自動呼び出し）
