@@ -7452,8 +7452,10 @@ function syncMatchingVaultTasks(p, taskText, done) {
     try {
         const projectTag = p.name.replace(/\s+/g, '-');
         const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // taskText に #project/xxx が残っていても正常にマッチできるよう正規化
+        const cleanTaskText = taskText.replace(/#project\/[^\s]+/g, '').replace(/\s+/g, ' ').trim();
         // タスクテキスト + プロジェクトタグを含む行にマッチ（順不同で両方含む行）
-        const lineRegex = new RegExp(`^- \\[[xX ]\\] .*${esc(taskText)}.*#project/${esc(projectTag)}|^- \\[[xX ]\\] .*#project/${esc(projectTag)}.*${esc(taskText)}`);
+        const lineRegex = new RegExp(`^- \\[[xX ]\\] .*${esc(cleanTaskText)}.*#project/${esc(projectTag)}|^- \\[[xX ]\\] .*#project/${esc(projectTag)}.*${esc(cleanTaskText)}`);
 
         const allMd = getFilesRecursively(vaultPath).filter(f => {
             if (!f.endsWith('.md')) return false;

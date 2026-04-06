@@ -7965,8 +7965,9 @@ async function renderVaultLinkedTasks(p) {
                 const newDone = cb.checked;
                 const r = await window.api.toggleTask({ filePath: t.filePath, lineNumber: t.lineNumber, done: newDone });
                 if (r.success) {
-                    // プロジェクトのタスクも同名タスクがあれば同期
-                    const matchTask = (p.tasks || []).find(pt => pt.text === t.text);
+                    // プロジェクトのタスクも同名タスクがあれば同期（#project/xxx タグを除いて比較）
+                    const normText = s => s.replace(/#project\/[^\s]+/g, '').replace(/\s+/g, ' ').trim();
+                    const matchTask = (p.tasks || []).find(pt => normText(pt.text) === normText(t.text));
                     if (matchTask && matchTask.done !== newDone) {
                         await window.api.toggleProjectTask({ projectId: p.id, taskId: matchTask.id });
                     }
