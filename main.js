@@ -7451,11 +7451,17 @@ function syncMatchingVaultTasks(p, taskText, done) {
     if (!vaultPath) return;
     try {
         const projectTag = p.name.replace(/\s+/g, '-');
-        const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        // taskText に #project/xxx が残っていても正常にマッチできるよう正規化
-        const cleanTaskText = taskText.replace(/#project\/[^\s]+/g, '').replace(/\s+/g, ' ').trim();
-        // タスクテキスト + プロジェクトタグを含む行にマッチ（順不同で両方含む行）
-        const lineRegex = new RegExp(`^- \\[[xX ]\\] .*${esc(cleanTaskText)}.*#project/${esc(projectTag)}|^- \\[[xX ]\\] .*#project/${esc(projectTag)}.*${esc(cleanTaskText)}`);
+        // getAllTasks と同じパースロジックで正規化（インデント・絵文字・タグを除去）
+        const displayTextOf = raw => raw
+            .replace(/📅\s*\d{4}-\d{2}-\d{2}/g, '')
+            .replace(/[⏫🔼🔽]/g, '')
+            .replace(/🔁\s*(daily|weekly|monthly)/g, '')
+            .replace(/#project\/\S+/g, '')
+            .trim();
+        const cleanTaskText = displayTextOf(taskText);
+        // getAllTasks と同じタスク行パターン（先頭インデントを許容）
+        const taskLineRe = /^(\s*)-\s*\[([ xX])\]\s*(.+)$/;
+        const projectTagRe = /#project\/([^\s#]+)/;
 
         const allMd = getFilesRecursively(vaultPath).filter(f => {
             if (!f.endsWith('.md')) return false;
@@ -7467,11 +7473,22 @@ function syncMatchingVaultTasks(p, taskText, done) {
         for (const mdFile of allMd) {
             try {
                 const fc = fs.readFileSync(mdFile, 'utf-8');
-                if (!lineRegex.test(fc)) continue;
+                // プロジェクトタグが含まれていないファイルは早期スキップ
+                if (!fc.includes(`#project/${projectTag}`)) continue;
                 const lines = fc.split('\n');
                 let modified = false;
                 for (let i = 0; i < lines.length; i++) {
-                    if (!lineRegex.test(lines[i])) continue;
+                    const m = taskLineRe.exec(lines[i]);
+                    if (!m) continue;
+                    const rawText = m[3];
+                    // プロジェクトタグが一致するか確認
+                    const pm = projectTagRe.exec(rawText);
+                    if (!pm || pm[1] !== projectTag) continue;
+                    // displayText（タグ除去後）が一致するか確認
+                    if (displayTextOf(rawText) !== cleanTaskText) continue;
+                    // 既に目標の状態なら変更不要
+                    const currentDone = m[2].toLowerCase() === 'x';
+                    if (currentDone === done) continue;
                     const updated = done
                         ? lines[i].replace(/- \[ \]/, '- [x]')
                         : lines[i].replace(/- \[[xX]\]/, '- [ ]');
@@ -7479,7 +7496,7 @@ function syncMatchingVaultTasks(p, taskText, done) {
                 }
                 if (modified) {
                     fs.writeFileSync(mdFile, lines.join('\n'), 'utf-8');
-                    log.info(`[syncMatchingVaultTasks] ${path.basename(mdFile)} のタスク「${taskText}」を ${done ? '完了' : '未完了'} に同期`);
+                    log.info(`[syncMatchingVaultTasks] ${path.basename(mdFile)} のタスク「${cleanTaskText}」を ${done ? '完了' : '未完了'} に同期`);
                 }
             } catch (fileErr) {
                 log.warn(`[syncMatchingVaultTasks] スキップ: ${mdFile} - ${fileErr.message}`);
