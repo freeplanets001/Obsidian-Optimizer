@@ -1177,5 +1177,435 @@ footer {
   } catch (_) { /* フォールバック: HTMLのデフォルトURLをそのまま使用 */ }
 })();
 </script>
+
+<!-- ═══════════════════════════════════════════════════════
+     Obsidian Optimizer サポートチャットボット
+     RAG + Claude Haiku によるハルシネーションなし回答
+═══════════════════════════════════════════════════════ -->
+<style>
+/* ── チャットウィジェット ───────────────────────────── */
+#oo-chat-fab {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5b45d4, #7c6cff);
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(91,69,212,.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  z-index: 9990;
+  transition: transform .2s, box-shadow .2s;
+}
+#oo-chat-fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(91,69,212,.7); }
+#oo-chat-fab .oo-badge {
+  position: absolute;
+  top: -3px; right: -3px;
+  background: #f87171;
+  color: #fff;
+  font-size: .65rem;
+  font-weight: 700;
+  border-radius: 99px;
+  padding: 1px 5px;
+  display: none;
+}
+
+#oo-chat-window {
+  position: fixed;
+  bottom: 100px;
+  right: 28px;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  height: 520px;
+  max-height: calc(100vh - 120px);
+  background: #16161e;
+  border: 1px solid rgba(124,108,248,.35);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.6);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 9991;
+  font-family: 'Noto Sans JP', sans-serif;
+}
+#oo-chat-window.open { display: flex; }
+
+.oo-chat-header {
+  background: linear-gradient(135deg, #5b45d4, #7c6cff);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.oo-chat-header .oo-avatar {
+  width: 36px; height: 36px;
+  background: rgba(255,255,255,.2);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem;
+}
+.oo-chat-header .oo-title { flex: 1; }
+.oo-chat-header .oo-title strong {
+  display: block;
+  color: #fff;
+  font-size: .9rem;
+  font-weight: 700;
+}
+.oo-chat-header .oo-title span {
+  font-size: .68rem;
+  color: rgba(255,255,255,.7);
+}
+.oo-chat-close {
+  background: rgba(255,255,255,.15);
+  border: none;
+  color: #fff;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: .9rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .2s;
+}
+.oo-chat-close:hover { background: rgba(255,255,255,.3); }
+
+#oo-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124,108,248,.3) transparent;
+}
+#oo-chat-messages::-webkit-scrollbar { width: 4px; }
+#oo-chat-messages::-webkit-scrollbar-thumb { background: rgba(124,108,248,.3); border-radius: 4px; }
+
+.oo-msg {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  animation: ooFadeIn .25s ease;
+}
+@keyframes ooFadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+
+.oo-msg.bot { align-self: flex-start; }
+.oo-msg.user { align-self: flex-end; flex-direction: row-reverse; }
+
+.oo-msg-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #5b45d4, #7c6cff);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .75rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.oo-msg.user .oo-msg-avatar { background: #2a2a3e; }
+
+.oo-msg-bubble {
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: .82rem;
+  line-height: 1.65;
+  max-width: 280px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.oo-msg.bot .oo-msg-bubble {
+  background: #1e1e2e;
+  border: 1px solid rgba(124,108,248,.15);
+  color: #d4d4e8;
+  border-bottom-left-radius: 4px;
+}
+.oo-msg.user .oo-msg-bubble {
+  background: linear-gradient(135deg, #5b45d4, #7c6cff);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.oo-typing {
+  display: flex; gap: 4px; align-items: center; padding: 8px 4px;
+}
+.oo-typing span {
+  width: 7px; height: 7px;
+  background: rgba(124,108,248,.6);
+  border-radius: 50%;
+  animation: ooDot 1.2s infinite;
+}
+.oo-typing span:nth-child(2) { animation-delay: .2s; }
+.oo-typing span:nth-child(3) { animation-delay: .4s; }
+@keyframes ooDot {
+  0%,80%,100% { transform: scale(.6); opacity:.4; }
+  40% { transform: scale(1); opacity:1; }
+}
+
+.oo-quick-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 10px;
+  flex-shrink: 0;
+}
+.oo-qbtn {
+  background: rgba(124,108,248,.12);
+  border: 1px solid rgba(124,108,248,.25);
+  color: #a99cff;
+  font-size: .72rem;
+  padding: 5px 10px;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: background .2s, color .2s;
+  font-family: inherit;
+}
+.oo-qbtn:hover { background: rgba(124,108,248,.25); color: #d4c8ff; }
+
+.oo-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 14px;
+  border-top: 1px solid rgba(255,255,255,.06);
+  flex-shrink: 0;
+}
+#oo-chat-input {
+  flex: 1;
+  background: #1e1e2e;
+  border: 1px solid rgba(124,108,248,.2);
+  border-radius: 10px;
+  color: #d4d4e8;
+  font-size: .82rem;
+  padding: 9px 12px;
+  resize: none;
+  font-family: inherit;
+  line-height: 1.5;
+  max-height: 90px;
+  outline: none;
+  transition: border-color .2s;
+}
+#oo-chat-input:focus { border-color: rgba(124,108,248,.5); }
+#oo-chat-input::placeholder { color: rgba(212,212,232,.35); }
+#oo-chat-send {
+  background: linear-gradient(135deg, #5b45d4, #7c6cff);
+  border: none;
+  color: #fff;
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity .2s;
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+#oo-chat-send:disabled { opacity: .4; cursor: not-allowed; }
+
+.oo-powered {
+  text-align: center;
+  font-size: .6rem;
+  color: rgba(212,212,232,.3);
+  padding: 0 0 4px;
+}
+</style>
+
+<!-- チャットFABボタン -->
+<button id="oo-chat-fab" aria-label="サポートチャットを開く" title="AI サポートに質問する">
+  💬
+  <span class="oo-badge" id="oo-badge">1</span>
+</button>
+
+<!-- チャットウィンドウ -->
+<div id="oo-chat-window" role="dialog" aria-label="Obsidian Optimizer サポートチャット">
+  <div class="oo-chat-header">
+    <div class="oo-avatar">🤖</div>
+    <div class="oo-title">
+      <strong>Optimizer サポート</strong>
+      <span>AI がご質問にお答えします</span>
+    </div>
+    <button class="oo-chat-close" id="oo-chat-close" aria-label="チャットを閉じる">✕</button>
+  </div>
+
+  <div id="oo-chat-messages" role="log" aria-live="polite"></div>
+
+  <!-- クイック質問ボタン -->
+  <div class="oo-quick-btns" id="oo-quick-btns">
+    <button class="oo-qbtn">💰 価格・購入方法は？</button>
+    <button class="oo-qbtn">🍎 Mac にインストールするには？</button>
+    <button class="oo-qbtn">🤖 AI機能の使い方は？</button>
+    <button class="oo-qbtn">🗺️ MOCって何ですか？</button>
+    <button class="oo-qbtn">🔍 スキャンで何が分かる？</button>
+  </div>
+
+  <div class="oo-chat-input-row">
+    <textarea id="oo-chat-input" placeholder="質問を入力してください…" rows="1" maxlength="500"></textarea>
+    <button id="oo-chat-send" aria-label="送信">➤</button>
+  </div>
+  <p class="oo-powered">Powered by Claude AI × RAG</p>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // VercelにデプロイしたAPIのURL（デプロイ後に更新）
+  const API_URL = 'https://chatbot-api-kappa-beryl.vercel.app/api/chat';
+
+  const fab       = document.getElementById('oo-chat-fab');
+  const win       = document.getElementById('oo-chat-window');
+  const closeBtn  = document.getElementById('oo-chat-close');
+  const messages  = document.getElementById('oo-chat-messages');
+  const input     = document.getElementById('oo-chat-input');
+  const sendBtn   = document.getElementById('oo-chat-send');
+  const badge     = document.getElementById('oo-badge');
+  const quickBtns = document.getElementById('oo-quick-btns');
+
+  let history = [];
+  let isOpen  = false;
+  let isSending = false;
+  let initialized = false;
+
+  // バッジを表示（未読通知演出）
+  setTimeout(() => { if (!isOpen && badge) badge.style.display = 'block'; }, 3000);
+
+  function openChat() {
+    isOpen = true;
+    win.classList.add('open');
+    if (badge) badge.style.display = 'none';
+    if (!initialized) {
+      initialized = true;
+      addBotMsg('こんにちは！**Obsidian Optimizer** のサポートチャットです 👋\n\nご購入前の疑問・インストール方法・機能についてお気軽にどうぞ。');
+    }
+    setTimeout(() => input.focus(), 200);
+  }
+
+  function closeChat() {
+    isOpen = false;
+    win.classList.remove('open');
+  }
+
+  fab.addEventListener('click', () => isOpen ? closeChat() : openChat());
+  closeBtn.addEventListener('click', closeChat);
+
+  // クイック質問ボタン
+  quickBtns.addEventListener('click', e => {
+    const btn = e.target.closest('.oo-qbtn');
+    if (!btn) return;
+    const q = btn.textContent.replace(/^[^\s]+\s/, '').trim(); // 絵文字を除く
+    input.value = q;
+    sendMessage();
+  });
+
+  // キーボード操作
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 90) + 'px';
+  });
+
+  sendBtn.addEventListener('click', sendMessage);
+
+  function addBotMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'oo-msg bot';
+    div.innerHTML = `
+      <div class="oo-msg-avatar">🤖</div>
+      <div class="oo-msg-bubble">${escHtml(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>')}</div>
+    `;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function addUserMsg(text) {
+    const div = document.createElement('div');
+    div.className = 'oo-msg user';
+    div.innerHTML = `
+      <div class="oo-msg-avatar" style="background:#2a2a3e">🙂</div>
+      <div class="oo-msg-bubble">${escHtml(text).replace(/\n/g, '<br>')}</div>
+    `;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function showTyping() {
+    const div = document.createElement('div');
+    div.className = 'oo-msg bot';
+    div.id = 'oo-typing';
+    div.innerHTML = `
+      <div class="oo-msg-avatar">🤖</div>
+      <div class="oo-typing"><span></span><span></span><span></span></div>
+    `;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+    return div;
+  }
+
+  function removeTyping() {
+    const el = document.getElementById('oo-typing');
+    if (el) el.remove();
+  }
+
+  function escHtml(str) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  async function sendMessage() {
+    if (isSending) return;
+    const q = input.value.trim();
+    if (!q) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    isSending = true;
+    sendBtn.disabled = true;
+    // クイックボタンを非表示
+    if (quickBtns) quickBtns.style.display = 'none';
+
+    addUserMsg(q);
+    const typingEl = showTyping();
+
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, history }),
+      });
+
+      const data = await res.json();
+      removeTyping();
+
+      if (data.answer) {
+        addBotMsg(data.answer);
+        history.push({ role: 'user', content: q });
+        history.push({ role: 'assistant', content: data.answer });
+        // 履歴は最新10ターンまで保持
+        if (history.length > 20) history = history.slice(-20);
+      } else {
+        addBotMsg('申し訳ありません、エラーが発生しました。しばらくしてから再度お試しください。');
+      }
+    } catch (err) {
+      removeTyping();
+      addBotMsg('通信エラーが発生しました。インターネット接続を確認してから再度お試しください。');
+    }
+
+    isSending = false;
+    sendBtn.disabled = false;
+    input.focus();
+  }
+})();
+</script>
 </body>
 </html>

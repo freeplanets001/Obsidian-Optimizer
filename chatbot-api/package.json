@@ -1,0 +1,9 @@
+{
+  "name": "obsidian-optimizer-chatbot-api",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "RAG chatbot API for Obsidian Optimizer LP",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.54.0"
+  }
+}
