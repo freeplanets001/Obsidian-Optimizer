@@ -12483,12 +12483,23 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
     async function loadNotes() {
         try {
             const res = await window.api.getInboxNotes();
-            notes = (res && res.notes) ? res.notes : [];
-            if (res && res.inboxMissing && titleEl) {
-                titleEl.textContent = '⚠️ Inboxフォルダが見つかりません';
+            if (res && res.inboxMissing) {
+                notes = [];
+                if (titleEl) titleEl.textContent = '⚠️ Inboxフォルダが見つかりません';
                 if (previewEl) previewEl.textContent = '「00 Inbox」「Inbox」などのフォルダをVault内に作成してください。';
+                return;
             }
-        } catch (e) { notes = []; }
+            if (!res || !res.success) {
+                notes = [];
+                if (titleEl) titleEl.textContent = `⚠️ エラー: ${(res && res.error) || '取得に失敗しました'}`;
+                if (previewEl) previewEl.textContent = 'アプリを再起動してから再度お試しください。';
+                return;
+            }
+            notes = res.notes || [];
+        } catch (e) {
+            notes = [];
+            if (titleEl) titleEl.textContent = `⚠️ 通信エラー: ${e.message}`;
+        }
     }
 
     async function loadFolders() {

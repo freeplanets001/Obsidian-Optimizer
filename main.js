@@ -11202,19 +11202,24 @@ ipcMain.handle('get-inbox-notes', async () => {
             }
         }
         if (!inboxDir) return { success: true, notes: [], inboxMissing: true };
-        const files = fs.readdirSync(inboxDir)
-            .filter(f => f.endsWith('.md') && !f.startsWith('_MOC'))
-            .map(f => {
+        const entries = fs.readdirSync(inboxDir)
+            .filter(f => f.endsWith('.md') && !f.startsWith('_MOC') && !f.startsWith('.'));
+        const files = [];
+        for (const f of entries) {
+            try {
                 const filePath = path.join(inboxDir, f);
                 const stat = fs.statSync(filePath);
-                const raw = fs.readFileSync(filePath, 'utf-8');
+                // iCloud evicted ファイルは本文なしで登録（サイズ0扱い）
+                let raw = '';
+                try { raw = fs.readFileSync(filePath, 'utf-8'); } catch (_) { /* evicted */ }
                 const lines = raw.split('\n').filter(l => l.trim() && !l.startsWith('---') && !l.startsWith('#'));
-                const preview = lines.slice(0, 2).join(' ').slice(0, 120);
+                const preview = lines.slice(0, 2).join(' ').slice(0, 120) || '（内容を読み込めませんでした）';
                 const titleMatch = raw.match(/^#\s+(.+)$/m);
-                const title = titleMatch ? titleMatch[1] : f.replace('.md', '');
-                return { filePath, title, preview, size: stat.size, mtime: stat.mtime.toISOString() };
-            })
-            .sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+                const title = titleMatch ? titleMatch[1] : f.replace(/\.md$/, '');
+                files.push({ filePath, title, preview, size: stat.size, mtime: stat.mtime.toISOString() });
+            } catch (_) { /* 読み込み失敗ファイルはスキップ */ }
+        }
+        files.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
         return { success: true, notes: files };
     } catch (e) {
         return { success: false, error: e.message };
