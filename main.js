@@ -11023,9 +11023,8 @@ ipcMain.handle('import-preset', async () => {
 ipcMain.handle('ai-generate-sns-post', async (_, { content, platform }) => {
     try {
         const platformPrompts = {
-            twitter: 'X（Twitter）の投稿文を生成してください。140〜280文字以内で、読者が反応したくなる内容にしてください。適切なハッシュタグを3〜5個末尾に付けてください。',
-            note:    'note記事の導入文（リード文）を生成してください。200〜400文字で読者の興味を引き付ける書き出しにし、最後に記事タイトル案を1行添えてください。',
-            linkedin:'LinkedInの投稿文を生成してください。プロフェッショナルなトーンで400〜600文字程度にし、ビジネス的な洞察や学びを強調してください。',
+            twitter: 'X（Twitter）の投稿文を生成してください。140〜280文字以内で、読者が思わずいいね・リポストしたくなる内容にしてください。適切なハッシュタグを3〜5個末尾に付けてください。',
+            threads: 'Threadsの投稿文を生成してください。会話を生むような親しみやすいトーンで150〜300文字程度にしてください。ハッシュタグは1〜3個を末尾に付けてください。',
         };
         const instruction = platformPrompts[platform] || platformPrompts['twitter'];
         const prompt = `以下のノート内容をもとに、${instruction}\n\n【ノート内容】\n${content.slice(0, 3000)}`;
