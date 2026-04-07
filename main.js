@@ -10066,25 +10066,32 @@ ipcMain.handle('export-notes', async (_, { format, scope }) => {
 });
 
 // クリップボード→Inboxノート作成
-ipcMain.handle('clipboard-to-inbox', async (_, { text }) => {
+ipcMain.handle('clipboard-to-inbox', async (_, { text, title: customTitle, tags: customTags }) => {
     const vaultPath = getCurrentVault();
     if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
     try {
         const inboxDir = path.join(vaultPath, '00 Inbox');
         fs.mkdirSync(inboxDir, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
+        const today = new Date().toISOString().slice(0, 10);
         const isUrl = /^https?:\/\//.test(text.trim());
         let title, content;
 
         if (isUrl) {
             const url = text.trim();
-            title = `Web Clip ${timestamp}`;
-            content = `---\ntags: [clip, web]\ncreated: ${new Date().toISOString().slice(0, 10)}\nsource: "${url}"\n---\n\n# Web Clip\n\n[元URL](${url})\n\n---\n\n${url}\n`;
+            title = customTitle || `Web Clip ${timestamp}`;
+            const tags = customTags ? JSON.stringify(customTags) : '[clip, web]';
+            content = `---\ntags: ${tags}\ncreated: ${today}\nsource: "${url}"\n---\n\n# ${title}\n\n[元URL](${url})\n\n---\n\n${url}\n`;
         } else {
-            // テキストの最初の行をタイトルに
-            const firstLine = text.split('\n')[0].replace(/^#*\s*/, '').trim().substring(0, 60);
-            title = firstLine || `Clip ${timestamp}`;
-            content = `---\ntags: [clip]\ncreated: ${new Date().toISOString().slice(0, 10)}\n---\n\n# ${title}\n\n${text}\n`;
+            // customTitleが指定されている場合はそれを使用、なければ最初の行から取得
+            if (customTitle) {
+                title = customTitle.substring(0, 60);
+            } else {
+                const firstLine = text.split('\n')[0].replace(/^#*\s*/, '').trim().substring(0, 60);
+                title = firstLine || `Clip ${timestamp}`;
+            }
+            const tags = customTags ? JSON.stringify(customTags) : '[clip]';
+            content = `---\ntags: ${tags}\ncreated: ${today}\n---\n\n# ${title}\n\n${text}\n`;
         }
 
         const safeName = title.replace(/[/\\?%*:|"<>]/g, '_');

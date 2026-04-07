@@ -12283,26 +12283,22 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
             const plan = ($('wr-next-week-plan') || {}).value || '';
             const today = new Date().toISOString().slice(0,10);
             const noteTitle = `Weekly Review ${today}`;
-            const content = `---\ndate: ${today}\ntags: [weekly-review]\n---\n\n# ${noteTitle}\n\n## 今週のノート数\n${weeklyNotes.length}件\n\n## AIレビュー\n${($('wr-ai-review')||{}).textContent || ''}\n\n## 来週の計画\n${plan}`;
+            const aiReview = ($('wr-ai-review') || {}).textContent || '';
+            const bodyText = `## 今週のノート数\n${weeklyNotes.length}件\n\n## AIレビュー\n${aiReview}\n\n## 来週の計画\n${plan}`;
             try {
-                const res = await window.api.clipboardToInbox({ text: '' });
-                // テンプレートAPIでノート作成
-                const tplRes = await window.api.applyNoteTemplate({
-                    templateId: '__weekly__', // 存在しない場合のフォールバック処理はmain.jsで対応済み
+                const res = await window.api.clipboardToInbox({
+                    text: bodyText,
                     title: noteTitle,
+                    tags: ['weekly-review'],
                 });
-                // フォールバック: Inboxへ保存
-                await window.api.clipboardToInbox({ text: content });
-                if (saveResult) { saveResult.style.color = 'var(--accent)'; saveResult.textContent = `✅ 「${noteTitle}」をInboxに保存しました`; }
-                showToast('週次レビューを保存しました', 'success');
-            } catch (e) {
-                // clipboardToInboxで保存
-                try {
-                    await window.api.clipboardToInbox({ text: content });
-                    if (saveResult) { saveResult.style.color = 'var(--accent)'; saveResult.textContent = `✅ Inboxに保存しました`; }
-                } catch (e2) {
-                    if (saveResult) { saveResult.style.color = '#f87171'; saveResult.textContent = '❌ ' + e2.message; }
+                if (res && res.success) {
+                    if (saveResult) { saveResult.style.color = 'var(--accent)'; saveResult.textContent = `✅ 「${noteTitle}」をInboxに保存しました`; }
+                    showToast('週次レビューを保存しました', 'success');
+                } else {
+                    if (saveResult) { saveResult.style.color = '#f87171'; saveResult.textContent = '❌ ' + (res && res.error || '保存失敗'); }
                 }
+            } catch (e) {
+                if (saveResult) { saveResult.style.color = '#f87171'; saveResult.textContent = '❌ ' + e.message; }
             }
         });
     }
