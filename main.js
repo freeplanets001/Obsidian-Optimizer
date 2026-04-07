@@ -11230,7 +11230,9 @@ ipcMain.handle('get-daily-note-template', async () => {
 
 ipcMain.handle('save-daily-note-template', async (_, { template }) => {
     try {
-        saveConfigPartial({ dailyNoteTemplate: template });
+        const cfg = getConfig();
+        cfg.dailyNoteTemplate = template;
+        saveConfig(cfg);
         return { success: true };
     } catch (e) {
         return { success: false, error: e.message };
