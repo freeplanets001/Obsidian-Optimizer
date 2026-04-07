@@ -1442,7 +1442,7 @@ footer {
   </div>
 
   <div class="oo-chat-input-row">
-    <textarea id="oo-chat-input" placeholder="質問を入力してください…" rows="1" maxlength="500"></textarea>
+    <textarea id="oo-chat-input" placeholder="質問を入力… (Shift+Enter で送信)" rows="1" maxlength="500"></textarea>
     <button id="oo-chat-send" aria-label="送信">➤</button>
   </div>
   <p class="oo-powered">Powered by Claude AI × RAG</p>
@@ -1500,9 +1500,9 @@ footer {
     sendMessage();
   });
 
-  // キーボード操作
+  // キーボード操作: Shift+Enter で送信、Enter は改行
   input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
