@@ -403,6 +403,67 @@ function bindAllButtons() {
     safe('btn-org-collapse-all', () => {
         document.querySelectorAll('.org-category').forEach(d => d.open = false);
     });
+
+    // ① アクションガイド: まとめて改善ボタン
+    safe('btn-auto-fix-all', () => {
+        activateTab('tools');
+        showToast('整理ツールタブで各問題を解決できます', 'info');
+    });
+
+    // ④ 整理ツールウィザードステップ
+    document.querySelectorAll('.tools-wizard-step').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tools-wizard-step').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const step = btn.dataset.step;
+            const hintEl = $('tools-wizard-hint');
+            const hints = {
+                '1': '💡 Step 1: まず重複ノートを削除してVaultをスッキリさせましょう → 「統合/マージ」タブへ',
+                '2': '💡 Step 2: タグを整理して検索しやすくしましょう → 「整理ツール」メインタブで一括タグ操作',
+                '3': '💡 Step 3: フォルダ構造を見直して管理しやすくしましょう → 「テンプレート」タブで構造を適用',
+            };
+            if (hintEl) hintEl.textContent = hints[step] || '';
+            const tabMap = { '1': 'merge', '2': 'organize-main', '3': 'structure' };
+            if (tabMap[step]) switchSubTab('tools', tabMap[step]);
+        });
+    });
+
+    // ⑨ 統計レポートエクスポート
+    safe('btn-export-stats-report', async () => {
+        const statsData = {
+            totalNotes: parseInt(($('h-total') || {}).textContent) || 0,
+            orphans: parseInt(($('h-orphans') || {}).textContent) || 0,
+            brokenLinks: parseInt(($('h-broken') || {}).textContent) || 0,
+            stale: parseInt(($('h-stale') || {}).textContent) || 0,
+            duplicates: parseInt(($('badge-dup') || {}).textContent) || 0,
+            untagged: parseInt(($('h-untagged') || {}).textContent) || 0,
+            totalLinks: parseInt(($('h-links') || {}).textContent) || 0,
+            avgWords: parseInt(($('h-words') || {}).textContent) || 0,
+            mocs: parseInt(($('h-mocs') || {}).textContent) || 0,
+            healthScore: parseInt(($('health-score') || {}).textContent) || 0,
+            appVersion: '5.7.0',
+            actions: [],
+        };
+        document.querySelectorAll('#scan-action-list li').forEach(li => {
+            statsData.actions.push(li.textContent.trim());
+        });
+        try {
+            const res = await window.api.exportStatsReport({ stats: statsData });
+            if (res && res.success) showToast(`「${res.title}」をInboxに保存しました`, 'success');
+            else showToast('エクスポートエラー: ' + ((res && res.error) || '不明'), 'error');
+        } catch (e) { showToast('エラー: ' + e.message, 'error'); }
+    });
+
+    // ⑧ デイリーノートテンプレート保存
+    safe('btn-save-daily-template', async () => {
+        const editor = $('daily-note-template-editor');
+        if (!editor) return;
+        try {
+            await window.api.saveDailyNoteTemplate({ template: editor.value });
+            const savedEl = $('daily-template-saved');
+            if (savedEl) { savedEl.style.display = 'inline'; setTimeout(() => { savedEl.style.display = 'none'; }, 2000); }
+        } catch (e) { showToast('保存エラー: ' + e.message, 'error'); }
+    });
 }
 
 function bindTabNav() {
@@ -486,6 +547,25 @@ async function initAsync() {
 
     // 初心者向けガイドカード: Vault未設定 or 初回起動時に表示
     initBeginnerGuide();
+
+    // ⑦ 初回ガイドカード表示
+    if (!localStorage.getItem('guide-dismissed')) {
+        const guideEl = $('first-time-guide');
+        if (guideEl) guideEl.style.display = 'block';
+    }
+    const dismissBtn = $('btn-guide-dismiss');
+    if (dismissBtn) dismissBtn.addEventListener('click', () => {
+        localStorage.setItem('guide-dismissed', '1');
+        const guideEl = $('first-time-guide');
+        if (guideEl) guideEl.style.display = 'none';
+    });
+
+    // ⑧ デイリーノートテンプレート読み込み
+    try {
+        const res = await window.api.getDailyNoteTemplate();
+        const editor = $('daily-note-template-editor');
+        if (editor && res && res.template) editor.value = res.template;
+    } catch (e) { /* API未実装の場合はスキップ */ }
 
     // v5.3 新機能初期化
     initV53Features();
@@ -1032,6 +1112,72 @@ async function runScan() {
     const optHint = $('btn-run-optimize-hint'); if (optHint) optHint.style.display = 'none';
 
     addLog(`✅ スキャン完了 — ノート:${scanData.totalMDFiles} / 孤立:${scanData.orphanNotes} / 放置:${scanData.staleList ? scanData.staleList.length : 0}`, 'success', 'SCAN');
+
+    // ① アクションガイド更新
+    updateActionGuide(scanData);
+    // ② ノート健康スコア更新
+    updateHealthScore(scanData);
+}
+
+// ① スキャン結果アクションガイド
+function updateActionGuide(data) {
+    const guideEl = $('scan-action-guide');
+    const listEl = $('scan-action-list');
+    if (!guideEl || !listEl) return;
+
+    const orphans = data.orphanNotes || 0;
+    const broken = data.brokenLinksCount || 0;
+    const duplicates = (data.duplicateList || []).length;
+    const stale = (data.staleList || []).length;
+    const untagged = data.untaggedCount || 0;
+
+    const items = [];
+    if (broken > 0) items.push({ icon: '🔴', text: `壊れたリンクを修復する（${broken}件）` });
+    if (duplicates > 3) items.push({ icon: '🔴', text: `重複ノートを整理する（${duplicates}件）` });
+    if (orphans > 10) items.push({ icon: '🟡', text: `孤立ノートをリンクでつなぐ（${orphans}件）` });
+    if (stale > 20) items.push({ icon: '🟡', text: `放置ノートを見直す（${stale}件）` });
+    if (untagged > 0) items.push({ icon: '🟢', text: `タグなしノートにタグを追加（${untagged}件）` });
+
+    guideEl.style.display = 'block';
+    if (items.length === 0) {
+        listEl.innerHTML = '<li style="padding:4px 0;font-size:.85rem">✅ Vaultは良好な状態です！</li>';
+    } else {
+        listEl.innerHTML = items.map(item =>
+            `<li style="padding:4px 0;font-size:.85rem;display:flex;align-items:center;gap:8px"><span>${esc(item.icon)}</span><span>${esc(item.text)}</span></li>`
+        ).join('');
+    }
+}
+
+// ② ノート健康スコア計算・表示
+function updateHealthScore(data) {
+    let score = 100;
+    const total = Math.max(data.totalMDFiles || data.total || 1, 1);
+    const orphanRate = (data.orphanNotes || data.orphans || 0) / total;
+    const brokenLinks = data.brokenLinksCount || data.brokenLinks || 0;
+    const untagged = data.untaggedCount || data.untagged || 0;
+    const stale = (data.staleList || []).length || data.stale || 0;
+    const duplicates = (data.duplicateList || []).length || data.duplicates || 0;
+    score -= Math.min(30, Math.round(orphanRate * 100));
+    score -= Math.min(25, brokenLinks * 3);
+    score -= Math.min(20, Math.round(untagged / total * 50));
+    score -= Math.min(15, Math.round(stale / total * 30));
+    score -= Math.min(10, duplicates * 2);
+    score = Math.max(0, score);
+    const el = $('health-score');
+    if (el) {
+        el.textContent = score;
+        const color = score >= 80 ? '#4ade80' : score >= 60 ? '#facc15' : '#f87171';
+        el.style.color = color;
+    }
+    const prevScore = parseInt(localStorage.getItem('prev-health-score') || '0');
+    const labelEl = $('health-score-label');
+    if (labelEl && prevScore > 0) {
+        const diff = score - prevScore;
+        labelEl.textContent = diff > 0 ? `▲${diff}` : diff < 0 ? `▼${Math.abs(diff)}` : `→ 変化なし`;
+        labelEl.style.color = diff > 0 ? '#4ade80' : diff < 0 ? '#f87171' : 'inherit';
+    }
+    localStorage.setItem('prev-health-score', String(score));
+    return score;
 }
 
 // ============================================================
@@ -12300,6 +12446,211 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
             } catch (e) {
                 if (saveResult) { saveResult.style.color = '#f87171'; saveResult.textContent = '❌ ' + e.message; }
             }
+        });
+    }
+})();
+
+// ③ Inbox処理ウィザード
+(function initInboxWizard() {
+    const modal = $('inbox-wizard-modal');
+    const closeBtn = $('btn-inbox-wizard-close');
+    const openBtn = $('btn-open-inbox-wizard');
+    const progressEl = $('inbox-wizard-progress');
+    const titleEl = $('inbox-note-title');
+    const previewEl = $('inbox-note-preview');
+    const moveBtn = $('btn-inbox-move');
+    const deleteBtn = $('btn-inbox-delete');
+    const skipBtn = $('btn-inbox-skip');
+    const folderSelect = $('inbox-wizard-folder-select');
+    const doneEl = $('inbox-wizard-done');
+    let notes = [];
+    let currentIndex = 0;
+    let processed = 0;
+
+    async function openWizard() {
+        if (!modal) return;
+        modal.style.display = 'flex';
+        currentIndex = 0;
+        processed = 0;
+        notes = [];
+        if (doneEl) doneEl.style.display = 'none';
+        [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = ''; });
+        await loadNotes();
+        await loadFolders();
+        showCurrent();
+    }
+
+    async function loadNotes() {
+        try {
+            const res = await window.api.getInboxNotes();
+            notes = (res && res.notes) ? res.notes : [];
+        } catch (e) { notes = []; }
+    }
+
+    async function loadFolders() {
+        if (!folderSelect) return;
+        try {
+            const res = await window.api.getVaultFolders();
+            const folders = ((res && res.folders) ? res.folders : (Array.isArray(res) ? res : [])).filter(f => !f.includes('00 Inbox'));
+            folderSelect.innerHTML = folders.slice(0, 30).map(f =>
+                `<option value="${esc(f)}">${esc(f.split('/').pop() || f)}</option>`
+            ).join('');
+        } catch (e) { /* スキップ */ }
+    }
+
+    function showCurrent() {
+        if (!progressEl) return;
+        if (currentIndex >= notes.length) {
+            if (titleEl) titleEl.textContent = '';
+            if (previewEl) previewEl.textContent = '';
+            progressEl.textContent = `完了！${processed}件処理しました`;
+            if (doneEl) doneEl.style.display = 'block';
+            [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
+            return;
+        }
+        const note = notes[currentIndex];
+        progressEl.textContent = `${processed} / ${notes.length}件処理済み（残り${notes.length - currentIndex}件）`;
+        if (titleEl) titleEl.textContent = note.title || note.name || '';
+        if (previewEl) previewEl.textContent = note.preview || '（内容なし）';
+        [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = ''; });
+    }
+
+    function closeWizard() { if (modal) modal.style.display = 'none'; }
+
+    if (openBtn) openBtn.addEventListener('click', openWizard);
+    if (closeBtn) closeBtn.addEventListener('click', closeWizard);
+    if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeWizard(); });
+    if (skipBtn) skipBtn.addEventListener('click', () => { currentIndex++; showCurrent(); });
+
+    if (deleteBtn) deleteBtn.addEventListener('click', async () => {
+        const note = notes[currentIndex];
+        if (!note) return;
+        try {
+            await window.api.deleteInboxNote({ filePath: note.filePath });
+            processed++;
+            currentIndex++;
+            showCurrent();
+            showToast('削除しました', 'success');
+        } catch (e) { showToast('削除エラー: ' + e.message, 'error'); }
+    });
+
+    if (moveBtn) moveBtn.addEventListener('click', async () => {
+        const note = notes[currentIndex];
+        if (!note || !folderSelect) return;
+        const destFolder = folderSelect.value;
+        if (!destFolder) { showToast('移動先フォルダを選択してください', 'error'); return; }
+        try {
+            await window.api.moveNoteToFolder({ filePath: note.filePath, targetFolder: destFolder });
+            processed++;
+            currentIndex++;
+            showCurrent();
+            showToast('移動しました', 'success');
+        } catch (e) { showToast('移動エラー: ' + e.message, 'error'); }
+    });
+})();
+
+// ⑤ タグビジュアル管理
+(function initTagVisual() {
+    const loadBtn = $('btn-load-tag-visual');
+    if (!loadBtn) return;
+    loadBtn.addEventListener('click', async () => {
+        loadBtn.disabled = true;
+        loadBtn.textContent = '⏳ 分析中...';
+        try {
+            const res = await window.api.getTagCloud();
+            const tags = ((res && res.tags) ? res.tags : (Array.isArray(res) ? res : [])).slice(0, 60);
+            const container = $('tag-bubble-container');
+            if (!container) return;
+            if (tags.length === 0) {
+                container.innerHTML = '<div class="list-empty">タグが見つかりません</div>';
+                return;
+            }
+            const maxCount = Math.max(...tags.map(t => t.count || t.c || 1));
+            container.innerHTML = tags.map(t => {
+                const count = t.count || t.c || 1;
+                const ratio = count / maxCount;
+                const size = Math.round((0.7 + ratio * 1.3) * 10) / 10;
+                const opacity = 0.5 + ratio * 0.5;
+                const tag = t.tag || t.name || String(t);
+                return `<span title="${esc(tag)}: ${count}件"
+                    style="display:inline-block;padding:${Math.round(4 + ratio * 8)}px ${Math.round(8 + ratio * 12)}px;
+                    background:rgba(124,108,248,${opacity.toFixed(2)});border-radius:20px;
+                    font-size:${size}rem;cursor:default;transition:.2s;white-space:nowrap"
+                    onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform=''"
+                >#${esc(tag)} <span style="opacity:.7;font-size:.8em">${count}</span></span>`;
+            }).join('');
+            // 類似タグ検出
+            const tagNames = tags.map(t => t.tag || t.name || String(t)).filter(t => typeof t === 'string');
+            const similarPairs = [];
+            for (let i = 0; i < Math.min(tagNames.length, 40); i++) {
+                for (let j = i + 1; j < Math.min(tagNames.length, 40); j++) {
+                    const a = tagNames[i], b = tagNames[j];
+                    if (a === b) continue;
+                    const longer = a.length > b.length ? a : b;
+                    const shorter = a.length > b.length ? b : a;
+                    if (longer.includes(shorter) || shorter.includes(longer)) {
+                        similarPairs.push({ a, b });
+                    }
+                }
+            }
+            const simSection = $('similar-tags-section');
+            const simList = $('similar-tags-list');
+            if (simSection && simList) {
+                if (similarPairs.length > 0) {
+                    simSection.style.display = 'block';
+                    simList.innerHTML = similarPairs.slice(0, 10).map(p => `
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.04);border-radius:8px;font-size:.82rem">
+                            <span style="background:rgba(124,108,248,.3);padding:2px 8px;border-radius:12px">#${esc(p.a)}</span>
+                            <span style="opacity:.5">→ 統合候補</span>
+                            <span style="background:rgba(124,108,248,.3);padding:2px 8px;border-radius:12px">#${esc(p.b)}</span>
+                        </div>`).join('');
+                } else {
+                    simSection.style.display = 'none';
+                }
+            }
+        } catch (e) {
+            showToast('タグ分析エラー: ' + e.message, 'error');
+        } finally {
+            loadBtn.disabled = false;
+            loadBtn.textContent = '🔄 分析する';
+        }
+    });
+})();
+
+// ⑥ ノートクイックプレビューパネル
+(function initNotePreviewPanel() {
+    const panel = $('scan-note-preview-panel');
+    const contentEl = $('preview-note-content');
+    const titleEl = $('preview-note-title');
+    const closeBtn = $('btn-preview-close');
+    if (!panel) return;
+
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+        panel.style.display = 'none';
+    });
+
+    // グローバル関数として公開（各リストから呼び出せるように）
+    window.showNotePreview = async (filePath, title) => {
+        panel.style.display = 'block';
+        if (titleEl) titleEl.textContent = title || 'プレビュー';
+        if (contentEl) contentEl.textContent = '読み込み中...';
+        try {
+            const res = await window.api.readNotePreview(filePath);
+            if (contentEl) contentEl.textContent = (res && (res.preview || res.content)) || '（内容なし）';
+        } catch (e) {
+            if (contentEl) contentEl.textContent = '読み込みエラー: ' + e.message;
+        }
+    };
+
+    // イベントデリゲーション: data-preview-path属性を持つボタン
+    const scanResultsArea = document.querySelector('#subtab-scan-results');
+    if (scanResultsArea) {
+        scanResultsArea.addEventListener('click', e => {
+            const btn = e.target.closest('[data-preview-path]');
+            if (!btn) return;
+            const filePath = btn.dataset.previewPath;
+            const title = btn.dataset.previewTitle || '';
+            if (filePath && window.showNotePreview) window.showNotePreview(filePath, title);
         });
     }
 })();

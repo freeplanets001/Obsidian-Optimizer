@@ -63,6 +63,34 @@
 
             <!-- ダッシュボード -->
             <div class="tab-content active" id="tab-dashboard" role="tabpanel" aria-labelledby="tab-dashboard">
+                <!-- ⑦ はじめてガイドカード -->
+                <div id="first-time-guide" class="glass-card" style="margin-bottom:16px;display:none;padding:16px 20px;border:1px solid rgba(124,108,248,.3)">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+                        <span style="font-size:1.5rem">👋</span>
+                        <div>
+                            <div style="font-size:.95rem;font-weight:700">Obsidian Optimizerへようこそ！</div>
+                            <div style="font-size:.76rem;opacity:.6">まず最初にやること 3ステップ</div>
+                        </div>
+                        <button class="ghost-btn" id="btn-guide-dismiss" style="margin-left:auto;padding:2px 8px;font-size:.75rem">✕ 閉じる</button>
+                    </div>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap">
+                        <div style="flex:1;min-width:160px;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:8px">
+                            <div style="font-size:1.1rem;margin-bottom:4px">1️⃣ Vault設定</div>
+                            <div style="font-size:.78rem;opacity:.7">設定タブでObsidian VaultフォルダのパスをセットしてAIキーを設定</div>
+                            <button class="ghost-btn" onclick="activateTab('settings')" style="font-size:.72rem;margin-top:6px">⚙️ 設定を開く</button>
+                        </div>
+                        <div style="flex:1;min-width:160px;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:8px">
+                            <div style="font-size:1.1rem;margin-bottom:4px">2️⃣ スキャン実行</div>
+                            <div style="font-size:.78rem;opacity:.7">スキャンタブでVaultを分析。問題ノートや整理すべき内容がわかる</div>
+                            <button class="ghost-btn" onclick="activateTab('scan-optimize')" style="font-size:.72rem;margin-top:6px">🔍 スキャンへ</button>
+                        </div>
+                        <div style="flex:1;min-width:160px;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:8px">
+                            <div style="font-size:1.1rem;margin-bottom:4px">3️⃣ 整理実行</div>
+                            <div style="font-size:.78rem;opacity:.7">スキャン結果をもとに整理ツールで問題を解決。AI機能も活用しよう</div>
+                            <button class="ghost-btn" onclick="activateTab('tools')" style="font-size:.72rem;margin-top:6px">🧹 整理ツールへ</button>
+                        </div>
+                    </div>
+                </div>
                 <div class="page-header">
                     <div>
                         <h1>ダッシュボード</h1>
@@ -231,6 +259,7 @@
                         <div class="ring-center">
                             <span id="health-score" class="ring-score">--</span>
                             <span class="ring-label">健全度</span>
+                            <span id="health-score-label" style="font-size:.65rem;margin-top:2px;display:block"></span>
                         </div>
                     </div>
                     <div class="kpi-grid">
@@ -482,6 +511,14 @@
                     <button class="sub-tab" data-subtab="optimize" data-parent="scan-optimize">✨ 最適化</button>
                 </div>
                 <div class="sub-tab-content active" id="subtab-scan-results">
+                <!-- ① アクションガイドパネル -->
+                <div id="scan-action-guide" class="glass-card" style="display:none;margin-bottom:16px;padding:16px 20px;border:1px solid rgba(124,108,248,.25)">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+                        <h3 style="font-size:.92rem;font-weight:700;margin:0">🎯 おすすめ改善アクション</h3>
+                        <button class="primary-btn small-btn" id="btn-auto-fix-all">⚡ まとめて改善する</button>
+                    </div>
+                    <ul id="scan-action-list" style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px"></ul>
+                </div>
                 <!-- 孤立ノート -->
                 <div class="glass-card">
                     <div class="card-header-row">
@@ -612,6 +649,16 @@
                     <div id="ai-duplicates-result" class="scrollable-list" style="display:none"></div>
                     <div id="ai-duplicates-empty" class="list-empty" style="display:none">AI重複検出の結果がここに表示されます</div>
                 </div>
+                </div>
+                <!-- ⑥ ノートクイックプレビューパネル -->
+                <div id="scan-note-preview-panel" style="width:320px;flex-shrink:0;display:none;position:sticky;top:0">
+                    <div class="glass-card" style="height:100%;max-height:600px">
+                        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                            <span style="font-size:.85rem;font-weight:600" id="preview-note-title">プレビュー</span>
+                            <button class="ghost-btn" id="btn-preview-close" style="margin-left:auto;padding:2px 6px;font-size:.75rem">✕</button>
+                        </div>
+                        <div id="preview-note-content" style="font-size:.78rem;line-height:1.6;overflow-y:auto;max-height:520px;white-space:pre-wrap;opacity:.85"></div>
+                    </div>
                 </div>
 
                 <div class="sub-tab-content" id="subtab-preview">
@@ -1082,6 +1129,7 @@
                     <button class="sub-tab" data-subtab="graph-view" data-parent="analytics">🕸️ グラフビュー</button>
                     <button class="sub-tab" data-subtab="quality-board" data-parent="analytics">⭐ 品質ボード</button>
                     <button class="sub-tab" data-subtab="ai-batch" data-parent="analytics">⚡ AIバッチ処理</button>
+                    <button class="sub-tab" data-subtab="tag-visual" data-parent="analytics">🏷️ タグ管理</button>
                 </div>
                 <div class="sub-tab-content active" id="subtab-stats">
 
@@ -1089,6 +1137,9 @@
                     <div>
                         <h1>統計・分析</h1>
                         <p class="page-subtitle">Vault の詳細な分析データ</p>
+                    </div>
+                    <div class="header-actions">
+                        <button class="ghost-btn small-btn" id="btn-export-stats-report" style="font-size:.8rem">📥 レポートを保存</button>
                     </div>
                 </div>
                 <div class="tab-banner" data-banner="analysis">
@@ -1326,6 +1377,24 @@
                     </div>
                 </div>
 
+                <!-- ⑤ タグ管理サブタブ -->
+                <div class="sub-tab-content" id="subtab-tag-visual">
+                    <div class="page-header" style="margin-bottom:16px">
+                        <div>
+                            <h2 style="font-size:1rem;margin:0">🏷️ タグ管理</h2>
+                            <p class="muted-hint" style="font-size:.78rem;margin:4px 0 0">タグの使用頻度と類似タグを可視化</p>
+                        </div>
+                        <button class="primary-btn small-btn" id="btn-load-tag-visual">🔄 分析する</button>
+                    </div>
+                    <div id="tag-bubble-container" style="display:flex;flex-wrap:wrap;gap:8px;padding:16px;min-height:200px;background:rgba(255,255,255,.02);border-radius:12px;align-items:center;margin-bottom:16px">
+                        <div class="list-empty" style="width:100%;text-align:center">「分析する」ボタンで表示します</div>
+                    </div>
+                    <div id="similar-tags-section" style="display:none">
+                        <h3 style="font-size:.88rem;margin:0 0 8px">🔗 統合を推奨するタグ</h3>
+                        <div id="similar-tags-list" style="display:flex;flex-direction:column;gap:6px"></div>
+                    </div>
+                </div>
+
                 <div class="sub-tab-content" id="subtab-graph-view">
 
                 <div class="page-header">
@@ -1512,6 +1581,19 @@
                     <p class="muted-hint">複数Vaultを登録している場合、ノートのコピーや比較ができます</p>
                     <div id="vault-compare-content" style="margin-top:12px"></div>
                     <button class="ghost-btn" id="btn-compare-vaults" style="margin-top:8px">🔍 Vault比較</button>
+                </div>
+
+                <!-- ⑧ デイリーノートテンプレートエディタ -->
+                <div class="glass-card">
+                    <h3 class="card-title" style="margin-bottom:8px">📅 デイリーノートテンプレート</h3>
+                    <p class="muted-hint" style="font-size:.76rem;margin-bottom:8px">変数: {{date}} {{weekday}} {{time}} {{title}}</p>
+                    <textarea id="daily-note-template-editor" rows="8" class="text-input"
+                        placeholder="# {{date}} {{weekday}}&#10;&#10;## 今日のタスク&#10;- [ ] &#10;&#10;## 日記&#10;"
+                        style="width:100%;resize:vertical;font-family:monospace;font-size:.82rem;box-sizing:border-box"></textarea>
+                    <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+                        <button class="primary-btn small-btn" id="btn-save-daily-template">💾 保存</button>
+                        <span id="daily-template-saved" style="font-size:.78rem;opacity:.6;display:none">✅ 保存しました</span>
+                    </div>
                 </div>
 
                 </div><!-- /subtab-settings-general -->
@@ -2775,6 +2857,30 @@
                         <p class="page-subtitle">ノートの整理・アーカイブ・統合・構造テンプレートを統合</p>
                     </div>
                 </div>
+                <!-- ④ 整理ウィザードバナー -->
+                <div id="tools-wizard-banner" class="glass-card" style="margin-bottom:16px;padding:16px 20px">
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                        <span style="font-size:1.3rem">🧹</span>
+                        <div style="flex:1">
+                            <div style="font-size:.9rem;font-weight:600;margin-bottom:2px">Vault整理コース</div>
+                            <div style="font-size:.75rem;opacity:.6">推奨の順番で整理すると効率的です</div>
+                        </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap">
+                            <button class="ghost-btn tools-wizard-step active" data-step="1" style="font-size:.78rem">
+                                <span id="wizard-step1-icon">1️⃣</span> 重複削除
+                            </button>
+                            <button class="ghost-btn tools-wizard-step" data-step="2" style="font-size:.78rem">
+                                <span id="wizard-step2-icon">2️⃣</span> タグ整理
+                            </button>
+                            <button class="ghost-btn tools-wizard-step" data-step="3" style="font-size:.78rem">
+                                <span id="wizard-step3-icon">3️⃣</span> フォルダ整理
+                            </button>
+                        </div>
+                    </div>
+                    <div id="tools-wizard-hint" style="margin-top:8px;font-size:.78rem;opacity:.7;padding:6px 8px;background:rgba(255,255,255,.04);border-radius:6px">
+                        💡 Step 1: まず重複ノートを削除してVaultをスッキリさせましょう
+                    </div>
+                </div>
                 <div class="sub-tab-bar">
                     <button class="sub-tab active" data-subtab="organize-main" data-parent="tools">🧹 整理ツール</button>
                     <button class="sub-tab" data-subtab="archive" data-parent="tools">📦 アーカイブ</button>
@@ -3590,11 +3696,46 @@
                             <button class="primary-btn" id="btn-open-quick-capture-ai" style="margin-top:auto">⚡ キャプチャを開く</button>
                         </div>
 
+                        <!-- ③ Inbox処理ウィザード -->
+                        <div class="glass-card" style="display:flex;flex-direction:column;gap:10px">
+                            <div>
+                                <div style="font-size:1.6rem;margin-bottom:6px">📋</div>
+                                <h3 class="card-title" style="font-size:.92rem;margin:0 0 4px">Inbox処理ウィザード</h3>
+                                <p class="muted-hint" style="font-size:.78rem;margin:0">Inboxのノートを1件ずつ確認・整理</p>
+                            </div>
+                            <button class="primary-btn" id="btn-open-inbox-wizard" style="margin-top:auto">📋 ウィザードを開く</button>
+                        </div>
+
                     </div>
                 </div>
             </div>
 
         </main>
+    </div>
+
+    <!-- ③ Inbox処理ウィザードモーダル -->
+    <div id="inbox-wizard-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;align-items:center;justify-content:center">
+        <div class="glass-card" style="width:500px;max-width:95vw;padding:24px;max-height:90vh;overflow-y:auto">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+                <span style="font-size:1.3rem">📋</span>
+                <h3 style="margin:0;font-size:1rem;font-weight:700;flex:1">Inbox処理ウィザード</h3>
+                <button class="ghost-btn" id="btn-inbox-wizard-close" style="padding:2px 8px;font-size:.8rem">✕</button>
+            </div>
+            <div id="inbox-wizard-progress" style="font-size:.82rem;opacity:.7;margin-bottom:16px;padding:8px 12px;background:rgba(255,255,255,.05);border-radius:8px">0 / 0件処理済み</div>
+            <div style="margin-bottom:16px;padding:12px;background:rgba(255,255,255,.04);border-radius:10px">
+                <div id="inbox-note-title" style="font-size:.95rem;font-weight:600;margin-bottom:6px"></div>
+                <div id="inbox-note-preview" style="max-height:120px;overflow:hidden;font-size:.8rem;opacity:.7;line-height:1.6;white-space:pre-wrap"></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+                <select id="inbox-wizard-folder-select" class="vault-select" style="flex:1;min-width:120px"></select>
+                <button class="ghost-btn" id="btn-inbox-move">📁 移動</button>
+                <button class="ghost-btn" id="btn-inbox-delete" style="color:#f87171">🗑 削除</button>
+                <button class="ghost-btn" id="btn-inbox-skip">→ スキップ</button>
+            </div>
+            <div id="inbox-wizard-done" style="display:none;text-align:center;padding:20px;font-size:.9rem;opacity:.8">
+                ✅ 全件処理完了しました！
+            </div>
+        </div>
     </div>
 
     <!-- プロジェクト作成・編集モーダル -->

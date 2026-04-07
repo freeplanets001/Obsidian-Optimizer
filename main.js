@@ -11178,3 +11178,82 @@ ipcMain.handle('ai-vault-chat', async (_, { messages, question }) => {
         return { success: false, error: e.message };
     }
 });
+
+// ======================================================
+// v5.7.0: Inbox処理ウィザード・デイリーテンプレート・統計エクスポート
+// ======================================================
+
+// Inboxノート一覧取得
+ipcMain.handle('get-inbox-notes', async () => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const inboxDir = path.join(vaultPath, '00 Inbox');
+        if (!fs.existsSync(inboxDir)) return { success: true, notes: [] };
+        const files = fs.readdirSync(inboxDir)
+            .filter(f => f.endsWith('.md') && !f.startsWith('_MOC'))
+            .map(f => {
+                const filePath = path.join(inboxDir, f);
+                const stat = fs.statSync(filePath);
+                const raw = fs.readFileSync(filePath, 'utf-8');
+                const lines = raw.split('\n').filter(l => l.trim() && !l.startsWith('---') && !l.startsWith('#'));
+                const preview = lines.slice(0, 2).join(' ').slice(0, 120);
+                const titleMatch = raw.match(/^#\s+(.+)$/m);
+                const title = titleMatch ? titleMatch[1] : f.replace('.md', '');
+                return { filePath, title, preview, size: stat.size, mtime: stat.mtime.toISOString() };
+            })
+            .sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+        return { success: true, notes: files };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// Inboxノート削除
+ipcMain.handle('delete-inbox-note', async (_, { filePath }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        if (!filePath.startsWith(vaultPath)) return { success: false, error: '不正なパスです' };
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// デイリーノートテンプレート取得・保存
+ipcMain.handle('get-daily-note-template', async () => {
+    const cfg = getConfig();
+    return { success: true, template: cfg.dailyNoteTemplate || '' };
+});
+
+ipcMain.handle('save-daily-note-template', async (_, { template }) => {
+    try {
+        saveConfigPartial({ dailyNoteTemplate: template });
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// Vault統計レポートをMarkdownでInboxに保存
+ipcMain.handle('export-stats-report', async (_, { stats }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const today = new Date().toISOString().slice(0, 10);
+        const now = new Date().toLocaleString('ja-JP');
+        const inboxDir = path.join(vaultPath, '00 Inbox');
+        fs.mkdirSync(inboxDir, { recursive: true });
+        const title = `Vault統計レポート ${today}`;
+        const score = stats.healthScore || 0;
+        const content = `---\ntags: [vault-report]\ncreated: ${today}\n---\n\n# ${title}\n\n> 生成日時: ${now}\n\n## 📊 Vault健康スコア\n\n**${score}点 / 100点**\n\n## 📁 基本統計\n\n| 項目 | 数値 |\n|---|---|\n| 総ノート数 | ${stats.totalNotes || 0}件 |\n| MOC数 | ${stats.mocs || 0}件 |\n| 孤立ノート | ${stats.orphans || 0}件 |\n| 壊れたリンク | ${stats.brokenLinks || 0}件 |\n| 重複ノート候補 | ${stats.duplicates || 0}件 |\n| タグなしノート | ${stats.untagged || 0}件 |\n| 総リンク数 | ${stats.totalLinks || 0}件 |\n| 平均文字数 | ${stats.avgWords || 0}文字 |\n\n## 🎯 改善推奨事項\n\n${stats.actions ? stats.actions.map(a => `- ${a}`).join('\n') : '- スキャンを実行して問題を確認してください'}\n\n---\n*Obsidian Optimizer v${stats.appVersion || '5.7.0'} で生成*\n`;
+        const safeName = title.replace(/[/\\?%*:|"<>]/g, '_');
+        const filePath = path.join(inboxDir, `${safeName}.md`);
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return { success: true, filePath, title };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});

@@ -353,4 +353,10 @@ contextBridge.exposeInMainWorld('api', {
     aiWeeklyReview: (params) => ipcRenderer.invoke('ai-weekly-review', params),
     // 4-3: Vault Chat（会話履歴付き）
     aiVaultChat: (params) => ipcRenderer.invoke('ai-vault-chat', params),
+    // v5.7.0: Inbox処理ウィザード・デイリーテンプレート・統計エクスポート
+    getInboxNotes: () => ipcRenderer.invoke('get-inbox-notes'),
+    deleteInboxNote: (params) => ipcRenderer.invoke('delete-inbox-note', params),
+    getDailyNoteTemplate: () => ipcRenderer.invoke('get-daily-note-template'),
+    saveDailyNoteTemplate: (params) => ipcRenderer.invoke('save-daily-note-template', params),
+    exportStatsReport: (params) => ipcRenderer.invoke('export-stats-report', params),
 });
