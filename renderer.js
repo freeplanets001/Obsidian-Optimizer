@@ -128,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function bindAllButtons() {
     const safe = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
 
+    safe('btn-go-to-ai-tab', () => activateTab('ai'));
     safe('btn-quick-scan', runScan);
     safe('btn-scan-now', runScan);
     safe('btn-cancel-scan', cancelScan);
@@ -356,6 +357,7 @@ function bindAllButtons() {
                 case '5': e.preventDefault(); activateTab('tools'); break;
                 case '6': e.preventDefault(); activateTab('tasks'); break;
                 case '7': e.preventDefault(); activateTab('projects'); break;
+                case '8': e.preventDefault(); activateTab('ai'); break;
                 case ',': e.preventDefault(); activateTab('settings'); break;
                 case 'p': e.preventDefault(); activateTab('projects'); break;
                 case 'o': e.preventDefault(); activateTab('scan-optimize'); break;
@@ -11900,6 +11902,9 @@ function initLogViewer() {
         });
     }
     if (cancelBtn) cancelBtn.addEventListener('click', hideCapture);
+    // AI機能タブ内の「キャプチャを開く」ボタン
+    const openAiBtn = $('btn-open-quick-capture-ai');
+    if (openAiBtn) openAiBtn.addEventListener('click', showCapture);
     if (overlay) {
         overlay.addEventListener('click', (e) => { if (e.target === overlay) hideCapture(); });
     }

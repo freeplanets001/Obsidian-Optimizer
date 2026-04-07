@@ -45,6 +45,7 @@
                 <button class="nav-item" data-tab="tools" role="tab" aria-selected="false" aria-controls="tab-tools"><span class="nav-icon">🧹</span><span>整理ツール</span><span class="nav-shortcut">⌘5</span></button>
                 <button class="nav-item" data-tab="tasks" role="tab" aria-selected="false" aria-controls="tab-tasks"><span class="nav-icon">📝</span><span>タスク</span><span class="nav-shortcut">⌘6</span></button>
                 <button class="nav-item" data-tab="projects" role="tab" aria-selected="false" aria-controls="tab-projects"><span class="nav-icon">📁</span><span>プロジェクト</span><span class="nav-shortcut">⌘7</span></button>
+                <button class="nav-item" data-tab="ai" role="tab" aria-selected="false" aria-controls="tab-ai"><span class="nav-icon">🤖</span><span>AI機能</span><span class="nav-shortcut">⌘8</span></button>
                 <button class="nav-item" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings"><span class="nav-icon">⚙️</span><span>設定</span><span class="nav-shortcut">⌘,</span></button>
                 <button class="nav-item" data-tab="help" role="tab" aria-selected="false" aria-controls="tab-help"><span class="nav-icon">❓</span><span>ヘルプ</span></button>
             </nav>
@@ -334,21 +335,14 @@
                     </div>
                 </div>
 
-                <!-- AIチャット -->
-                <div class="glass-card" data-widget="aiChat">
-                    <h3 class="card-title" style="font-size:.88rem">🤖 Vault Chat</h3>
-                    <p class="muted-hint" style="font-size:.72rem;margin:2px 0 6px">AI設定でAPIキーが必要 · 会話履歴を保持</p>
-                    <div id="ai-chat-messages" style="max-height:220px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:4px"></div>
-                    <div style="display:flex;gap:6px">
-                        <input type="text" id="ai-chat-input" class="text-input" placeholder="例: AIツールについてまとめて" style="flex:1">
-                        <button class="primary-btn small-btn" id="btn-ai-ask">送信</button>
+                <!-- AI機能リンクカード -->
+                <div class="glass-card" data-widget="aiChat" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px 16px">
+                    <div style="font-size:2rem">🤖</div>
+                    <div>
+                        <div class="card-title" style="font-size:.9rem;margin-bottom:4px">AI機能</div>
+                        <p class="muted-hint" style="font-size:.75rem;margin:0">Vault Chat・SNS投稿・テンプレート・週次レビューを集約</p>
                     </div>
-                    <div style="display:flex;gap:6px;margin-top:6px">
-                        <button class="ghost-btn small-btn" id="btn-ai-chat-clear" style="flex:1;font-size:.72rem">🗑 履歴クリア</button>
-                        <button class="ghost-btn small-btn" id="btn-open-weekly-review" style="flex:1;font-size:.72rem">📋 週次レビュー</button>
-                        <button class="ghost-btn small-btn" id="btn-open-sns-modal" style="flex:1;font-size:.72rem">📣 SNS投稿文</button>
-                        <button class="ghost-btn small-btn" id="btn-open-template-modal" style="flex:1;font-size:.72rem">📄 テンプレート</button>
-                    </div>
+                    <button class="primary-btn small-btn" id="btn-go-to-ai-tab">🤖 AI機能を開く →</button>
                 </div>
 
                 <!-- タイムマシン -->
@@ -3921,7 +3915,76 @@
         </div>
     </div>
 
-    <script src="renderer.js"></script>
+    <!-- ====== AI機能タブ ====== -->
+    <div class="tab-content" id="tab-ai" role="tabpanel" aria-labelledby="tab-ai">
+        <div class="page-header">
+            <div>
+                <h1>🤖 AI機能</h1>
+                <p class="page-subtitle">AIを活用したVault分析・コンテンツ生成・週次レビューなどのアシスタント機能</p>
+            </div>
+        </div>
+        <div style="display:grid;gap:20px;padding:0 4px">
+
+            <!-- Vault Chat -->
+            <div class="glass-card">
+                <h3 class="card-title" style="font-size:.88rem">💬 Vault Chat</h3>
+                <p class="muted-hint" style="font-size:.72rem;margin:2px 0 6px">AI設定でAPIキーが必要 · 会話履歴を保持</p>
+                <div id="ai-chat-messages" style="max-height:280px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:4px"></div>
+                <div style="display:flex;gap:6px">
+                    <input type="text" id="ai-chat-input" class="text-input" placeholder="例: AIツールについてまとめて" style="flex:1">
+                    <button class="primary-btn small-btn" id="btn-ai-ask">送信</button>
+                </div>
+                <div style="margin-top:6px">
+                    <button class="ghost-btn small-btn" id="btn-ai-chat-clear" style="font-size:.72rem">🗑 履歴クリア</button>
+                </div>
+            </div>
+
+            <!-- AI機能カードグリッド -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+
+                <!-- SNS投稿文 -->
+                <div class="glass-card" style="display:flex;flex-direction:column;gap:10px">
+                    <div>
+                        <div style="font-size:1.6rem;margin-bottom:6px">📣</div>
+                        <h3 class="card-title" style="font-size:.92rem;margin:0 0 4px">SNS投稿文生成</h3>
+                        <p class="muted-hint" style="font-size:.78rem;margin:0">ノート内容からX・note・LinkedInの投稿文をAI生成</p>
+                    </div>
+                    <button class="primary-btn" id="btn-open-sns-modal" style="margin-top:auto">📣 SNS投稿文を作る</button>
+                </div>
+
+                <!-- ノートテンプレート -->
+                <div class="glass-card" style="display:flex;flex-direction:column;gap:10px">
+                    <div>
+                        <div style="font-size:1.6rem;margin-bottom:6px">📄</div>
+                        <h3 class="card-title" style="font-size:.92rem;margin:0 0 4px">ノートテンプレート</h3>
+                        <p class="muted-hint" style="font-size:.78rem;margin:0">テンプレートを作成・管理し、変数展開して一発生成</p>
+                    </div>
+                    <button class="primary-btn" id="btn-open-template-modal" style="margin-top:auto">📄 テンプレートを管理</button>
+                </div>
+
+                <!-- 週次レビュー -->
+                <div class="glass-card" style="display:flex;flex-direction:column;gap:10px">
+                    <div>
+                        <div style="font-size:1.6rem;margin-bottom:6px">📋</div>
+                        <h3 class="card-title" style="font-size:.92rem;margin:0 0 4px">週次レビュー</h3>
+                        <p class="muted-hint" style="font-size:.78rem;margin:0">今週の記録をAIが分析・振り返りと来週の計画をサポート</p>
+                    </div>
+                    <button class="primary-btn" id="btn-open-weekly-review" style="margin-top:auto">📋 週次レビューを始める</button>
+                </div>
+
+                <!-- クイックキャプチャ -->
+                <div class="glass-card" style="display:flex;flex-direction:column;gap:10px">
+                    <div>
+                        <div style="font-size:1.6rem;margin-bottom:6px">⚡</div>
+                        <h3 class="card-title" style="font-size:.92rem;margin:0 0 4px">クイックキャプチャ</h3>
+                        <p class="muted-hint" style="font-size:.78rem;margin:0">アイデア・メモをすぐVaultへ保存。グローバルショートカットも使用可</p>
+                    </div>
+                    <button class="primary-btn" id="btn-open-quick-capture-ai" style="margin-top:auto">⚡ キャプチャを開く</button>
+                </div>
+
+            </div>
+        </div>
+    </div>
 
     <!-- ====== クイックキャプチャ オーバーレイ ====== -->
     <div id="quick-capture-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;backdrop-filter:blur(4px);align-items:flex-start;justify-content:center;padding-top:80px">
@@ -4059,6 +4122,7 @@
             </div>
         </div>
     </div>
+    <script src="renderer.js"></script>
 </body>
 
 </html>
