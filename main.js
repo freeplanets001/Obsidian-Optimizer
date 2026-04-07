@@ -11188,8 +11188,20 @@ ipcMain.handle('get-inbox-notes', async () => {
     const vaultPath = getCurrentVault();
     if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
     try {
-        const inboxDir = path.join(vaultPath, '00 Inbox');
-        if (!fs.existsSync(inboxDir)) return { success: true, notes: [] };
+        // config.inboxFolder 優先、なければ候補を順番に探す
+        const cfg = getConfig();
+        const inboxCandidates = cfg.inboxFolder
+            ? [cfg.inboxFolder]
+            : ['00 Inbox', 'Inbox', '00_Inbox', 'inbox'];
+        let inboxDir = null;
+        for (const name of inboxCandidates) {
+            const candidate = path.join(vaultPath, name);
+            if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+                inboxDir = candidate;
+                break;
+            }
+        }
+        if (!inboxDir) return { success: true, notes: [], inboxMissing: true };
         const files = fs.readdirSync(inboxDir)
             .filter(f => f.endsWith('.md') && !f.startsWith('_MOC'))
             .map(f => {

@@ -12484,6 +12484,10 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
         try {
             const res = await window.api.getInboxNotes();
             notes = (res && res.notes) ? res.notes : [];
+            if (res && res.inboxMissing && titleEl) {
+                titleEl.textContent = '⚠️ Inboxフォルダが見つかりません';
+                if (previewEl) previewEl.textContent = '「00 Inbox」「Inbox」などのフォルダをVault内に作成してください。';
+            }
         } catch (e) { notes = []; }
     }
 
