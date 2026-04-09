@@ -73,8 +73,9 @@ function register(ipcMain, ctx) {
             let targetAsset = null;
             if (platform === 'darwin') {
                 const archSuffix = arch === 'arm64' ? 'arm64' : 'x64';
-                // arm64/x64 ともに DMG を優先
-                targetAsset = assets.find(a => a.name.includes(`mac-${archSuffix}`) && a.name.endsWith('.dmg'));
+                // PKG を優先、なければ DMG にフォールバック
+                targetAsset = assets.find(a => a.name.includes(`mac-${archSuffix}`) && a.name.endsWith('.pkg'))
+                    || assets.find(a => a.name.includes(`mac-${archSuffix}`) && a.name.endsWith('.dmg'));
             } else if (platform === 'win32') {
                 targetAsset = assets.find(a => a.name.includes('win-x64') && a.name.endsWith('.exe'));
             }
