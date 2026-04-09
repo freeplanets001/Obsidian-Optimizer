@@ -201,11 +201,18 @@ function normalizePath(p) {
 }
 
 // パストラバーサル防御: 指定パスがVault内にあることを検証
+// Windows対応: スラッシュ/バックスラッシュ混在・大文字小文字差異を吸収する
 function isPathInsideVault(filePath) {
     const vaultPath = getCurrentVault();
     if (!vaultPath || !filePath) return false;
-    const resolved = path.resolve(filePath);
-    return resolved.startsWith(vaultPath + path.sep) || resolved === vaultPath;
+    // path.resolve で OS に合わせたパスセパレータに統一
+    const resolvedFile  = path.resolve(filePath);
+    const resolvedVault = path.resolve(vaultPath);
+    // Windows はパスの大文字小文字を区別しない
+    const normalize = (p) => process.platform === 'win32' ? p.toLowerCase() : p;
+    const nFile  = normalize(resolvedFile);
+    const nVault = normalize(resolvedVault);
+    return nFile.startsWith(nVault + path.sep) || nFile === nVault;
 }
 
 function isLikelyVault(dirPath) {
