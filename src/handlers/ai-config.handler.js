@@ -27,7 +27,11 @@ function register(ipcMain, ctx) {
         const config = getConfig();
         if (provider) config.aiProvider = provider;
         // APIキーが空文字の場合は既存値を維持（ユーザーが変更しなかった場合）
-        if (apiKey && apiKey.trim().length > 0) config.aiApiKey = apiKey;
+        if (apiKey && apiKey.trim().length > 0) {
+            const targetProvider = provider || config.aiProvider || 'claude';
+            if (!config.aiApiKeys) config.aiApiKeys = {};
+            config.aiApiKeys[targetProvider] = apiKey.trim();
+        }
         if (model) config.aiModel = model;
         saveConfig(config);
         return ok();

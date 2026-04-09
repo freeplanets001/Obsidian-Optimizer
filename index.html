@@ -1757,9 +1757,13 @@
                         </div>
                         <div class="rule-row">
                             <label class="rule-label">APIキー</label>
-                            <div style="display:flex;gap:8px;align-items:center">
-                                <input type="password" id="ai-api-key" class="rule-textarea" style="height:auto;padding:6px 10px;font-family:monospace;font-size:0.82rem" placeholder="sk-... / AIza...">
-                                <button class="ghost-btn small-btn" id="btn-toggle-api-key" type="button" title="表示/非表示を切替">👁️</button>
+                            <div style="display:flex;flex-direction:column;gap:6px">
+                                <div style="display:flex;gap:8px;align-items:center">
+                                    <input type="password" id="ai-api-key" class="rule-textarea" style="height:auto;padding:6px 10px;font-family:monospace;font-size:0.82rem" placeholder="sk-... / AIza...">
+                                    <button class="ghost-btn small-btn" id="btn-toggle-api-key" type="button" title="表示/非表示を切替">👁️</button>
+                                </div>
+                                <span id="ai-key-status" style="font-size:0.75rem;color:var(--muted,#888)">未設定</span>
+                                <p class="muted-hint" style="margin:0;font-size:0.72rem">プロバイダーごとに個別に保存されます。切り替えて設定してください。</p>
                             </div>
                         </div>
                         <div class="rule-row">

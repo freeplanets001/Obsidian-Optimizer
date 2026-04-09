@@ -5176,7 +5176,7 @@ async function initAiModelOptions() {
     updateAiModelOptions();
 }
 
-// プロバイダー変更時にモデルリストを更新
+// プロバイダー変更時にモデルリストとAPIキー表示を更新
 function updateAiModelOptions() {
     const providerSel = $('ai-provider');
     const modelSel = $('ai-model');
@@ -5190,6 +5190,26 @@ function updateAiModelOptions() {
         opt.textContent = m;
         modelSel.appendChild(opt);
     });
+    // プロバイダー切り替え時にキーフィールドのプレースホルダーを更新
+    updateAiKeyPlaceholder(provider);
+}
+
+// プロバイダーに応じてAPIキー入力欄のplaceholderを更新
+let _aiApiKeysCache = {};
+function updateAiKeyPlaceholder(provider) {
+    const input = $('ai-api-key');
+    const statusEl = $('ai-key-status');
+    if (!input) return;
+    const hasKey = _aiApiKeysCache[provider] === '***';
+    const placeholders = { claude: 'sk-ant-...', openai: 'sk-...', gemini: 'AIza...' };
+    if (hasKey) {
+        input.placeholder = '(設定済み) 変更する場合は新しいキーを入力';
+        if (statusEl) { statusEl.textContent = '✅ 設定済み'; statusEl.style.color = 'var(--green, #4caf50)'; }
+    } else {
+        input.placeholder = placeholders[provider] || 'APIキーを入力...';
+        if (statusEl) { statusEl.textContent = '未設定'; statusEl.style.color = 'var(--muted, #888)'; }
+    }
+    input.value = '';
 }
 
 // AI設定の保存
@@ -5204,6 +5224,11 @@ async function saveAiConfig() {
         if (res.success) {
             if (statusEl) { statusEl.textContent = '✅ 保存しました'; statusEl.className = 'ai-status-indicator ai-status-ok'; }
             addLog('🤖 AI設定を保存しました', 'success');
+            // 保存後にキャッシュとプレースホルダーを更新
+            if (apiKey) {
+                _aiApiKeysCache[provider] = '***';
+                updateAiKeyPlaceholder(provider);
+            }
         } else {
             if (statusEl) { statusEl.textContent = '❌ ' + res.error; statusEl.className = 'ai-status-indicator ai-status-error'; }
         }
@@ -5397,14 +5422,17 @@ async function loadAiConfig() {
         const cfg = await window.api.getConfig();
         const providerSel = $('ai-provider');
         const modelSel = $('ai-model');
-        const apiKeyInput = $('ai-api-key');
+
+        // プロバイダー別キーのキャッシュを更新（'***' or '' の状態のみ保持）
+        _aiApiKeysCache = cfg.aiApiKeys || {};
+        // 旧 aiApiKey が設定されていた場合は現在のプロバイダーに移行扱い
+        if (cfg.aiApiKey && !_aiApiKeysCache[cfg.aiProvider || 'claude']) {
+            _aiApiKeysCache[cfg.aiProvider || 'claude'] = '***';
+        }
 
         if (providerSel && cfg.aiProvider) providerSel.value = cfg.aiProvider;
-        updateAiModelOptions();
+        updateAiModelOptions(); // 内部で updateAiKeyPlaceholder も呼ばれる
         if (modelSel && cfg.aiModel) modelSel.value = cfg.aiModel;
-        if (apiKeyInput && cfg.aiApiKey) {
-            apiKeyInput.placeholder = '(設定済み) 変更する場合は新しいキーを入力';
-        }
     } catch (_) { /* 初回起動時のエラーは無視 */ }
 }
 

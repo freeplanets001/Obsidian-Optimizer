@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification, nativeTheme, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification, nativeTheme, globalShortcut, Menu, MenuItem, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -263,7 +263,8 @@ function loadConfig() {
         junkAction: cfg.junkAction || 'delete',
         autoReportEnabled: cfg.autoReportEnabled || false,
         aiProvider: cfg.aiProvider || 'claude',
-        aiApiKey: cfg.aiApiKey || '',
+        aiApiKey: cfg.aiApiKey || '',      // 後方互換: 既存ユーザーのマイグレーション用
+        aiApiKeys: cfg.aiApiKeys || {},    // プロバイダー別APIキー { claude: '...', openai: '...', gemini: '...' }
         aiModel: cfg.aiModel || '',
         // Feature 8: ゲーミフィケーション
         achievements: cfg.achievements || { junksDeleted: 0, linksFixed: 0, mocsCreated: 0, scansCompleted: 0, bestScore: 0, lastScanDate: null, streakDays: 0 },
@@ -379,6 +380,22 @@ function createWindow() {
     mainWindowRef = mainWindow;
     mainWindow.once('ready-to-show', () => mainWindow.show());
     mainWindow.loadFile('index.html');
+
+    // 入力フィールドの右クリックメニュー (Cut/Copy/Paste/SelectAll)
+    mainWindow.webContents.on('context-menu', (_, params) => {
+        if (!params.isEditable && !params.selectionText) return;
+        const menu = new Menu();
+        if (params.isEditable) {
+            menu.append(new MenuItem({ label: 'Cut',        role: 'cut',       enabled: params.editFlags.canCut }));
+            menu.append(new MenuItem({ label: 'Copy',       role: 'copy',      enabled: params.editFlags.canCopy }));
+            menu.append(new MenuItem({ label: 'Paste',      role: 'paste',     enabled: params.editFlags.canPaste }));
+            menu.append(new MenuItem({ type: 'separator' }));
+            menu.append(new MenuItem({ label: 'Select All', role: 'selectAll', enabled: params.editFlags.canSelectAll }));
+        } else if (params.selectionText) {
+            menu.append(new MenuItem({ label: 'Copy', role: 'copy', enabled: true }));
+        }
+        menu.popup({ window: mainWindow });
+    });
 }
 
 // 30日以上経過した古いバックアップを自動削除
@@ -416,6 +433,23 @@ function cleanupOldBackups() {
 }
 
 app.whenReady().then(() => {
+    // ─── macOS: Cut/Copy/Paste/Select All ショートカットを有効化 ───
+    // Electronはデフォルトでアプリメニューを持たないため、
+    // macOSではCmd+V等の標準編集ショートカットが入力フィールドで機能しない
+    if (process.platform === 'darwin') {
+        const template = [
+            { label: app.name, submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }] },
+            { label: 'Edit', submenu: [
+                { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+                { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
+                { role: 'selectAll' }
+            ]}
+        ];
+        Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+    } else {
+        Menu.setApplicationMenu(null);
+    }
+
     createWindow();
     startAutoScan();
     startScheduledScan();
@@ -641,6 +675,10 @@ ipcMain.handle('get-config', () => ({
     autoReportEnabled: config.autoReportEnabled,
     aiProvider: config.aiProvider,
     aiApiKey: config.aiApiKey ? '***' : '',
+    // プロバイダー別: キーが設定済みなら '***'、未設定なら '' を返す
+    aiApiKeys: Object.fromEntries(
+        Object.entries(config.aiApiKeys || {}).map(([k, v]) => [k, v ? '***' : ''])
+    ),
     aiModel: config.aiModel,
     achievements: config.achievements,
     autoScanSchedule: config.autoScanSchedule,
@@ -4683,7 +4721,8 @@ async function callLLM(prompt, systemPrompt = '', featureName = 'unknown') {
     }
 
     const provider = config.aiProvider || 'claude';
-    const apiKey = config.aiApiKey || '';
+    // プロバイダー別キーを優先し、なければ旧 aiApiKey にフォールバック（後方互換）
+    const apiKey = (config.aiApiKeys && config.aiApiKeys[provider]) || config.aiApiKey || '';
     const model = config.aiModel || (AI_MODELS[provider] ? AI_MODELS[provider][0] : '');
     if (!apiKey) throw new Error('APIキーが設定されていません。設定画面でAPIキーを入力するか、ローカルLLM（Ollama等）を有効にしてください');
     if (!model) throw new Error('モデルが選択されていません');
@@ -5810,7 +5849,8 @@ ipcMain.handle('suggest-note-title', async (_, filePath) => {
         heuristicTitle = heuristicTitle.replace(/[/\\:*?"<>|#^[\]]/g, '').trim();
 
         let aiTitle = null;
-        if (config.aiApiKey) {
+        const _currentProvider = config.aiProvider || 'claude';
+        if ((config.aiApiKeys && config.aiApiKeys[_currentProvider]) || config.aiApiKey) {
             try {
                 const aiResult = await callLLM(
                     `以下のノート内容に最適なタイトルを1つだけ提案してください。タイトルのみを返してください（説明不要）。\n\n${content.slice(0, 2000)}`,
@@ -8947,7 +8987,7 @@ async function callAI(prompt, systemPrompt, options = {}) {
 
     // クラウドAPI（既存のAI設定を使用）
     const aiProvider = config.aiProvider || 'claude';
-    const apiKey = config.aiApiKey;
+    const apiKey = (config.aiApiKeys && config.aiApiKeys[aiProvider]) || config.aiApiKey || '';
     if (!apiKey) throw new Error('APIキーが設定されていません。設定画面でAPIキーを入力するか、ローカルLLM（Ollama等）を有効にしてください。');
 
     if (aiProvider === 'claude') {
