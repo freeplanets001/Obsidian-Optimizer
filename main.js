@@ -10428,7 +10428,7 @@ ipcMain.handle('get-tag-cloud', async () => {
 
         for (const mdPath of allMd) {
             try {
-                const content = safeReadFile(mdPath);
+                const content = await safeReadFile(mdPath);
                 if (!content) continue;
                 const relPath = path.relative(vaultPath, mdPath);
                 const foundTags = new Set();
@@ -10497,7 +10497,7 @@ ipcMain.handle('note-health-check', async (_, { filePath }) => {
         if (!isPathInsideVault(filePath)) {
             return { success: false, error: 'Vault外のファイルは対象外です' };
         }
-        const content = safeReadFile(filePath);
+        const content = await safeReadFile(filePath);
         if (content === null) {
             return { success: false, error: 'ファイルを読み込めませんでした' };
         }
@@ -10550,7 +10550,7 @@ ipcMain.handle('note-health-check', async (_, { filePath }) => {
         for (const mdPath of allMd) {
             if (mdPath === filePath) continue;
             try {
-                const otherContent = safeReadFile(mdPath);
+                const otherContent = await safeReadFile(mdPath);
                 if (otherContent && backlinkRe.test(otherContent)) {
                     backlinks++;
                 }
@@ -10633,7 +10633,7 @@ ipcMain.handle('auto-organize', async () => {
         const fmAddedFiles = [];
         for (const mdPath of allMd) {
             try {
-                const content = safeReadFile(mdPath);
+                const content = await safeReadFile(mdPath);
                 if (!content) continue;
                 const fm = parseFrontmatter(content);
                 if (!fm.exists) {
@@ -10704,7 +10704,7 @@ ipcMain.handle('auto-organize', async () => {
         const WIKILINK_RE = /\[\[([^\]|#]+)([#|][^\]]*)?]]/g;
         for (const mdPath of currentAllMd) {
             try {
-                const content = safeReadFile(mdPath);
+                const content = await safeReadFile(mdPath);
                 if (!content) continue;
                 let modified = false;
                 const newContent = content.replace(WIKILINK_RE, (match, linkTarget, rest) => {
@@ -10758,7 +10758,7 @@ ipcMain.handle('find-orphan-notes', async () => {
         // 全ファイルから [[リンク]] を収集し、リンクされているノート名を集める
         const linkedNames = new Set();
         for (const f of allFiles) {
-            const content = safeReadFile(f);
+            const content = await safeReadFile(f);
             if (!content) continue;
             const linkRegex = /\[\[([^\]|#]+)(?:[|#][^\]]*?)?\]\]/g;
             let match;
@@ -10770,7 +10770,7 @@ ipcMain.handle('find-orphan-notes', async () => {
         const orphans = [];
         for (const [name, info] of noteNames) {
             if (!linkedNames.has(name)) {
-                const content = safeReadFile(info.path) || '';
+                const content = (await safeReadFile(info.path)) || '';
                 orphans.push({
                     path: info.path,
                     relPath: info.relPath,
@@ -10819,7 +10819,7 @@ ipcMain.handle('batch-rename-notes', async (_, { pattern, replacement, useRegex,
             // 全ファイル内のリンクを更新
             const mdFiles = getFilesRecursively(vaultPath).filter(f => f.endsWith('.md'));
             for (const mdFile of mdFiles) {
-                let content = safeReadFile(mdFile);
+                let content = await safeReadFile(mdFile);
                 if (!content) continue;
                 const oldLink = `[[${item.oldName}]]`;
                 const newLink = `[[${item.newName}]]`;
@@ -10863,7 +10863,7 @@ ipcMain.handle('create-daily-note', async (_, args) => {
         const yesterdayStr = yesterday.toISOString().slice(0, 10);
         const yesterdayPath = path.join(dailyDir, `${yesterdayStr}.md`);
         if (fs.existsSync(yesterdayPath)) {
-            const yesterdayContent = safeReadFile(yesterdayPath) || '';
+            const yesterdayContent = (await safeReadFile(yesterdayPath)) || '';
             const taskRegex = /^- \[ \] (.+)$/gm;
             let match;
             while ((match = taskRegex.exec(yesterdayContent)) !== null) {

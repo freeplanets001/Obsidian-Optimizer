@@ -5713,8 +5713,8 @@ async function loadAiUsage() {
             var costJpy = Math.round(u.totalEstimatedCost * USD_TO_JPY);
             var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:8px">';
             html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">' + u.totalCalls + '</div><div style="font-size:.78rem;opacity:.7">総呼び出し回数</div></div>';
-            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">' + (u.totalInputTokens + u.totalOutputTokens).toLocaleString() + '</div><div style="font-size:.78rem;opacity:.7">総トークン数</div></div>';
-            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">$' + u.totalEstimatedCost.toFixed(4) + '</div><div style="font-size:.78rem;opacity:.7">推定コスト (USD)</div></div>';
+            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">' + ((u.totalInputTokens || 0) + (u.totalOutputTokens || 0)).toLocaleString() + '</div><div style="font-size:.78rem;opacity:.7">総トークン数</div></div>';
+            html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">$' + (u.totalEstimatedCost || 0).toFixed(4) + '</div><div style="font-size:.78rem;opacity:.7">推定コスト (USD)</div></div>';
             html += '<div style="text-align:center;padding:10px;border-radius:8px;background:rgba(255,255,255,.04)"><div style="font-size:1.4rem;font-weight:bold">約' + costJpy.toLocaleString() + '円</div><div style="font-size:.78rem;opacity:.7">推定コスト (JPY)</div></div>';
             html += '</div>';
 
@@ -7219,11 +7219,11 @@ function orgRenderSplit(notes) {
                 <div class="org-item-actions">
                     <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(note.path)}')" title="プレビュー">👁️</button>
                     <button class="ghost-btn small-btn" onclick="splitSingleNote(${idx})" title="見出し単位で分割">✂️ 分割</button>
-                    <span class="org-item-badge warn">${note.charCount.toLocaleString()}文字</span>
+                    <span class="org-item-badge warn">${(note.charCount ?? 0).toLocaleString()}文字</span>
                 </div>
             </div>
             <div class="org-heading-list">
-                ${note.headings.map(h => `<div class="org-heading-item">${esc(h.text)} (${h.charCount.toLocaleString()}文字)</div>`).join('')}
+                ${(note.headings || []).map(h => `<div class="org-heading-item">${esc(h.text)} (${(h.charCount ?? 0).toLocaleString()}文字)</div>`).join('')}
             </div>
         </div>
     `).join('');
@@ -7976,12 +7976,12 @@ function openProjectModal(project) {
     if (tplPreview) { tplPreview.style.display = 'none'; tplPreview.innerHTML = ''; }
     const tplSection = $('project-template-section');
     if (tplSection) tplSection.style.display = isNew ? 'block' : 'none';
-    $('project-edit-id').value = project?.id || '';
-    $('project-edit-name').value = project?.name || '';
-    $('project-edit-desc').value = project?.description || '';
-    $('project-edit-due').value = project?.dueDate || '';
-    $('project-edit-priority').value = project?.priority || 'medium';
-    $('project-edit-tags').value = (project?.tags || []).join(', ');
+    const pId = $('project-edit-id'); if (pId) pId.value = project?.id || '';
+    const pName = $('project-edit-name'); if (pName) pName.value = project?.name || '';
+    const pDesc = $('project-edit-desc'); if (pDesc) pDesc.value = project?.description || '';
+    const pDue = $('project-edit-due'); if (pDue) pDue.value = project?.dueDate || '';
+    const pPrio = $('project-edit-priority'); if (pPrio) pPrio.value = project?.priority || 'medium';
+    const pTags = $('project-edit-tags'); if (pTags) pTags.value = (project?.tags || []).join(', ');
     const color = project?.color || '#6366f1';
     $('project-edit-color').value = color;
     projectSelectedColor = color;
@@ -9000,17 +9000,18 @@ async function findOrphanNotes() {
     try {
         const res = await window.api.findOrphanNotes();
         if (loading) loading.style.display = 'none';
-        if (!res.success) { showToast(res.error, 'error'); return; }
+        if (!res || !res.success) { showToast(res?.error || 'エラーが発生しました', 'error'); return; }
+        const orphans = res.orphans || [];
         if (results) results.style.display = '';
-        if (summary) summary.textContent = res.orphans.length === 0 ? '✅ 孤立ノートはありません' : `🏝️ ${res.orphans.length}件の孤立ノートを検出`;
+        if (summary) summary.textContent = orphans.length === 0 ? '✅ 孤立ノートはありません' : `🏝️ ${orphans.length}件の孤立ノートを検出`;
         if (list) {
-            list.innerHTML = res.orphans.slice(0, 30).map(n => `
+            list.innerHTML = orphans.slice(0, 30).map(n => `
                 <div class="org-item">
                     <div class="org-item-row">
                         <span class="org-item-title" style="cursor:pointer" onclick="window.api.openInObsidian('${esc(n.path)}')">${esc(n.name)}</span>
                         <div class="org-item-actions">
                             <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(n.path)}')" title="プレビュー">👁️</button>
-                            <span class="org-item-badge" style="font-size:.72rem">${n.charCount.toLocaleString()}文字</span>
+                            <span class="org-item-badge" style="font-size:.72rem">${(n.charCount ?? 0).toLocaleString()}文字</span>
                         </div>
                     </div>
                 </div>
@@ -11052,10 +11053,10 @@ function openRuleBuilder(rule) {
     if (!modal) return;
 
     // フォームリセット
-    $('sr-name').value = rule?.name || '';
-    $('sr-editing-id').value = rule?.id || '';
-    $('sr-action').value = rule?.action || 'archive';
-    $('sr-action-target').value = rule?.actionTarget || '';
+    const srName = $('sr-name'); if (srName) srName.value = rule?.name || '';
+    const srEditId = $('sr-editing-id'); if (srEditId) srEditId.value = rule?.id || '';
+    const srAction = $('sr-action'); if (srAction) srAction.value = rule?.action || 'archive';
+    const srTarget = $('sr-action-target'); if (srTarget) srTarget.value = rule?.actionTarget || '';
 
     // logicラジオ
     const logicVal = rule?.logic || 'AND';
@@ -11063,6 +11064,7 @@ function openRuleBuilder(rule) {
 
     // 条件ブロック
     const condContainer = $('sr-conditions');
+    if (!condContainer) return;
     condContainer.innerHTML = '';
     const conditions = rule?.conditions || (rule?.trigger
         ? [{ trigger: rule.trigger, conditionValue: rule.condition?.days?.toString() || rule.condition?.tag || '' }]
