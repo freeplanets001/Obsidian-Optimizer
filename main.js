@@ -7916,9 +7916,12 @@ ipcMain.handle('download-update', async (event, { url, fileName }) => {
 });
 
 // ダウンロード済みインストーラーを開く
+// インストーラー起動後にアプリ自体を終了することで
+// 「プロセスを閉じてください」ダイアログを回避
 ipcMain.handle('open-installer', async (_, filePath) => {
-    const { shell } = require('electron');
     await shell.openPath(filePath);
+    // インストーラーが起動するまで少し待ってからアプリを終了
+    setTimeout(() => { app.quit(); }, 2000);
     return { success: true };
 });
 
