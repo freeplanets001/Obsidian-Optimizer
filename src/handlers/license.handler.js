@@ -62,24 +62,26 @@ function register(ipcMain, ctx) {
         const latestVersion = (release.tag_name || '').replace(/^v/, '');
         const updateAvailable = compareVersions(latestVersion, APP_VERSION) > 0;
 
-        // プラットフォーム・アーキテクチャに応じた直接ダウンロードURLを生成
+        // GitHub API の assets 配列から browser_download_url を直接取得
+        // （手動URL構築はファイル名スペース等の問題が発生するため廃止）
         const platform = process.platform;
         const arch = process.arch;
         let fileName = null;
         let directDownloadUrl = null;
         if (updateAvailable) {
-            const v = latestVersion;
-            const base = `https://github.com/freeplanets001/Obsidian-Optimizer/releases/download/v${v}`;
+            const assets = release.assets || [];
+            let targetAsset = null;
             if (platform === 'darwin') {
                 const archSuffix = arch === 'arm64' ? 'arm64' : 'x64';
-                // arm64 は PKG インストーラー、x64 は DMG
-                // ※ GitHub は gh CLI アップロード時にスペース→ドットに変換するため Obsidian.Optimizer を使用
-                const ext = arch === 'arm64' ? 'pkg' : 'dmg';
-                fileName = `Obsidian.Optimizer-${v}-mac-${archSuffix}.${ext}`;
+                // arm64/x64 ともに DMG を優先
+                targetAsset = assets.find(a => a.name.includes(`mac-${archSuffix}`) && a.name.endsWith('.dmg'));
             } else if (platform === 'win32') {
-                fileName = `Obsidian.Optimizer-${v}-win-x64.exe`;
+                targetAsset = assets.find(a => a.name.includes('win-x64') && a.name.endsWith('.exe'));
             }
-            if (fileName) directDownloadUrl = `${base}/${fileName}`;
+            if (targetAsset) {
+                fileName = targetAsset.name;
+                directDownloadUrl = targetAsset.browser_download_url;
+            }
         }
 
         return {
