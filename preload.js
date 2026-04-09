@@ -294,6 +294,11 @@ contextBridge.exposeInMainWorld('api', {
     getVaultChanges: () => ipcRenderer.invoke('get-vault-changes'),
     // Phase 6: Vault運用
     findOrphanNotes: () => ipcRenderer.invoke('find-orphan-notes'),
+    deleteOrphanNotes: (params) => ipcRenderer.invoke('delete-orphan-notes', params),
+    archiveOrphanNotes: (params) => ipcRenderer.invoke('archive-orphan-notes', params),
+    deleteDuplicateNote: (params) => ipcRenderer.invoke('delete-duplicate-note', params),
+    fixFrontmatterSchema: () => ipcRenderer.invoke('fix-frontmatter-schema'),
+    deleteTagFromAll: (params) => ipcRenderer.invoke('delete-tag-from-all', params),
     batchRenameNotes: (params) => ipcRenderer.invoke('batch-rename-notes', params),
     createDailyNote: (params) => ipcRenderer.invoke('create-daily-note', params),
     manageBookmarks: (params) => ipcRenderer.invoke('manage-bookmarks', params),

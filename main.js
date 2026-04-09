@@ -10788,6 +10788,140 @@ ipcMain.handle('find-orphan-notes', async () => {
     }
 });
 
+// 孤立ノートを一括削除
+ipcMain.handle('delete-orphan-notes', async (_, { paths }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    if (!Array.isArray(paths) || paths.length === 0) return { success: false, error: '削除対象がありません' };
+    let deleted = 0;
+    const errors = [];
+    for (const p of paths) {
+        if (!isPathInsideVault(p)) { errors.push(`Vault外: ${path.basename(p)}`); continue; }
+        try {
+            fs.unlinkSync(p);
+            deleted++;
+        } catch (e) {
+            errors.push(`${path.basename(p)}: ${e.message}`);
+        }
+    }
+    return { success: true, deleted, errors };
+});
+
+// 孤立ノートを_Archiveフォルダに一括移動
+ipcMain.handle('archive-orphan-notes', async (_, { paths }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    if (!Array.isArray(paths) || paths.length === 0) return { success: false, error: 'アーカイブ対象がありません' };
+    const archiveDir = path.join(vaultPath, '_Archive');
+    if (!fs.existsSync(archiveDir)) fs.mkdirSync(archiveDir, { recursive: true });
+    let archived = 0;
+    const errors = [];
+    for (const p of paths) {
+        if (!isPathInsideVault(p)) { errors.push(`Vault外: ${path.basename(p)}`); continue; }
+        try {
+            const baseName = path.basename(p);
+            let destPath = path.join(archiveDir, baseName);
+            if (fs.existsSync(destPath)) {
+                const ext = path.extname(baseName);
+                const nameWithoutExt = path.basename(baseName, ext);
+                destPath = path.join(archiveDir, `${nameWithoutExt}_${Date.now()}${ext}`);
+            }
+            fs.renameSync(p, destPath);
+            archived++;
+        } catch (e) {
+            errors.push(`${path.basename(p)}: ${e.message}`);
+        }
+    }
+    return { success: true, archived, errors };
+});
+
+// 重複ノートの指定ファイルを削除
+ipcMain.handle('delete-duplicate-note', async (_, { filePath }) => {
+    if (!isPathInsideVault(filePath)) return { success: false, error: 'Vault外のファイルは削除できません' };
+    try {
+        fs.unlinkSync(filePath);
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// スキーマ違反ノートに不足フィールドを一括補完
+ipcMain.handle('fix-frontmatter-schema', async () => {
+    const VAULT_PATH = getCurrentVault();
+    if (!VAULT_PATH) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const schema = config.frontmatterSchema || {};
+        const allFiles = getFilesRecursively(VAULT_PATH).filter(f => f.endsWith('.md'));
+        let fixed = 0;
+        for (const file of allFiles) {
+            const content = await safeReadFile(file);
+            if (!content) continue;
+            const relPath = path.relative(VAULT_PATH, file);
+            const folder = path.dirname(relPath).split(path.sep)[0];
+            const folderSchema = schema[folder] || schema['*'];
+            if (!folderSchema) continue;
+            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+            const frontmatter = {};
+            if (fmMatch) {
+                for (const line of fmMatch[1].split('\n')) {
+                    const kv = line.match(/^(\w+)\s*:\s*(.+)/);
+                    if (kv) frontmatter[kv[1]] = kv[2].trim();
+                }
+            }
+            const missingFields = (folderSchema.required || []).filter(f => !frontmatter[f]);
+            if (missingFields.length === 0) continue;
+            const addLines = missingFields.map(f => `${f}: `).join('\n');
+            let newContent;
+            if (fmMatch) {
+                const insertPos = fmMatch.index + fmMatch[0].length;
+                newContent = content.slice(0, fmMatch.index) + `---\n${fmMatch[1]}\n${addLines}\n---` + content.slice(insertPos);
+            } else {
+                newContent = `---\n${addLines}\n---\n` + content;
+            }
+            fs.writeFileSync(file, newContent, 'utf-8');
+            fixed++;
+        }
+        return { success: true, fixed };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// 全ノートから特定タグを削除
+ipcMain.handle('delete-tag-from-all', async (_, { tag }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    if (!tag) return { success: false, error: 'タグを指定してください' };
+    try {
+        const cleanTag = tag.replace(/^#/, '');
+        const escaped = cleanTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const allMd = collectAllMdFiles(vaultPath);
+        let affectedFiles = 0;
+        for (const mdPath of allMd) {
+            const content = await safeReadFile(mdPath);
+            if (!content) continue;
+            let modified = content;
+            // frontmatter tags: [tag1, tag2] 形式から削除
+            modified = modified.replace(
+                new RegExp(`(^tags:\\s*\\[[^\\]]*?),?\\s*["']?${escaped}["']?,?\\s*([^\\]]*\\])`, 'gm'),
+                (_, before, after) => `${before}${after}`.replace(/,\s*,/g, ',').replace(/\[\s*,/, '[').replace(/,\s*\]/, ']')
+            );
+            // frontmatter タグリスト形式から削除
+            modified = modified.replace(new RegExp(`^(\\s*-\\s*)["']?${escaped}["']?\\s*$`, 'gm'), '');
+            // インラインタグを削除
+            modified = modified.replace(new RegExp(`(?<=\\s|^)#${escaped}(?=\\s|$)`, 'gm'), '');
+            if (modified !== content) {
+                fs.writeFileSync(mdPath, modified, 'utf-8');
+                affectedFiles++;
+            }
+        }
+        return { success: true, affectedFiles };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
 // バッチリネーム
 ipcMain.handle('batch-rename-notes', async (_, { pattern, replacement, useRegex, preview }) => {
     const vaultPath = getCurrentVault();

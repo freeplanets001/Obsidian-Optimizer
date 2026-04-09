@@ -8761,10 +8761,21 @@ async function runTagCloud() {
                 const opacity = 0.5 + (t.count / maxCount) * 0.5;
                 const colors = ['#7c6cf8', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#fb923c'];
                 const color = colors[Math.floor(Math.random() * colors.length)];
-                return `<span style="font-size:${size}rem;opacity:${opacity};color:${color};padding:2px 6px;cursor:pointer;transition:transform .15s" title="${t.count}件のノートで使用" onclick="this.style.transform=this.style.transform?'':'scale(1.2)'">#${esc(t.name)} <sup style="font-size:.6rem;opacity:.6">${t.count}</sup></span>`;
+                return `<span style="display:inline-flex;align-items:center;gap:3px;font-size:${size}rem;opacity:${opacity};color:${color};padding:2px 6px;background:rgba(255,255,255,.04);border-radius:4px;margin:2px" title="${t.count}件のノートで使用">#${esc(t.name)} <sup style="font-size:.6rem;opacity:.6">${t.count}</sup><button onclick="deleteTagFromAll('${esc(t.name)}')" style="background:none;border:none;cursor:pointer;color:#f87171;font-size:.65rem;padding:0 2px;line-height:1;opacity:.7" title="#${esc(t.name)}を全ノートから削除">🗑️</button></span>`;
             }).join('');
         }
     } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function deleteTagFromAll(tag) {
+    if (!confirm(`タグ「#${tag}」を全ノートから削除しますか？\nこの操作は元に戻せません。`)) return;
+    const res = await window.api.deleteTagFromAll({ tag });
+    if (res.success) {
+        showToast(`#${tag} を${res.affectedFiles}件のノートから削除しました`, 'success');
+        runTagCloud();
+    } else {
+        showToast(res.error || '削除に失敗しました', 'error');
+    }
 }
 
 async function runHealthCheck() {
@@ -8913,17 +8924,39 @@ async function findDuplicateNotes() {
         if (!res.success) { showToast(res.error, 'error'); return; }
         if (results) results.style.display = '';
         if (summary) summary.textContent = res.duplicates.length === 0 ? '✅ 重複ノートは見つかりませんでした' : `⚠️ ${res.duplicates.length}組の重複候補を検出`;
+        window._lastDuplicates = res.duplicates;
         if (list) {
-            list.innerHTML = res.duplicates.slice(0, 20).map(d => `
-                <div class="org-item" style="display:flex;align-items:center;gap:8px;padding:8px">
-                    <span class="org-item-title" style="cursor:pointer;flex:1" onclick="window.api.openInObsidian('${esc(d.noteA.path)}')">${esc(d.noteA.name)}</span>
-                    <span style="color:var(--muted);font-size:.78rem">↔</span>
-                    <span class="org-item-title" style="cursor:pointer;flex:1" onclick="window.api.openInObsidian('${esc(d.noteB.path)}')">${esc(d.noteB.name)}</span>
-                    <span class="org-item-badge ${d.reason === 'content' ? 'warn' : ''}" style="font-size:.72rem">${d.reason === 'title' ? 'タイトル類似' : '内容類似'} ${Math.round(d.similarity * 100)}%</span>
+            list.innerHTML = res.duplicates.slice(0, 20).map((d, i) => `
+                <div class="org-item" id="dup-item-${i}" style="padding:8px">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="org-item-title" style="cursor:pointer;flex:1;min-width:100px" onclick="window.api.openInObsidian('${esc(d.noteA.path)}')">${esc(d.noteA.name)}</span>
+                        <span style="color:var(--muted);font-size:.78rem;flex-shrink:0">↔</span>
+                        <span class="org-item-title" style="cursor:pointer;flex:1;min-width:100px" onclick="window.api.openInObsidian('${esc(d.noteB.path)}')">${esc(d.noteB.name)}</span>
+                        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+                            <span class="org-item-badge ${d.reason === 'content' ? 'warn' : ''}" style="font-size:.72rem">${d.reason === 'title' ? 'タイトル類似' : '内容類似'} ${d.similarity}%</span>
+                            <button class="obsidian-btn" style="font-size:.72rem;border-color:#f87171;color:#f87171" onclick="deleteDupNote(${i},'A')" title="${esc(d.noteA.name)}を削除">🗑️ A削除</button>
+                            <button class="obsidian-btn" style="font-size:.72rem;border-color:#f87171;color:#f87171" onclick="deleteDupNote(${i},'B')" title="${esc(d.noteB.name)}を削除">🗑️ B削除</button>
+                        </div>
+                    </div>
                 </div>
             `).join('');
         }
     } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function deleteDupNote(idx, which) {
+    const dup = window._lastDuplicates?.[idx];
+    if (!dup) return;
+    const note = which === 'A' ? dup.noteA : dup.noteB;
+    if (!confirm(`「${note.name}」を削除しますか？\nこの操作は元に戻せません。`)) return;
+    const res = await window.api.deleteDuplicateNote({ filePath: note.path });
+    if (res.success) {
+        showToast(`「${note.name}」を削除しました`, 'success');
+        const item = $(`dup-item-${idx}`);
+        if (item) item.remove();
+    } else {
+        showToast(res.error || '削除に失敗しました', 'error');
+    }
 }
 
 // ============================================================
@@ -9002,15 +9035,23 @@ async function findOrphanNotes() {
         if (loading) loading.style.display = 'none';
         if (!res || !res.success) { showToast(res?.error || 'エラーが発生しました', 'error'); return; }
         const orphans = res.orphans || [];
+        window._lastOrphans = orphans.slice(0, 30);
         if (results) results.style.display = '';
         if (summary) summary.textContent = orphans.length === 0 ? '✅ 孤立ノートはありません' : `🏝️ ${orphans.length}件の孤立ノートを検出`;
         if (list) {
-            list.innerHTML = orphans.slice(0, 30).map(n => `
-                <div class="org-item">
+            const bulkHtml = orphans.length > 0 ? `
+                <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                    <button class="obsidian-btn" style="font-size:.78rem;border-color:#f87171;color:#f87171" onclick="deleteAllOrphans()">🗑️ 全件削除</button>
+                    <button class="obsidian-btn" style="font-size:.78rem" onclick="archiveAllOrphans()">📦 全件アーカイブ</button>
+                </div>` : '';
+            list.innerHTML = bulkHtml + orphans.slice(0, 30).map((n, i) => `
+                <div class="org-item" id="orphan-item-${i}">
                     <div class="org-item-row">
                         <span class="org-item-title" style="cursor:pointer" onclick="window.api.openInObsidian('${esc(n.path)}')">${esc(n.name)}</span>
                         <div class="org-item-actions">
-                            <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(n.path)}')" title="プレビュー">👁️</button>
+                            <button class="obsidian-btn" onclick="window.openNotePreviewModal && window.openNotePreviewModal('${esc(n.path)}')" title="プレビュー">👁️</button>
+                            <button class="obsidian-btn" onclick="archiveSingleOrphan(${i})" title="アーカイブ">📦</button>
+                            <button class="obsidian-btn" style="border-color:#f87171;color:#f87171" onclick="deleteSingleOrphan(${i})" title="削除">🗑️</button>
                             <span class="org-item-badge" style="font-size:.72rem">${(n.charCount ?? 0).toLocaleString()}文字</span>
                         </div>
                     </div>
@@ -9018,6 +9059,61 @@ async function findOrphanNotes() {
             `).join('');
         }
     } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function deleteSingleOrphan(idx) {
+    const orphan = window._lastOrphans?.[idx];
+    if (!orphan) return;
+    if (!confirm(`「${orphan.name}」を削除しますか？\nこの操作は元に戻せません。`)) return;
+    const res = await window.api.deleteOrphanNotes({ paths: [orphan.path] });
+    if (res.success && res.deleted > 0) {
+        showToast(`「${orphan.name}」を削除しました`, 'success');
+        const item = $(`orphan-item-${idx}`);
+        if (item) item.remove();
+        window._lastOrphans[idx] = null;
+    } else {
+        showToast(res.errors?.[0] || '削除に失敗しました', 'error');
+    }
+}
+
+async function archiveSingleOrphan(idx) {
+    const orphan = window._lastOrphans?.[idx];
+    if (!orphan) return;
+    const res = await window.api.archiveOrphanNotes({ paths: [orphan.path] });
+    if (res.success && res.archived > 0) {
+        showToast(`「${orphan.name}」を_Archiveに移動しました`, 'success');
+        const item = $(`orphan-item-${idx}`);
+        if (item) item.remove();
+        window._lastOrphans[idx] = null;
+    } else {
+        showToast(res.errors?.[0] || 'アーカイブに失敗しました', 'error');
+    }
+}
+
+async function deleteAllOrphans() {
+    const orphans = (window._lastOrphans || []).filter(Boolean);
+    if (orphans.length === 0) return;
+    if (!confirm(`${orphans.length}件の孤立ノートを全て削除しますか？\nこの操作は元に戻せません。`)) return;
+    const res = await window.api.deleteOrphanNotes({ paths: orphans.map(o => o.path) });
+    if (res.success) {
+        showToast(`${res.deleted}件を削除しました`, 'success');
+        findOrphanNotes();
+    } else {
+        showToast('一括削除に失敗しました', 'error');
+    }
+}
+
+async function archiveAllOrphans() {
+    const orphans = (window._lastOrphans || []).filter(Boolean);
+    if (orphans.length === 0) return;
+    if (!confirm(`${orphans.length}件の孤立ノートを_Archiveフォルダに移動しますか？`)) return;
+    const res = await window.api.archiveOrphanNotes({ paths: orphans.map(o => o.path) });
+    if (res.success) {
+        showToast(`${res.archived}件をアーカイブしました`, 'success');
+        findOrphanNotes();
+    } else {
+        showToast('一括アーカイブに失敗しました', 'error');
+    }
 }
 
 // ============================================================
@@ -10645,13 +10741,27 @@ async function runValidateSchema() {
         if (results) results.style.display = '';
         if (summary) summary.textContent = result.count === 0 ? '✅ スキーマ違反はありません' : `⚠️ ${result.count}件のスキーマ違反`;
         if (list) {
-            let html = '';
+            let html = result.count > 0 ? `
+                <div style="margin-bottom:8px">
+                    <button class="primary-btn small-btn" onclick="fixAllSchemaViolations()">✨ 不足フィールドを一括補完</button>
+                </div>` : '';
             for (const v of result.violations.slice(0, 30)) {
                 html += `<div class="scan-row" style="padding:6px 10px"><span><strong>${esc(v.basename)}</strong> (${esc(v.folder)})</span><span style="margin-left:auto;font-size:.78rem;color:#fbbf24">不足: ${v.missingFields.join(', ')}</span></div>`;
             }
             list.innerHTML = html;
         }
     } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
+}
+
+async function fixAllSchemaViolations() {
+    if (!confirm('スキーマ違反のノートに不足フィールドを一括補完しますか？\n（値は空で追加されます）')) return;
+    const res = await window.api.fixFrontmatterSchema();
+    if (res.success) {
+        showToast(`${res.fixed}件のノートを補完しました`, 'success');
+        runValidateSchema();
+    } else {
+        showToast(res.error || '補完に失敗しました', 'error');
+    }
 }
 
 async function runLoadSpreadsheet() {
