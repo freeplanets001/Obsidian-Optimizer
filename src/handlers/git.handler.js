@@ -17,7 +17,7 @@ const _execFileAsync = promisify(execFile);
 // GIT_TERMINAL_PROMPT=0 で認証待ちの無音ハングを防止
 const GIT_ENV = {
     ...process.env,
-    // Homebrew git が見つかるよう PATH を補完
+    // Homebrew git が見つかるよう PATH を補完（Electron起動時はPATHが制限される）
     PATH: ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH || ''].join(':'),
     GIT_TERMINAL_PROMPT: '0',
     GIT_ASKPASS: '/bin/echo',
@@ -34,16 +34,36 @@ function findGitBin() {
 const GIT_BIN = findGitBin();
 
 /**
- * git コマンドを実行する共通ラッパー。
- * - GIT_ENV を自動注入
- * - safe.directory=* を -c フラグで直接注入（環境変数より確実）
- * - vaultPath 指定時は cwd の代わりに -C <path> を使用（iCloud Drive 対応）
+ * git コマンドを実行する共通ラッパー
  */
 function gitExec(args, opts = {}) {
-    // safe.directory=* を -c フラグで注入。環境変数方式より全バージョンで安定動作する
-    const safeArgs = ['-c', 'safe.directory=*', ...args];
     const execOpts = { env: GIT_ENV, ...opts };
-    return _execFileAsync(GIT_BIN, safeArgs, execOpts);
+    return _execFileAsync(GIT_BIN, args, execOpts);
+}
+
+/**
+ * Vault パスを git の global safe.directory に登録する。
+ * git 2.35.2 以降、所有者が異なるディレクトリでは "dubious ownership" エラーになる。
+ * -c フラグや環境変数での回避は git バージョンによって効かないため、
+ * グローバル設定への直接登録が最も確実な対処法（git公式推奨）。
+ */
+async function ensureSafeDirectory(vaultPath) {
+    try {
+        // 既に登録済みか確認
+        const { stdout } = await gitExec(
+            ['config', '--global', '--get-all', 'safe.directory'],
+            { encoding: 'utf-8', timeout: 5000 }
+        ).catch(() => ({ stdout: '' }));
+        const registered = (stdout || '').split('\n').map(s => s.trim());
+        if (registered.includes(vaultPath) || registered.includes('*')) return;
+        // 未登録なら追加
+        await gitExec(
+            ['config', '--global', '--add', 'safe.directory', vaultPath],
+            { timeout: 5000 }
+        );
+    } catch (_) {
+        // 失敗しても続行（最悪の場合は git コマンド自体がエラーを出す）
+    }
 }
 
 /**
@@ -82,6 +102,9 @@ async function handleGitStatus(getCurrentVault) {
     );
     const isGit = fs.existsSync(path.join(vaultPath, '.git'));
     if (!isGit) return ok({ initialized: false, message: 'Gitリポジトリではありません。「Git初期化」をクリックしてください。' });
+
+    // safe.directory をグローバル設定に登録（"dubious ownership" エラーを確実に回避）
+    await ensureSafeDirectory(vaultPath);
 
     try {
         const { stdout: statusOut } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
@@ -125,6 +148,9 @@ async function handleGitBackup(getCurrentVault, getGitSettings, commitMsg) {
     if (!vaultPath) return fail('Vaultが設定されていません', 'git-backup');
     if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-backup');
     if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Git初期化が必要です', 'git-backup');
+
+    // safe.directory をグローバル設定に登録（"dubious ownership" エラーを確実に回避）
+    await ensureSafeDirectory(vaultPath);
 
     // 古いロックファイルを除去（5秒以上前のもの）
     clearGitLocks(vaultPath);
