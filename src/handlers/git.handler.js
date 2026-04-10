@@ -97,14 +97,24 @@ async function handleGitStatus(getCurrentVault) {
     const isGit = fs.existsSync(path.join(vaultPath, '.git'));
     if (!isGit) return ok({ initialized: false, message: 'Gitリポジトリではありません。「Git初期化」をクリックしてください。' });
 
-    try {
+    const runStatus = async () => {
         const { stdout: statusOut } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
         const { stdout: branchOut } = await gitExec(['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         const lines = statusOut.trim().split('\n').filter(l => l.trim());
         const branch = branchOut.trim();
         return ok({ initialized: true, branch, changedFiles: lines.length, changes: lines.slice(0, 20) });
+    };
+    try {
+        return await runStatus();
     } catch (e) {
         const detail = [e.stderr, e.stdout, e.message].filter(s => s && String(s).trim()).join('\n').trim();
+        // index破損の場合は修復してリトライ
+        if (repairGitIndexIfCorrupted(vaultPath, detail)) {
+            try { return await runStatus(); } catch (e2) {
+                const d2 = [e2.stderr, e2.stdout, e2.message].filter(s => s && String(s).trim()).join('\n').trim();
+                return fail(`git status 失敗 [${vaultPath}]:\n${d2}`, 'git-status');
+            }
+        }
         return fail(`git status 失敗 [${vaultPath}]:\n${detail}`, 'git-status');
     }
 }
@@ -127,6 +137,24 @@ function clearGitLocks(vaultPath) {
             } catch (_) {}
         }
     }
+}
+
+/**
+ * git index の破損を検知・修復する。
+ * "index file smaller than expected" エラーは index ファイルが壊れた場合に発生する。
+ * index を削除すると git が自動で再生成する（ステージング内容は失われるが作業ファイルは無事）。
+ */
+function repairGitIndexIfCorrupted(vaultPath, errorDetail) {
+    if (!errorDetail || !errorDetail.includes('index file smaller than expected')) return false;
+    try {
+        const indexPath = path.join(vaultPath, '.git', 'index');
+        if (fs.existsSync(indexPath)) {
+            fs.unlinkSync(indexPath);
+            console.log('[git-handler] 破損したgit indexを削除しました（自動再生成されます）');
+            return true;
+        }
+    } catch (_) {}
+    return false;
 }
 
 /** git-backup ハンドラ実装
@@ -159,24 +187,27 @@ async function handleGitBackup(getCurrentVault, getGitSettings, commitMsg) {
         return commitMsg && commitMsg.trim() ? commitMsg.trim() : `Vault backup ${ts}`;
     };
 
-    try {
+    const runBackup = async () => {
         await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
         await gitExec(['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
         const { stdout: logOut } = await gitExec(['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         return ok({ commit: logOut.trim() });
+    };
+    try {
+        return await runBackup();
     } catch (e) {
         const errDetail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n').trim();
+        // index破損の場合は修復してリトライ
+        if (repairGitIndexIfCorrupted(vaultPath, errDetail)) {
+            try { return await runBackup(); } catch (e2) {
+                return fail([e2.stderr, e2.stdout, e2.message].filter(Boolean).join('\n').trim() || e2, 'git-backup');
+            }
+        }
         // ロックファイルエラーの場合、除去して1回リトライ
         if (errDetail.includes('index.lock') || errDetail.includes('Another git process')) {
             clearGitLocks(vaultPath);
-            try {
-                await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
-                await gitExec(['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
-                const { stdout: logOut } = await gitExec(['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
-                return ok({ commit: logOut.trim() });
-            } catch (retryErr) {
-                const retryDetail = [retryErr.stderr, retryErr.stdout, retryErr.message].filter(Boolean).join('\n').trim();
-                return fail(retryDetail || retryErr, 'git-backup');
+            try { return await runBackup(); } catch (retryErr) {
+                return fail([retryErr.stderr, retryErr.stdout, retryErr.message].filter(Boolean).join('\n').trim() || retryErr, 'git-backup');
             }
         }
         if (errDetail.includes('nothing to commit')) {
