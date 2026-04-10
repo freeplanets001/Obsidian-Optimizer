@@ -12603,6 +12603,8 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
     const closeBtn = $('btn-inbox-wizard-close');
     const openBtn = $('btn-open-inbox-wizard');
     const progressEl = $('inbox-wizard-progress');
+    const pathLabel = $('inbox-wizard-path-label');
+    const changeFolderBtn = $('btn-inbox-change-folder');
     const titleEl = $('inbox-note-title');
     const previewEl = $('inbox-note-preview');
     const moveBtn = $('btn-inbox-move');
@@ -12614,6 +12616,7 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
     let currentIndex = 0;
     let processed = 0;
     let inboxError = false;
+    let allVaultFolders = [];
 
     async function openWizard() {
         if (!modal) return;
@@ -12624,20 +12627,28 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
         inboxError = false;
         if (doneEl) doneEl.style.display = 'none';
         [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = ''; });
+        if (pathLabel) pathLabel.textContent = '検索中...';
         await loadNotes();
         await loadFolders();
         if (!inboxError) showCurrent();
     }
 
-    async function loadNotes() {
+    async function loadNotes(overrideFolder) {
         try {
-            const res = await window.api.getInboxNotes();
+            const res = overrideFolder
+                ? await window.api.getInboxNotesByFolder({ folder: overrideFolder })
+                : await window.api.getInboxNotes();
+            // 検出したInboxパスを表示
+            if (res && res.detectedPath && pathLabel) {
+                pathLabel.textContent = res.detectedPath;
+            }
             if (res && res.inboxMissing) {
                 notes = [];
                 inboxError = true;
                 if (progressEl) progressEl.textContent = '⚠️ Inboxフォルダが見つかりません';
                 if (titleEl) titleEl.textContent = '';
-                if (previewEl) previewEl.textContent = '「00 Inbox」「Inbox」などのフォルダをVault内に作成してください。';
+                if (previewEl) previewEl.textContent = '下の「変更」ボタンからInboxフォルダを指定してください。';
+                if (pathLabel) pathLabel.textContent = '未検出';
                 [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
                 return;
             }
@@ -12658,11 +12669,32 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
         if (!folderSelect) return;
         try {
             const res = await window.api.getVaultFolders();
-            const folders = ((res && res.folders) ? res.folders : (Array.isArray(res) ? res : [])).filter(f => !f.includes('00 Inbox'));
-            folderSelect.innerHTML = folders.slice(0, 30).map(f =>
+            allVaultFolders = ((res && res.folders) ? res.folders : (Array.isArray(res) ? res : []));
+            const moveDest = allVaultFolders.filter(f => !f.toLowerCase().includes('inbox'));
+            folderSelect.innerHTML = moveDest.slice(0, 30).map(f =>
                 `<option value="${esc(f)}">${esc(f.split('/').pop() || f)}</option>`
             ).join('');
         } catch (e) { /* スキップ */ }
+    }
+
+    // Inboxフォルダ変更ボタン
+    if (changeFolderBtn) {
+        changeFolderBtn.addEventListener('click', async () => {
+            if (allVaultFolders.length === 0) {
+                const res = await window.api.getVaultFolders();
+                allVaultFolders = ((res && res.folders) ? res.folders : (Array.isArray(res) ? res : []));
+            }
+            const selected = prompt('Inboxフォルダ名を入力してください（例: 00 Inbox）\n\n利用可能なフォルダ:\n' + allVaultFolders.slice(0, 20).join('\n'));
+            if (!selected) return;
+            currentIndex = 0;
+            processed = 0;
+            notes = [];
+            inboxError = false;
+            if (doneEl) doneEl.style.display = 'none';
+            [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = ''; });
+            await loadNotes(selected);
+            if (!inboxError) showCurrent();
+        });
     }
 
     function showCurrent() {

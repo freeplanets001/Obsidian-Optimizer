@@ -11427,13 +11427,13 @@ ipcMain.handle('get-inbox-notes', async () => {
                 inboxDir = path.join(vaultPath, topDirs[0].name);
             }
         }
-        if (!inboxDir) return { success: true, notes: [], inboxMissing: true };
-        const entries = fs.readdirSync(inboxDir)
-            .filter(f => f.endsWith('.md') && !f.startsWith('_MOC') && !f.startsWith('.'));
+        if (!inboxDir) return { success: true, notes: [], inboxMissing: true, detectedPath: null };
+        // Inboxフォルダ直下 + サブフォルダ内の.mdを再帰的に収集
+        const allMdInInbox = getFilesRecursively(inboxDir)
+            .filter(f => f.endsWith('.md') && !path.basename(f).startsWith('_MOC') && !path.basename(f).startsWith('.'));
         const files = [];
-        for (const f of entries) {
+        for (const filePath of allMdInInbox) {
             try {
-                const filePath = path.join(inboxDir, f);
                 const stat = fs.statSync(filePath);
                 // iCloud evicted ファイルは本文なしで登録（サイズ0扱い）
                 let raw = '';
@@ -11441,12 +11441,45 @@ ipcMain.handle('get-inbox-notes', async () => {
                 const lines = raw.split('\n').filter(l => l.trim() && !l.startsWith('---') && !l.startsWith('#'));
                 const preview = lines.slice(0, 2).join(' ').slice(0, 120) || '（内容を読み込めませんでした）';
                 const titleMatch = raw.match(/^#\s+(.+)$/m);
-                const title = titleMatch ? titleMatch[1] : f.replace(/\.md$/, '');
+                const title = titleMatch ? titleMatch[1] : path.basename(filePath, '.md');
                 files.push({ filePath, title, preview, size: stat.size, mtime: stat.mtime.toISOString() });
             } catch (_) { /* 読み込み失敗ファイルはスキップ */ }
         }
         files.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
-        return { success: true, notes: files };
+        const detectedPath = path.relative(vaultPath, inboxDir);
+        return { success: true, notes: files, detectedPath };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+});
+
+// Inboxフォルダを手動指定してノート取得
+ipcMain.handle('get-inbox-notes-by-folder', async (_, { folder }) => {
+    const vaultPath = getCurrentVault();
+    if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
+    try {
+        const inboxDir = path.isAbsolute(folder) ? folder : path.join(vaultPath, folder);
+        if (!fs.existsSync(inboxDir) || !fs.statSync(inboxDir).isDirectory()) {
+            return { success: true, notes: [], inboxMissing: true, detectedPath: null };
+        }
+        const allMd = getFilesRecursively(inboxDir)
+            .filter(f => f.endsWith('.md') && !path.basename(f).startsWith('_MOC') && !path.basename(f).startsWith('.'));
+        const files = [];
+        for (const filePath of allMd) {
+            try {
+                const stat = fs.statSync(filePath);
+                let raw = '';
+                try { raw = fs.readFileSync(filePath, 'utf-8'); } catch (_) {}
+                const lines = raw.split('\n').filter(l => l.trim() && !l.startsWith('---') && !l.startsWith('#'));
+                const preview = lines.slice(0, 2).join(' ').slice(0, 120) || '（内容を読み込めませんでした）';
+                const titleMatch = raw.match(/^#\s+(.+)$/m);
+                const title = titleMatch ? titleMatch[1] : path.basename(filePath, '.md');
+                files.push({ filePath, title, preview, size: stat.size, mtime: stat.mtime.toISOString() });
+            } catch (_) {}
+        }
+        files.sort((a, b) => new Date(b.mtime) - new Date(a.mtime));
+        const detectedPath = path.relative(vaultPath, inboxDir);
+        return { success: true, notes: files, detectedPath };
     } catch (e) {
         return { success: false, error: e.message };
     }

@@ -360,6 +360,7 @@ contextBridge.exposeInMainWorld('api', {
     aiVaultChat: (params) => ipcRenderer.invoke('ai-vault-chat', params),
     // v5.7.0: Inbox処理ウィザード・デイリーテンプレート・統計エクスポート
     getInboxNotes: () => ipcRenderer.invoke('get-inbox-notes'),
+    getInboxNotesByFolder: (params) => ipcRenderer.invoke('get-inbox-notes-by-folder', params),
     deleteInboxNote: (params) => ipcRenderer.invoke('delete-inbox-note', params),
     getDailyNoteTemplate: () => ipcRenderer.invoke('get-daily-note-template'),
     saveDailyNoteTemplate: (params) => ipcRenderer.invoke('save-daily-note-template', params),
