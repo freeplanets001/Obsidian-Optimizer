@@ -29,14 +29,32 @@ const GIT_BIN = findGitBin();
 // GIT_CONFIG_GLOBAL は git 2.32 以降で確実に動作する。
 const TEMP_GITCONFIG_PATH = path.join(os.tmpdir(), '.obsidian-optimizer-gitconfig');
 
+/**
+ * ユーザーの ~/.gitconfig を読み込み、safe.directory=* を追加した一時 gitconfig を生成する。
+ * 重要: 単純に `[safe] directory = *` だけを書くと、ユーザーの credential.helper = osxkeychain
+ * などの設定が失われて git push が認証エラーになる。そのため必ずユーザー設定を保持する。
+ */
 function ensureTempGitConfig() {
     try {
-        fs.writeFileSync(
-            TEMP_GITCONFIG_PATH,
-            '[safe]\n\tdirectory = *\n',
-            { encoding: 'utf-8', mode: 0o644 }
+        const userGlobalConfig = path.join(os.homedir(), '.gitconfig');
+        let userConfig = '';
+        if (fs.existsSync(userGlobalConfig)) {
+            userConfig = fs.readFileSync(userGlobalConfig, 'utf-8');
+        }
+        // ユーザー設定に safe.directory=* が既にある場合はそのまま使う
+        const hasSafeWildcard = userConfig.split('\n').some(
+            l => l.trim().replace(/\s/g, '').toLowerCase().startsWith('directory=*')
         );
-    } catch (_) {}
+        const finalConfig = hasSafeWildcard
+            ? userConfig
+            : '[safe]\n\tdirectory = *\n' + userConfig;
+        fs.writeFileSync(TEMP_GITCONFIG_PATH, finalConfig, { encoding: 'utf-8', mode: 0o644 });
+    } catch (_) {
+        // フォールバック: 最小限の設定のみ（credential は失われるが dubious ownership は回避できる）
+        try {
+            fs.writeFileSync(TEMP_GITCONFIG_PATH, '[safe]\n\tdirectory = *\n', { encoding: 'utf-8', mode: 0o644 });
+        } catch (_2) {}
+    }
 }
 
 // 起動時に1回だけ生成する
@@ -50,6 +68,7 @@ const GIT_ENV = {
     GIT_TERMINAL_PROMPT: '0',
     GIT_ASKPASS: '/bin/echo',
     // 一時gitconfigをグローバル設定として注入 → safe.directory=* が確実に効く
+    // ※ユーザーの ~/.gitconfig の内容もマージ済みなので credential 設定は保持される
     GIT_CONFIG_GLOBAL: TEMP_GITCONFIG_PATH,
 };
 
@@ -307,12 +326,29 @@ async function handleGitLog(getCurrentVault) {
     if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-log');
     if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Gitリポジトリではありません', 'git-log');
 
-    const { stdout } = await gitExec(['log', '--format=%h\x1f%ci\x1f%s', '-30'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
-    const entries = stdout.trim().split('\n').filter(l => l.trim()).map(l => {
-        const [hash, date, ...rest] = l.split('\x1f');
-        return { hash: hash.trim(), date: date ? date.trim().slice(0, 16) : '', message: rest.join(' ').trim() };
-    });
-    return ok({ entries });
+    const runLog = async () => {
+        const { stdout } = await gitExec(['log', '--format=%h\x1f%ci\x1f%s', '-30'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
+        const entries = stdout.trim().split('\n').filter(l => l.trim()).map(l => {
+            const [hash, date, ...rest] = l.split('\x1f');
+            return { hash: hash.trim(), date: date ? date.trim().slice(0, 16) : '', message: rest.join(' ').trim() };
+        });
+        return ok({ entries });
+    };
+
+    try {
+        return await runLog();
+    } catch (e) {
+        const detail = [e.stderr, e.stdout, e.message].filter(s => s && String(s).trim()).join('\n').trim();
+        // iCloud Drive退避エラーの場合は強制ダウンロードしてリトライ
+        if (isICloudEvictError(detail)) {
+            await downloadICloudGitObjects(vaultPath);
+            try { return await runLog(); } catch (e2) {
+                const d2 = [e2.stderr, e2.stdout, e2.message].filter(s => s && String(s).trim()).join('\n').trim();
+                return fail(`git log 失敗 (iCloud退避):\n${d2}`, 'git-log');
+            }
+        }
+        return fail(`git log 失敗:\n${detail}`, 'git-log');
+    }
 }
 
 /** git-restore ハンドラ: 指定コミットの状態にVaultを復元 */
