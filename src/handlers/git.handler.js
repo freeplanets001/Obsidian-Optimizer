@@ -2,7 +2,7 @@
 
 const path = require('path');
 const fs = require('fs');
-const { execFile, execSync } = require('child_process');
+const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { ok, fail, withErrorHandling } = require('../utils/ipc-response');
 
@@ -15,29 +15,48 @@ const _execFileAsync = promisify(execFile);
 
 // Electronプロセスではターミナル認証プロンプトが出せないため無効化
 // GIT_TERMINAL_PROMPT=0 で認証待ちの無音ハングを防止
-// GIT_CONFIG_* で safe.directory=* を注入し「dubious ownership」エラーを回避
-// (git 2.35.2以降、iCloud Drive・異なるオーナーのリポジトリで発生)
 const GIT_ENV = {
     ...process.env,
+    // Homebrew git が見つかるよう PATH を補完
+    PATH: ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH || ''].join(':'),
     GIT_TERMINAL_PROMPT: '0',
     GIT_ASKPASS: '/bin/echo',
-    GIT_CONFIG_COUNT: '1',
-    GIT_CONFIG_KEY_0: 'safe.directory',
-    GIT_CONFIG_VALUE_0: '*',
 };
 
+// git バイナリのフルパスを特定（Electron起動時にPATHが制限される環境対策）
+function findGitBin() {
+    const candidates = ['/opt/homebrew/bin/git', '/usr/local/bin/git', '/usr/bin/git'];
+    for (const p of candidates) {
+        if (fs.existsSync(p)) return p;
+    }
+    return 'git';
+}
+const GIT_BIN = findGitBin();
+
 /**
- * execFileAsync のラッパー: git コマンド実行時は GIT_ENV を自動注入
- * これによりElectronプロセスでの認証プロンプト待ちによる無音ハングを防止する
+ * git コマンドを実行する共通ラッパー。
+ * - GIT_ENV を自動注入
+ * - safe.directory=* を -c フラグで直接注入（環境変数より確実）
+ * - vaultPath 指定時は cwd の代わりに -C <path> を使用（iCloud Drive 対応）
+ */
+function gitExec(args, opts = {}) {
+    // safe.directory=* を -c フラグで注入。環境変数方式より全バージョンで安定動作する
+    const safeArgs = ['-c', 'safe.directory=*', ...args];
+    const execOpts = { env: GIT_ENV, ...opts };
+    return _execFileAsync(GIT_BIN, safeArgs, execOpts);
+}
+
+/**
+ * execFileAsync のラッパー: git以外のコマンド用（後方互換）
  */
 function execFileAsync(cmd, args, opts = {}) {
-    const env = cmd === 'git' ? { env: GIT_ENV, ...opts } : opts;
-    return _execFileAsync(cmd, args, env);
+    if (cmd === 'git') return gitExec(args, opts);
+    return _execFileAsync(cmd, args, opts);
 }
 
 async function isGitAvailable() {
     try {
-        await execFileAsync('git', ['--version'], { timeout: 5000 });
+        await gitExec(['--version'], { timeout: 5000 });
         return true;
     } catch (_) { return false; }
 }
@@ -49,8 +68,8 @@ async function isGitAvailable() {
 async function applyGitUserConfig(vaultPath, settings = {}) {
     const userName  = (settings.userName  || '').trim() || 'Optimizer Backup';
     const userEmail = (settings.userEmail || '').trim() || 'optimizer@local.backup';
-    await execFileAsync('git', ['config', '--local', 'user.name',  userName],  { cwd: vaultPath, timeout: 5000 });
-    await execFileAsync('git', ['config', '--local', 'user.email', userEmail], { cwd: vaultPath, timeout: 5000 });
+    await gitExec(['config', '--local', 'user.name',  userName],  { cwd: vaultPath, timeout: 5000 });
+    await gitExec(['config', '--local', 'user.email', userEmail], { cwd: vaultPath, timeout: 5000 });
 }
 
 /** git-status ハンドラ実装 */
@@ -65,15 +84,14 @@ async function handleGitStatus(getCurrentVault) {
     if (!isGit) return ok({ initialized: false, message: 'Gitリポジトリではありません。「Git初期化」をクリックしてください。' });
 
     try {
-        const { stdout: statusOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
-        const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+        const { stdout: statusOut } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
+        const { stdout: branchOut } = await gitExec(['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         const lines = statusOut.trim().split('\n').filter(l => l.trim());
         const branch = branchOut.trim();
         return ok({ initialized: true, branch, changedFiles: lines.length, changes: lines.slice(0, 20) });
     } catch (e) {
-        // stderrの詳細をメッセージに含めてユーザーが原因を特定できるようにする
         const detail = [e.stderr, e.stdout, e.message].filter(s => s && String(s).trim()).join('\n').trim();
-        return fail(`git status 失敗:\n${detail}`, 'git-status');
+        return fail(`git status 失敗 [${vaultPath}]:\n${detail}`, 'git-status');
     }
 }
 
@@ -87,7 +105,6 @@ function clearGitLocks(vaultPath) {
     for (const lockFile of lockFiles) {
         if (fs.existsSync(lockFile)) {
             try {
-                // 5秒以上前に作られたロックファイルのみ除去（現在進行中のプロセスは保護）
                 const stat = fs.statSync(lockFile);
                 const ageMs = Date.now() - stat.mtimeMs;
                 if (ageMs > 5000) {
@@ -129,9 +146,9 @@ async function handleGitBackup(getCurrentVault, getGitSettings, commitMsg) {
     };
 
     try {
-        await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
-        await execFileAsync('git', ['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
-        const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+        await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+        await gitExec(['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
+        const { stdout: logOut } = await gitExec(['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         return ok({ commit: logOut.trim() });
     } catch (e) {
         const errDetail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n').trim();
@@ -139,9 +156,9 @@ async function handleGitBackup(getCurrentVault, getGitSettings, commitMsg) {
         if (errDetail.includes('index.lock') || errDetail.includes('Another git process')) {
             clearGitLocks(vaultPath);
             try {
-                await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
-                await execFileAsync('git', ['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
-                const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+                await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+                await gitExec(['commit', '-m', buildCommitMsg(), '--allow-empty'], { cwd: vaultPath, timeout: 30000 });
+                const { stdout: logOut } = await gitExec(['log', '-1', '--oneline'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
                 return ok({ commit: logOut.trim() });
             } catch (retryErr) {
                 const retryDetail = [retryErr.stderr, retryErr.stdout, retryErr.message].filter(Boolean).join('\n').trim();
@@ -162,8 +179,7 @@ async function handleGitLog(getCurrentVault) {
     if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-log');
     if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Gitリポジトリではありません', 'git-log');
 
-    // hash・日時・メッセージを取得
-    const { stdout } = await execFileAsync('git', ['log', '--format=%h\x1f%ci\x1f%s', '-30'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+    const { stdout } = await gitExec(['log', '--format=%h\x1f%ci\x1f%s', '-30'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
     const entries = stdout.trim().split('\n').filter(l => l.trim()).map(l => {
         const [hash, date, ...rest] = l.split('\x1f');
         return { hash: hash.trim(), date: date ? date.trim().slice(0, 16) : '', message: rest.join(' ').trim() };
@@ -179,27 +195,24 @@ async function handleGitRestore(getCurrentVault, getGitSettings, hash) {
     if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Git初期化が必要です', 'git-restore');
     if (!hash || !/^[0-9a-f]{4,40}$/.test(hash)) return fail('無効なコミットハッシュです', 'git-restore');
 
-    // 現在の変更をまず退避コミット
     clearGitLocks(vaultPath);
     const settings = getGitSettings ? getGitSettings() : {};
     await applyGitUserConfig(vaultPath, settings);
     try {
-        const { stdout: st } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+        const { stdout: st } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
         if (st.trim()) {
-            await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+            await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
             const ts = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
-            await execFileAsync('git', ['commit', '-m', `Auto-save before restore ${ts}`], { cwd: vaultPath, timeout: 30000 });
+            await gitExec(['commit', '-m', `Auto-save before restore ${ts}`], { cwd: vaultPath, timeout: 30000 });
         }
     } catch (_) {}
 
-    // 指定コミットの状態にファイルを復元（HEADは動かさず内容だけ展開）
-    await execFileAsync('git', ['checkout', hash, '--', '.'], { cwd: vaultPath, timeout: 30000 });
+    await gitExec(['checkout', hash, '--', '.'], { cwd: vaultPath, timeout: 30000 });
 
-    // 復元した差分をコミット
-    const { stdout: diffAfter } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+    const { stdout: diffAfter } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
     if (diffAfter.trim()) {
-        await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
-        await execFileAsync('git', ['commit', '-m', `Restore to ${hash}`], { cwd: vaultPath, timeout: 30000 });
+        await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+        await gitExec(['commit', '-m', `Restore to ${hash}`], { cwd: vaultPath, timeout: 30000 });
     }
     return ok({ message: `${hash} の状態に復元しました` });
 }
@@ -214,23 +227,21 @@ async function handleGitInit(getCurrentVault, getGitSettings) {
     );
     if (fs.existsSync(path.join(vaultPath, '.git'))) return ok({ message: '既にGitリポジトリです' });
 
-    await execFileAsync('git', ['init'], { cwd: vaultPath, timeout: 10000 });
+    await gitExec(['init'], { cwd: vaultPath, timeout: 10000 });
 
-    // Plan A: user.name / user.email を確実に設定
     const settings = getGitSettings ? getGitSettings() : {};
     await applyGitUserConfig(vaultPath, settings);
 
-    // リモートURL設定 (Plan B)
     if (settings.remoteUrl) {
-        await execFileAsync('git', ['remote', 'add', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
+        await gitExec(['remote', 'add', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
     }
 
     const gitignorePath = path.join(vaultPath, '.gitignore');
     if (!fs.existsSync(gitignorePath)) {
         fs.writeFileSync(gitignorePath, '.obsidian/workspace.json\n.obsidian/workspace-mobile.json\n.trash/\n', 'utf-8');
     }
-    await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
-    await execFileAsync('git', ['commit', '-m', 'Initial vault backup'], { cwd: vaultPath, timeout: 30000 });
+    await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+    await gitExec(['commit', '-m', 'Initial vault backup'], { cwd: vaultPath, timeout: 30000 });
     return ok({ message: 'Gitリポジトリを初期化しました' });
 }
 
@@ -254,18 +265,15 @@ async function handleGitSaveConfig(getCurrentVault, saveGitSettings, params) {
     const { userName = '', userEmail = '', remoteUrl = '' } = params || {};
     saveGitSettings({ userName: userName.trim(), userEmail: userEmail.trim(), remoteUrl: remoteUrl.trim() });
 
-    // Gitリポジトリが初期化済みなら即座に適用
     if (fs.existsSync(path.join(vaultPath, '.git'))) {
         await applyGitUserConfig(vaultPath, { userName, userEmail });
 
         if (remoteUrl.trim()) {
             try {
-                await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
-                // 既存リモートのURLを更新
-                await execFileAsync('git', ['remote', 'set-url', 'origin', remoteUrl.trim()], { cwd: vaultPath, timeout: 5000 });
+                await gitExec(['remote', 'get-url', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+                await gitExec(['remote', 'set-url', 'origin', remoteUrl.trim()], { cwd: vaultPath, timeout: 5000 });
             } catch (_) {
-                // リモートが存在しない → 追加
-                await execFileAsync('git', ['remote', 'add', 'origin', remoteUrl.trim()], { cwd: vaultPath, timeout: 5000 });
+                await gitExec(['remote', 'add', 'origin', remoteUrl.trim()], { cwd: vaultPath, timeout: 5000 });
             }
         }
     }
@@ -284,60 +292,49 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         return fail('リモートURLが設定されていません。Git設定でリモートURLを入力し「設定保存」してください。', 'git-push');
     }
 
-    // リモートURLが最新か確認・同期
     try {
-        const { stdout: currentUrl } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+        const { stdout: currentUrl } = await gitExec(['remote', 'get-url', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         if (currentUrl.trim() !== settings.remoteUrl) {
-            await execFileAsync('git', ['remote', 'set-url', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
+            await gitExec(['remote', 'set-url', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
         }
     } catch (_) {
-        await execFileAsync('git', ['remote', 'add', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
+        await gitExec(['remote', 'add', 'origin', settings.remoteUrl], { cwd: vaultPath, timeout: 5000 });
     }
 
     try {
-        const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+        const { stdout: branchOut } = await gitExec(['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
         const branch = branchOut.trim() || 'main';
 
-        // push前に古いロックファイルを除去してからコミット
         clearGitLocks(vaultPath);
-
-        // user.name / user.email を確実にセット（commitに必須）
         await applyGitUserConfig(vaultPath, settings);
 
-        // Step 1: 追跡済みファイルの変更をコミット
-        const { stdout: diffOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+        const { stdout: diffOut } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
         if (diffOut.trim()) {
-            await execFileAsync('git', ['add', '-A'], { cwd: vaultPath, timeout: 60000 });
+            await gitExec(['add', '-A'], { cwd: vaultPath, timeout: 60000 });
             const timestamp = new Date().toISOString().replace(/[T:]/g, '-').slice(0, 19);
-            await execFileAsync('git', ['commit', '-m', `Vault backup ${timestamp}`], { cwd: vaultPath, timeout: 30000 });
+            await gitExec(['commit', '-m', `Vault backup ${timestamp}`], { cwd: vaultPath, timeout: 30000 });
         }
 
-        // Step 2: コミット後にiCloudが作った新ファイル等をstashで退避
-        // (pull --rebase はワーキングツリーがcleanでないと失敗するため)
         let stashed = false;
         try {
-            const { stdout: afterCommit } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
+            const { stdout: afterCommit } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 10000 });
             if (afterCommit.trim()) {
-                await execFileAsync('git', ['stash', '--include-untracked'], { cwd: vaultPath, timeout: 30000 });
+                await gitExec(['stash', '--include-untracked'], { cwd: vaultPath, timeout: 30000 });
                 stashed = true;
             }
         } catch (_) {}
 
-        // Step 3: stashした変更を戻す
         if (stashed) {
-            try { await execFileAsync('git', ['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {}
+            try { await gitExec(['stash', 'pop'], { cwd: vaultPath, timeout: 30000 }); } catch (_) {}
         }
 
-        // Step 4: まず通常pushを試みる。失敗したらfetch後に--force-with-leaseで上書き
-        // (--force-with-leaseはfetch直後のリモート状態と一致する場合のみ上書きするため安全)
         try {
-            await execFileAsync('git', ['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+            await gitExec(['push', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
         } catch (pushErr) {
             const pushDetail = [pushErr.stderr, pushErr.stdout, pushErr.message].filter(Boolean).join('\n').trim();
             if (pushDetail.includes('non-fast-forward') || pushDetail.includes('rejected') || pushDetail.includes('fetch first')) {
-                // リモートが進んでいる → fetchしてから強制push（fetch直後なので安全）
-                await execFileAsync('git', ['fetch', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
-                await execFileAsync('git', ['push', '--force-with-lease', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+                await gitExec(['fetch', 'origin'], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
+                await gitExec(['push', '--force-with-lease', '-u', 'origin', branch], { cwd: vaultPath, encoding: 'utf-8', timeout: 60000 });
             } else {
                 throw pushErr;
             }
