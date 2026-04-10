@@ -11410,22 +11410,41 @@ ipcMain.handle('get-inbox-notes', async () => {
         const cfg = getConfig();
         const inboxCandidates = cfg.inboxFolder
             ? [cfg.inboxFolder]
-            : ['00 Inbox', 'Inbox', '00_Inbox', 'inbox'];
+            : ['00 Inbox', 'Inbox', '00_Inbox', 'inbox', '0 Inbox', '01 Inbox', '_Inbox', 'INBOX'];
         let inboxDir = null;
         for (const name of inboxCandidates) {
+            if (!name) continue;
             const candidate = path.join(vaultPath, name);
             if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
                 inboxDir = candidate;
                 break;
             }
         }
-        // 固定候補で見つからない場合: "inbox"を含むフォルダを大文字小文字無視で検索
+        // 第1階層: "inbox"を含むフォルダを大文字小文字無視で検索
         if (!inboxDir) {
-            const topDirs = fs.readdirSync(vaultPath, { withFileTypes: true })
-                .filter(e => e.isDirectory() && e.name.toLowerCase().includes('inbox'));
-            if (topDirs.length > 0) {
-                inboxDir = path.join(vaultPath, topDirs[0].name);
-            }
+            try {
+                const topDirs = fs.readdirSync(vaultPath, { withFileTypes: true })
+                    .filter(e => e.isDirectory() && e.name.toLowerCase().includes('inbox'));
+                if (topDirs.length > 0) {
+                    inboxDir = path.join(vaultPath, topDirs[0].name);
+                }
+            } catch (_) {}
+        }
+        // 第2階層: サブフォルダ内も"inbox"含む名前を検索（例: 00 System/Inbox）
+        if (!inboxDir) {
+            try {
+                const topEntries = fs.readdirSync(vaultPath, { withFileTypes: true })
+                    .filter(e => e.isDirectory() && !e.name.startsWith('.'));
+                for (const topEntry of topEntries) {
+                    const topPath = path.join(vaultPath, topEntry.name);
+                    const subDirs = fs.readdirSync(topPath, { withFileTypes: true })
+                        .filter(e => e.isDirectory() && e.name.toLowerCase().includes('inbox'));
+                    if (subDirs.length > 0) {
+                        inboxDir = path.join(topPath, subDirs[0].name);
+                        break;
+                    }
+                }
+            } catch (_) {}
         }
         if (!inboxDir) return { success: true, notes: [], inboxMissing: true, detectedPath: null };
         // Inboxフォルダ直下 + サブフォルダ内の.mdを再帰的に収集

@@ -12641,27 +12641,46 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
             // 検出したInboxパスを表示
             if (res && res.detectedPath && pathLabel) {
                 pathLabel.textContent = res.detectedPath;
+            } else if (pathLabel && pathLabel.textContent === '検索中...') {
+                pathLabel.textContent = '---';
             }
             if (res && res.inboxMissing) {
                 notes = [];
                 inboxError = true;
                 if (progressEl) progressEl.textContent = '⚠️ Inboxフォルダが見つかりません';
                 if (titleEl) titleEl.textContent = '';
-                if (previewEl) previewEl.textContent = '下の「変更」ボタンからInboxフォルダを指定してください。';
+                if (previewEl) previewEl.textContent = '「変更」ボタンからInboxフォルダ名を入力してください。\n例: 00 Inbox / Inbox / _Inbox';
                 if (pathLabel) pathLabel.textContent = '未検出';
                 [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
                 return;
             }
             if (!res || !res.success) {
                 notes = [];
-                if (titleEl) titleEl.textContent = `⚠️ エラー: ${(res && res.error) || '取得に失敗しました'}`;
-                if (previewEl) previewEl.textContent = 'アプリを再起動してから再度お試しください。';
+                inboxError = true;
+                if (progressEl) progressEl.textContent = `⚠️ エラー: ${(res && res.error) || '取得に失敗しました'}`;
+                if (titleEl) titleEl.textContent = '';
+                if (previewEl) previewEl.textContent = 'Vaultが正しく設定されているか確認してから再度お試しください。';
+                if (pathLabel) pathLabel.textContent = 'エラー';
+                [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
                 return;
             }
             notes = res.notes || [];
+            // Inboxは見つかったがファイルが0件の場合
+            if (notes.length === 0) {
+                inboxError = true;
+                if (progressEl) progressEl.textContent = 'Inboxにノートがありません';
+                if (titleEl) titleEl.textContent = '';
+                if (previewEl) previewEl.textContent = `フォルダ「${res.detectedPath || ''}」内に .md ファイルが見つかりませんでした。\n「変更」ボタンで別のフォルダを指定できます。`;
+                [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
+            }
         } catch (e) {
             notes = [];
-            if (titleEl) titleEl.textContent = `⚠️ 通信エラー: ${e.message}`;
+            inboxError = true;
+            if (progressEl) progressEl.textContent = `⚠️ 通信エラー`;
+            if (titleEl) titleEl.textContent = '';
+            if (previewEl) previewEl.textContent = `エラー詳細: ${e.message}`;
+            if (pathLabel) pathLabel.textContent = 'エラー';
+            [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
         }
     }
 
@@ -12702,8 +12721,15 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
         if (currentIndex >= notes.length) {
             if (titleEl) titleEl.textContent = '';
             if (previewEl) previewEl.textContent = '';
-            progressEl.textContent = `完了！${processed}件処理しました`;
-            if (doneEl) doneEl.style.display = 'block';
+            if (processed > 0) {
+                progressEl.textContent = `✅ 完了！${processed}件処理しました`;
+                if (doneEl) doneEl.style.display = 'block';
+            } else if (notes.length > 0) {
+                // notes.length > 0 だったが全スキップした場合
+                progressEl.textContent = `完了！${processed}件処理しました（${notes.length}件スキップ）`;
+                if (doneEl) doneEl.style.display = 'block';
+            }
+            // notes.length === 0 はloadNotesでハンドル済みなのでここでは何もしない
             [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
             return;
         }
