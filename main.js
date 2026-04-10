@@ -4806,10 +4806,21 @@ async function callClaude(prompt, systemPrompt, apiKey, model) {
 }
 
 async function callOpenAI(prompt, systemPrompt, apiKey, model) {
+    // o1-preview / o1-mini は system ロール非対応 → ユーザーメッセージに統合
+    const isO1Limited = /^o1-(preview|mini)/i.test(model);
     const messages = [];
-    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: prompt });
-    const body = JSON.stringify({ model, messages, max_tokens: 1024 });
+    if (systemPrompt) {
+        if (isO1Limited) {
+            messages.push({ role: 'user', content: `${systemPrompt}\n\n${prompt}` });
+        } else {
+            messages.push({ role: 'system', content: systemPrompt });
+            messages.push({ role: 'user', content: prompt });
+        }
+    } else {
+        messages.push({ role: 'user', content: prompt });
+    }
+    // max_completion_tokens は全 OpenAI モデルで有効（max_tokens は o 系モデルで HTTP 400）
+    const body = JSON.stringify({ model, messages, max_completion_tokens: 1024 });
     const options = {
         hostname: 'api.openai.com',
         port: 443,
@@ -9043,7 +9054,14 @@ async function callAI(prompt, systemPrompt, options = {}) {
             req.end();
         });
     } else if (aiProvider === 'openai') {
-        const body = JSON.stringify({ model: config.aiModel || 'gpt-4o', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }], max_tokens: options.maxTokens || 2000 });
+        const aiModel = config.aiModel || 'gpt-4o';
+        // o1-preview / o1-mini は system ロール非対応 → ユーザーメッセージに統合
+        const isO1Limited = /^o1-(preview|mini)/i.test(aiModel);
+        const aiMessages = isO1Limited
+            ? [{ role: 'user', content: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt }]
+            : [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }];
+        // max_completion_tokens は全 OpenAI モデルで有効（max_tokens は o 系モデルで HTTP 400）
+        const body = JSON.stringify({ model: aiModel, messages: aiMessages, max_completion_tokens: options.maxTokens || 2000 });
         return new Promise((resolve, reject) => {
             const req = https.request({ hostname: 'api.openai.com', path: '/v1/chat/completions', method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } }, (res) => {
                 let data = '';
