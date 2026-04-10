@@ -6014,7 +6014,7 @@ ipcMain.handle('suggest-folder-moves', async () => {
         const vaultPath = getCurrentVault();
         if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
 
-        // Inboxフォルダ候補を探す
+        // Inboxフォルダ候補を探す（大文字小文字・先頭番号を無視して柔軟に検索）
         const inboxCandidates = ['00 Inbox', 'Inbox', '00_Inbox', 'inbox'];
         let inboxPath = null;
         for (const name of inboxCandidates) {
@@ -6022,6 +6022,14 @@ ipcMain.handle('suggest-folder-moves', async () => {
             if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
                 inboxPath = candidate;
                 break;
+            }
+        }
+        // 固定候補で見つからない場合: "inbox" を含むフォルダを大文字小文字無視で探す
+        if (!inboxPath) {
+            const topFolders = fs.readdirSync(vaultPath, { withFileTypes: true })
+                .filter(e => e.isDirectory() && e.name.toLowerCase().includes('inbox'));
+            if (topFolders.length > 0) {
+                inboxPath = path.join(vaultPath, topFolders[0].name);
             }
         }
 
@@ -6061,13 +6069,39 @@ ipcMain.handle('suggest-folder-moves', async () => {
                     );
                     if (matched) {
                         // 対応するフォルダを探す
-                        const matchingFolder = folders.find(f =>
-                            f.toLowerCase().includes(category.toLowerCase()) ||
-                            (rule.moc && f.toLowerCase().includes(category.toLowerCase().split('・')[0]))
-                        );
+                        const matchingFolder = folders.find(f => {
+                            const fLower = f.toLowerCase();
+                            const catLower = category.toLowerCase();
+                            // カテゴリ名がフォルダ名に含まれる
+                            if (fLower.includes(catLower)) return true;
+                            // ・で分割した最初の部分がフォルダ名に含まれる
+                            if (rule.moc && fLower.includes(catLower.split('・')[0])) return true;
+                            // ルールのキーワード（3文字以上）がフォルダ名に含まれる
+                            return rule.keywords.some(kw => kw.length >= 3 && fLower.includes(kw.toLowerCase()));
+                        });
                         if (matchingFolder) {
                             suggestedFolder = matchingFolder;
                             reason = `キーワード「${category}」に一致`;
+                            break;
+                        }
+                    }
+                }
+
+                // フォールバック: ルールにマッチしなかった場合、フォルダ名自体をノートとキーワードマッチ
+                if (!suggestedFolder) {
+                    for (const folder of folders) {
+                        // Inboxフォルダ自身・除外フォルダはスキップ
+                        if (inboxPath && path.join(vaultPath, folder) === inboxPath) continue;
+                        if (EXCLUDE_ENTRIES.has(folder)) continue;
+                        // 先頭の番号プレフィックスを除いたフォルダ名の単語でマッチング
+                        const folderWords = folder.toLowerCase()
+                            .replace(/^\d+[\s_-]*/, '')
+                            .split(/[\s_-]+/)
+                            .filter(w => w.length >= 3);
+                        const matchedWord = folderWords.find(w => content.includes(w));
+                        if (matchedWord) {
+                            suggestedFolder = folder;
+                            reason = `フォルダ名「${folder}」のキーワードに一致`;
                             break;
                         }
                     }
