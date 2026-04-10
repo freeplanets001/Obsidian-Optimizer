@@ -108,14 +108,30 @@ async function handleGitStatus(getCurrentVault) {
         return await runStatus();
     } catch (e) {
         const detail = [e.stderr, e.stdout, e.message].filter(s => s && String(s).trim()).join('\n').trim();
+        // iCloud Drive退避エラーの場合は強制ダウンロードしてリトライ
+        if (isICloudEvictError(detail)) {
+            await downloadICloudGitObjects(vaultPath);
+            try { return await runStatus(); } catch (e2) {
+                const d2 = [e2.stderr, e2.stdout, e2.message].filter(s => s && String(s).trim()).join('\n').trim();
+                if (isICloudEvictError(d2)) {
+                    return fail(
+                        'iCloud DriveがVaultのgitファイルをクラウドに退避しています。\n' +
+                        'Finderでこのフォルダを開き、.gitフォルダを右クリック→「ダウンロード」してから再試行してください:\n' +
+                        vaultPath,
+                        'git-status'
+                    );
+                }
+                return fail(`git status 失敗:\n${d2}`, 'git-status');
+            }
+        }
         // index破損の場合は修復してリトライ
         if (repairGitIndexIfCorrupted(vaultPath, detail)) {
             try { return await runStatus(); } catch (e2) {
                 const d2 = [e2.stderr, e2.stdout, e2.message].filter(s => s && String(s).trim()).join('\n').trim();
-                return fail(`git status 失敗 [${vaultPath}]:\n${d2}`, 'git-status');
+                return fail(`git status 失敗:\n${d2}`, 'git-status');
             }
         }
-        return fail(`git status 失敗 [${vaultPath}]:\n${detail}`, 'git-status');
+        return fail(`git status 失敗:\n${detail}`, 'git-status');
     }
 }
 
@@ -155,6 +171,37 @@ function repairGitIndexIfCorrupted(vaultPath, errorDetail) {
         }
     } catch (_) {}
     return false;
+}
+
+/**
+ * iCloud Drive による "Stale NFS file handle" / "mmap failed" エラーを検知する。
+ * VaultがiCloud Driveに保存されていると、.git/objectsがクラウドに退避されてgitが失敗する。
+ */
+function isICloudEvictError(errorDetail) {
+    if (!errorDetail) return false;
+    return errorDetail.includes('mmap failed') ||
+           errorDetail.includes('Stale NFS') ||
+           errorDetail.includes('stale NFS');
+}
+
+/**
+ * iCloud Driveに退避された.git/objectsを強制ダウンロードする。
+ * macOSの `brctl download` コマンドを使用する（macOS Sierra以降で利用可能）。
+ */
+async function downloadICloudGitObjects(vaultPath) {
+    const gitObjectsPath = path.join(vaultPath, '.git', 'objects');
+    if (!fs.existsSync(gitObjectsPath)) return;
+    try {
+        // brctl download で .git/objects 以下を強制ローカル化
+        await _execFileAsync('brctl', ['download', gitObjectsPath], { timeout: 30000 });
+        // 少し待機してiCloudがダウンロード完了するのを待つ
+        await new Promise(r => setTimeout(r, 3000));
+    } catch (_) {
+        // brctl が使えない環境では xattr で eviction フラグを解除する
+        try {
+            await _execFileAsync('xattr', ['-d', 'com.apple.icloud.itemName', gitObjectsPath], { timeout: 5000 });
+        } catch (_2) {}
+    }
 }
 
 /** git-backup ハンドラ実装
@@ -197,6 +244,22 @@ async function handleGitBackup(getCurrentVault, getGitSettings, commitMsg) {
         return await runBackup();
     } catch (e) {
         const errDetail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n').trim();
+        // iCloud Drive退避エラーの場合は強制ダウンロードしてリトライ
+        if (isICloudEvictError(errDetail)) {
+            await downloadICloudGitObjects(vaultPath);
+            try { return await runBackup(); } catch (e2) {
+                const d2 = [e2.stderr, e2.stdout, e2.message].filter(Boolean).join('\n').trim();
+                if (isICloudEvictError(d2)) {
+                    return fail(
+                        'iCloud DriveがVaultのgitファイルをクラウドに退避しています。\n' +
+                        'Finderでこのフォルダを開き、.gitフォルダを右クリック→「ダウンロード」してから再試行してください:\n' +
+                        vaultPath,
+                        'git-backup'
+                    );
+                }
+                return fail(d2 || e2, 'git-backup');
+            }
+        }
         // index破損の場合は修復してリトライ
         if (repairGitIndexIfCorrupted(vaultPath, errDetail)) {
             try { return await runBackup(); } catch (e2) {
@@ -387,6 +450,14 @@ async function handleGitPush(getCurrentVault, getGitSettings) {
         return ok({ message: `Push完了 (origin/${branch})` });
     } catch (e) {
         const errDetail = [e.stderr, e.stdout, e.message].filter(Boolean).join('\n').trim();
+        if (isICloudEvictError(errDetail)) {
+            return fail(
+                'iCloud DriveがVaultのgitファイルをクラウドに退避しているため、Push できませんでした。\n' +
+                'Finderでこのフォルダを開き、.gitフォルダを右クリック→「ダウンロード」してから再試行してください:\n' +
+                vaultPath,
+                'git-push'
+            );
+        }
         return fail(errDetail || e, 'git-push');
     }
 }
