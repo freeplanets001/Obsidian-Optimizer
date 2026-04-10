@@ -15,10 +15,15 @@ const _execFileAsync = promisify(execFile);
 
 // Electronプロセスではターミナル認証プロンプトが出せないため無効化
 // GIT_TERMINAL_PROMPT=0 で認証待ちの無音ハングを防止
+// GIT_CONFIG_* で safe.directory=* を注入し「dubious ownership」エラーを回避
+// (git 2.35.2以降、iCloud Drive・異なるオーナーのリポジトリで発生)
 const GIT_ENV = {
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
     GIT_ASKPASS: '/bin/echo',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'safe.directory',
+    GIT_CONFIG_VALUE_0: '*',
 };
 
 /**
@@ -59,11 +64,17 @@ async function handleGitStatus(getCurrentVault) {
     const isGit = fs.existsSync(path.join(vaultPath, '.git'));
     if (!isGit) return ok({ initialized: false, message: 'Gitリポジトリではありません。「Git初期化」をクリックしてください。' });
 
-    const { stdout: statusOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
-    const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
-    const lines = statusOut.trim().split('\n').filter(l => l.trim());
-    const branch = branchOut.trim();
-    return ok({ initialized: true, branch, changedFiles: lines.length, changes: lines.slice(0, 20) });
+    try {
+        const { stdout: statusOut } = await execFileAsync('git', ['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
+        const { stdout: branchOut } = await execFileAsync('git', ['branch', '--show-current'], { cwd: vaultPath, encoding: 'utf-8', timeout: 5000 });
+        const lines = statusOut.trim().split('\n').filter(l => l.trim());
+        const branch = branchOut.trim();
+        return ok({ initialized: true, branch, changedFiles: lines.length, changes: lines.slice(0, 20) });
+    } catch (e) {
+        // stderrの詳細をメッセージに含めてユーザーが原因を特定できるようにする
+        const detail = [e.stderr, e.stdout, e.message].filter(s => s && String(s).trim()).join('\n').trim();
+        return fail(`git status 失敗:\n${detail}`, 'git-status');
+    }
 }
 
 /** ロックファイルを安全に除去 (他プロセスが動いていない場合のみ) */
