@@ -17,6 +17,13 @@ function esc(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+// Windowsパスをinline onclick属性で安全に渡すための関数
+// バックスラッシュをスラッシュに変換してからHTMLエスケープする
+// (\t→タブ, \n→改行 などのJSエスケープシーケンス誤変換を防ぐ)
+function escPath(str) {
+    if (!str) return '';
+    return esc(String(str).replace(/\\/g, '/'));
+}
 
 // GitHubリリースノート（Markdown）を簡易HTMLにレンダリング
 function renderReleaseNotes(md) {
@@ -3431,7 +3438,7 @@ async function runArchiveSuggestions() {
 
         list.innerHTML = res.suggestions.map(s => {
             const cls = s.archiveScore >= 80 ? 'color:#f87171' : s.archiveScore >= 70 ? 'color:#fbbf24' : 'color:#6ee7b7';
-            const previewBtn = s.path ? `<button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(s.path)}')" title="プレビュー" style="margin-right:6px">👁️</button>` : '';
+            const previewBtn = s.path ? `<button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(s.path)}')" title="プレビュー" style="margin-right:6px">👁️</button>` : '';
             return `<div class="list-item-check" style="justify-content:space-between"><div><span class="item-name">${esc(s.name)}</span><div style="margin-top:2px">${s.reasons.map(r => `<span style="font-size:.68rem;background:rgba(251,191,36,.15);color:#fbbf24;padding:1px 6px;border-radius:8px;margin-right:4px">${esc(r)}</span>`).join('')}</div></div><div style="display:flex;align-items:center">${previewBtn}<span style="font-weight:700;font-size:.88rem;${cls}">${s.archiveScore}</span></div></div>`;
         }).join('');
         addLog(`アーカイブ提案: ${res.suggestions.length}件`, 'success');
@@ -6892,9 +6899,9 @@ function orgRenderTitles(items) {
     list.innerHTML = items.map((item, idx) => `
         <div class="org-item" id="org-title-item-${idx}">
             <div class="org-item-row">
-                <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.currentTitle)}</span>
+                <span class="org-item-title" onclick="window.api.openInObsidian('${escPath(item.path)}')">${esc(item.currentTitle)}</span>
                 <div class="org-item-actions">
-                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(item.path)}')" title="プレビュー">👁️</button>
                     <button class="org-btn" onclick="orgRenameNote(${idx}, 'heuristic')">変更</button>
                     ${item.aiTitle ? `<button class="org-btn" onclick="orgRenameNote(${idx}, 'ai')">AI提案で変更</button>` : ''}
                 </div>
@@ -7008,10 +7015,10 @@ function orgRenderFrontmatter(data) {
         html += data.notesWithoutFrontmatter.slice(0, 50).map(item => `
             <div class="org-item">
                 <div class="org-item-row">
-                    <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.name)}</span>
+                    <span class="org-item-title" onclick="window.api.openInObsidian('${escPath(item.path)}')">${esc(item.name)}</span>
                     <div class="org-item-actions">
-                        <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
-                        <button class="org-btn" onclick="window.orgFixSingleFrontmatter('${esc(item.path)}')">補完</button>
+                        <button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(item.path)}')" title="プレビュー">👁️</button>
+                        <button class="org-btn" onclick="window.orgFixSingleFrontmatter('${escPath(item.path)}')">補完</button>
                     </div>
                 </div>
                 <div class="org-item-detail">${esc(item.relPath)}</div>
@@ -7023,11 +7030,11 @@ function orgRenderFrontmatter(data) {
         html += data.notesMissingFields.slice(0, 50).map(item => `
             <div class="org-item">
                 <div class="org-item-row">
-                    <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.name)}</span>
+                    <span class="org-item-title" onclick="window.api.openInObsidian('${escPath(item.path)}')">${esc(item.name)}</span>
                     <div class="org-item-actions">
-                        <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
+                        <button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(item.path)}')" title="プレビュー">👁️</button>
                         <span class="org-item-badge warn">不足: ${esc(item.missing.join(', '))}</span>
-                        <button class="org-btn" onclick="window.orgFixSingleFrontmatter('${esc(item.path)}')">補完</button>
+                        <button class="org-btn" onclick="window.orgFixSingleFrontmatter('${escPath(item.path)}')">補完</button>
                     </div>
                 </div>
                 <div class="org-item-detail">${esc(item.relPath)}</div>
@@ -7113,9 +7120,9 @@ function orgRenderInbox(data) {
     list.innerHTML = data.suggestions.map((item, idx) => `
         <div class="org-item" id="org-inbox-item-${idx}">
             <div class="org-item-row">
-                <span class="org-item-title" onclick="window.api.openInObsidian('${esc(item.path)}')">${esc(item.name)}</span>
+                <span class="org-item-title" onclick="window.api.openInObsidian('${escPath(item.path)}')">${esc(item.name)}</span>
                 <div class="org-item-actions">
-                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(item.path)}')" title="プレビュー">👁️</button>
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(item.path)}')" title="プレビュー">👁️</button>
                     <button class="org-btn" onclick="orgMoveNote(${idx})">移動</button>
                 </div>
             </div>
@@ -7215,9 +7222,9 @@ function orgRenderSplit(notes) {
     list.innerHTML = notes.slice(0, 30).map((note, idx) => `
         <div class="org-item">
             <div class="org-item-row">
-                <span class="org-item-title" onclick="window.api.openInObsidian('${esc(note.path)}')">${esc(note.name)}</span>
+                <span class="org-item-title" onclick="window.api.openInObsidian('${escPath(note.path)}')">${esc(note.name)}</span>
                 <div class="org-item-actions">
-                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(note.path)}')" title="プレビュー">👁️</button>
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(note.path)}')" title="プレビュー">👁️</button>
                     <button class="ghost-btn small-btn" onclick="splitSingleNote(${idx})" title="見出し単位で分割">✂️ 分割</button>
                     <span class="org-item-badge warn">${(note.charCount ?? 0).toLocaleString()}文字</span>
                 </div>
@@ -7438,8 +7445,8 @@ function orgRenderTodos(results) {
     let html = '';
     for (const day of results.slice(0, 30)) {
         html += `<div class="org-todo-date">
-            <span onclick="window.api.openInObsidian('${esc(day.file)}')" style="cursor:pointer">${esc(day.date)}</span>
-            <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(day.file)}')" title="プレビュー" style="margin-left:6px;vertical-align:middle">👁️</button>
+            <span onclick="window.api.openInObsidian('${escPath(day.file)}')" style="cursor:pointer">${esc(day.date)}</span>
+            <button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(day.file)}')" title="プレビュー" style="margin-left:6px;vertical-align:middle">👁️</button>
             <span style="font-weight:normal;font-size:0.78rem;color:var(--muted);margin-left:4px">(${day.todos.length}件)</span>
         </div>`;
         for (const todo of day.todos) {
@@ -7542,9 +7549,9 @@ function orgRenderLinks(issues) {
     list.innerHTML = issues.slice(0, 50).map(issue => `
         <div class="org-item">
             <div class="org-item-row">
-                <span class="org-item-title" onclick="window.api.openInObsidian('${esc(issue.file)}')">${esc(issue.relPath)}</span>
+                <span class="org-item-title" onclick="window.api.openInObsidian('${escPath(issue.file)}')">${esc(issue.relPath)}</span>
                 <div class="org-item-actions">
-                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${esc(issue.file)}')" title="プレビュー">👁️</button>
+                    <button class="obsidian-btn" onclick="window.openNotePreviewModal('${escPath(issue.file)}')" title="プレビュー">👁️</button>
                     <span class="org-link-issue ${issue.issue === 'case_mismatch' ? 'case' : 'broken'}">${issue.issue === 'case_mismatch' ? '大小文字' : '壊れたリンク'}</span>
                 </div>
             </div>
@@ -8761,7 +8768,7 @@ async function runTagCloud() {
                 const opacity = 0.5 + (t.count / maxCount) * 0.5;
                 const colors = ['#7c6cf8', '#34d399', '#fbbf24', '#f87171', '#60a5fa', '#a78bfa', '#fb923c'];
                 const color = colors[Math.floor(Math.random() * colors.length)];
-                return `<span style="display:inline-flex;align-items:center;gap:3px;font-size:${size}rem;opacity:${opacity};color:${color};padding:2px 6px;background:rgba(255,255,255,.04);border-radius:4px;margin:2px" title="${t.count}件のノートで使用">#${esc(t.name)} <sup style="font-size:.6rem;opacity:.6">${t.count}</sup><button onclick="deleteTagFromAll('${esc(t.name)}')" style="background:none;border:none;cursor:pointer;color:#f87171;font-size:.65rem;padding:0 2px;line-height:1;opacity:.7" title="#${esc(t.name)}を全ノートから削除">🗑️</button></span>`;
+                return `<span style="display:inline-flex;align-items:center;gap:3px;font-size:${size}rem;opacity:${opacity};color:${color};padding:2px 6px;background:rgba(255,255,255,.04);border-radius:4px;margin:2px" title="${t.count}件のノートで使用">#${esc(t.name)} <sup style="font-size:.6rem;opacity:.6">${t.count}</sup><button onclick="deleteTagFromAll('${escPath(t.name)}')" style="background:none;border:none;cursor:pointer;color:#f87171;font-size:.65rem;padding:0 2px;line-height:1;opacity:.7" title="#${esc(t.name)}を全ノートから削除">🗑️</button></span>`;
             }).join('');
         }
     } catch (e) { if (loading) loading.style.display = 'none'; showToast(e.message, 'error'); }
@@ -8893,7 +8900,7 @@ function renderSearchResults(results) {
         return;
     }
     container.innerHTML = results.map(r => `
-        <div class="command-item" style="cursor:pointer" onclick="window.api.openInObsidian('${esc(r.path)}');closeGlobalSearch()">
+        <div class="command-item" style="cursor:pointer" onclick="window.api.openInObsidian('${escPath(r.path)}');closeGlobalSearch()">
             <span style="margin-right:8px">${r.matchType === 'filename' ? '📄' : '📝'}</span>
             <div style="flex:1;overflow:hidden">
                 <div style="font-weight:600;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.name)}</div>
@@ -8929,9 +8936,9 @@ async function findDuplicateNotes() {
             list.innerHTML = res.duplicates.slice(0, 20).map((d, i) => `
                 <div class="org-item" id="dup-item-${i}" style="padding:8px">
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                        <span class="org-item-title" style="cursor:pointer;flex:1;min-width:100px" onclick="window.api.openInObsidian('${esc(d.noteA.path)}')">${esc(d.noteA.name)}</span>
+                        <span class="org-item-title" style="cursor:pointer;flex:1;min-width:100px" onclick="window.api.openInObsidian('${escPath(d.noteA.path)}')">${esc(d.noteA.name)}</span>
                         <span style="color:var(--muted);font-size:.78rem;flex-shrink:0">↔</span>
-                        <span class="org-item-title" style="cursor:pointer;flex:1;min-width:100px" onclick="window.api.openInObsidian('${esc(d.noteB.path)}')">${esc(d.noteB.name)}</span>
+                        <span class="org-item-title" style="cursor:pointer;flex:1;min-width:100px" onclick="window.api.openInObsidian('${escPath(d.noteB.path)}')">${esc(d.noteB.name)}</span>
                         <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
                             <span class="org-item-badge ${d.reason === 'content' ? 'warn' : ''}" style="font-size:.72rem">${d.reason === 'title' ? 'タイトル類似' : '内容類似'} ${d.similarity}%</span>
                             <button class="obsidian-btn" style="font-size:.72rem;border-color:#f87171;color:#f87171" onclick="deleteDupNote(${i},'A')" title="${esc(d.noteA.name)}を削除">🗑️ A削除</button>
@@ -9047,9 +9054,9 @@ async function findOrphanNotes() {
             list.innerHTML = bulkHtml + orphans.slice(0, 30).map((n, i) => `
                 <div class="org-item" id="orphan-item-${i}">
                     <div class="org-item-row">
-                        <span class="org-item-title" style="cursor:pointer" onclick="window.api.openInObsidian('${esc(n.path)}')">${esc(n.name)}</span>
+                        <span class="org-item-title" style="cursor:pointer" onclick="window.api.openInObsidian('${escPath(n.path)}')">${esc(n.name)}</span>
                         <div class="org-item-actions">
-                            <button class="obsidian-btn" onclick="window.openNotePreviewModal && window.openNotePreviewModal('${esc(n.path)}')" title="プレビュー">👁️</button>
+                            <button class="obsidian-btn" onclick="window.openNotePreviewModal && window.openNotePreviewModal('${escPath(n.path)}')" title="プレビュー">👁️</button>
                             <button class="obsidian-btn" onclick="archiveSingleOrphan(${i})" title="アーカイブ">📦</button>
                             <button class="obsidian-btn" style="border-color:#f87171;color:#f87171" onclick="deleteSingleOrphan(${i})" title="削除">🗑️</button>
                             <span class="org-item-badge" style="font-size:.72rem">${(n.charCount ?? 0).toLocaleString()}文字</span>
@@ -9189,8 +9196,8 @@ async function loadBookmarks() {
         }
         container.innerHTML = res.bookmarks.map(b => `
             <div style="display:flex;align-items:center;gap:8px;padding:4px 0">
-                <span style="cursor:pointer;flex:1" onclick="window.api.openInObsidian('${esc(b.path)}')">${esc(b.name)}</span>
-                <button class="ghost-btn" style="font-size:.7rem;padding:2px 6px" onclick="removeBookmark('${esc(b.path)}')">✕</button>
+                <span style="cursor:pointer;flex:1" onclick="window.api.openInObsidian('${escPath(b.path)}')">${esc(b.name)}</span>
+                <button class="ghost-btn" style="font-size:.7rem;padding:2px 6px" onclick="removeBookmark('${escPath(b.path)}')">✕</button>
             </div>
         `).join('');
     } catch (_) {}
@@ -10508,7 +10515,7 @@ async function runDetectSyncConflicts() {
         if (result.count === 0) { list.innerHTML = '<div class="list-empty">✅ コンフリクトはありません</div>'; return; }
         let html = '';
         for (const c of result.conflicts) {
-            html += `<div class="scan-row" style="padding:8px 10px"><span style="flex:1">${esc(c.basename)}<br><span style="font-size:.72rem;opacity:.5">${c.type}</span></span><button class="ghost-btn small-btn danger-btn" onclick="resolveConflict('${esc(c.conflictFile)}')">🗑️ 削除</button></div>`;
+            html += `<div class="scan-row" style="padding:8px 10px"><span style="flex:1">${esc(c.basename)}<br><span style="font-size:.72rem;opacity:.5">${c.type}</span></span><button class="ghost-btn small-btn danger-btn" onclick="resolveConflict('${escPath(c.conflictFile)}')">🗑️ 削除</button></div>`;
         }
         list.innerHTML = html;
     } catch (e) { hideLoading(); showToast(e.message, 'error'); }
@@ -10624,7 +10631,7 @@ async function runLoadReviewQueue() {
         for (const item of result.queue) {
             html += `<div class="scan-row" style="padding:8px 10px">
                 <div style="flex:1"><strong>${esc(item.name)}</strong><br><span style="font-size:.72rem;opacity:.5">${item.daysSinceAccess}日前にアクセス | 優先度: ${item.priority}</span><br><span style="font-size:.72rem;opacity:.4">${esc(item.preview.slice(0, 100))}...</span></div>
-                <div style="display:flex;gap:4px;flex-direction:column"><button class="ghost-btn small-btn" onclick="window.api.openInObsidian('${esc(item.file)}')">📖 開く</button><button class="ghost-btn small-btn" onclick="dismissReview('${esc(item.name)}')">✕</button></div>
+                <div style="display:flex;gap:4px;flex-direction:column"><button class="ghost-btn small-btn" onclick="window.api.openInObsidian('${escPath(item.file)}')">📖 開く</button><button class="ghost-btn small-btn" onclick="dismissReview('${escPath(item.name)}')">✕</button></div>
             </div>`;
         }
         container.innerHTML = html;
@@ -11525,7 +11532,7 @@ async function gitShowLog() {
                     <span style="color:var(--text-muted);font-size:.7rem;margin-left:4px">${esc(e.date)}</span>
                     <div style="margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(e.message)}</div>
                 </div>
-                ${i === 0 ? '' : `<button class="ghost-btn" style="font-size:.7rem;padding:2px 6px;white-space:nowrap;flex-shrink:0" onclick="gitRestoreVersion('${esc(e.hash)}','${esc(e.date)}')">⏮ 復元</button>`}
+                ${i === 0 ? '' : `<button class="ghost-btn" style="font-size:.7rem;padding:2px 6px;white-space:nowrap;flex-shrink:0" onclick="gitRestoreVersion('${escPath(e.hash)}','${esc(e.date)}')">⏮ 復元</button>`}
             </div>`).join('');
     } catch (e) { showToast(e.message, 'error'); }
 }
