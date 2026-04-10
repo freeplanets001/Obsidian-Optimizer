@@ -2,6 +2,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { ok, fail, withErrorHandling } = require('../utils/ipc-response');
@@ -10,18 +11,7 @@ const _execFileAsync = promisify(execFile);
 
 // ======================================================
 // Git 統合ハンドラ
-// execSync → execFileAsync (非同期) に変更してUIフリーズを防止
 // ======================================================
-
-// Electronプロセスではターミナル認証プロンプトが出せないため無効化
-// GIT_TERMINAL_PROMPT=0 で認証待ちの無音ハングを防止
-const GIT_ENV = {
-    ...process.env,
-    // Homebrew git が見つかるよう PATH を補完（Electron起動時はPATHが制限される）
-    PATH: ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH || ''].join(':'),
-    GIT_TERMINAL_PROMPT: '0',
-    GIT_ASKPASS: '/bin/echo',
-};
 
 // git バイナリのフルパスを特定（Electron起動時にPATHが制限される環境対策）
 function findGitBin() {
@@ -33,37 +23,41 @@ function findGitBin() {
 }
 const GIT_BIN = findGitBin();
 
+// safe.directory=* を含む一時gitconfigを用意し GIT_CONFIG_GLOBAL で渡す。
+// これにより "dubious ownership" エラーを確実に回避する。
+// -c フラグ・環境変数方式はgitバージョンによって無視されるケースがあるが、
+// GIT_CONFIG_GLOBAL は git 2.32 以降で確実に動作する。
+const TEMP_GITCONFIG_PATH = path.join(os.tmpdir(), '.obsidian-optimizer-gitconfig');
+
+function ensureTempGitConfig() {
+    try {
+        fs.writeFileSync(
+            TEMP_GITCONFIG_PATH,
+            '[safe]\n\tdirectory = *\n',
+            { encoding: 'utf-8', mode: 0o644 }
+        );
+    } catch (_) {}
+}
+
+// 起動時に1回だけ生成する
+ensureTempGitConfig();
+
+const GIT_ENV = {
+    ...process.env,
+    // Homebrew git が見つかるよう PATH を補完（Electron起動時はPATHが制限される）
+    PATH: ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', process.env.PATH || ''].join(':'),
+    HOME: os.homedir(),
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '/bin/echo',
+    // 一時gitconfigをグローバル設定として注入 → safe.directory=* が確実に効く
+    GIT_CONFIG_GLOBAL: TEMP_GITCONFIG_PATH,
+};
+
 /**
  * git コマンドを実行する共通ラッパー
  */
 function gitExec(args, opts = {}) {
-    const execOpts = { env: GIT_ENV, ...opts };
-    return _execFileAsync(GIT_BIN, args, execOpts);
-}
-
-/**
- * Vault パスを git の global safe.directory に登録する。
- * git 2.35.2 以降、所有者が異なるディレクトリでは "dubious ownership" エラーになる。
- * -c フラグや環境変数での回避は git バージョンによって効かないため、
- * グローバル設定への直接登録が最も確実な対処法（git公式推奨）。
- */
-async function ensureSafeDirectory(vaultPath) {
-    try {
-        // 既に登録済みか確認
-        const { stdout } = await gitExec(
-            ['config', '--global', '--get-all', 'safe.directory'],
-            { encoding: 'utf-8', timeout: 5000 }
-        ).catch(() => ({ stdout: '' }));
-        const registered = (stdout || '').split('\n').map(s => s.trim());
-        if (registered.includes(vaultPath) || registered.includes('*')) return;
-        // 未登録なら追加
-        await gitExec(
-            ['config', '--global', '--add', 'safe.directory', vaultPath],
-            { timeout: 5000 }
-        );
-    } catch (_) {
-        // 失敗しても続行（最悪の場合は git コマンド自体がエラーを出す）
-    }
+    return _execFileAsync(GIT_BIN, args, { env: GIT_ENV, ...opts });
 }
 
 /**
@@ -102,9 +96,6 @@ async function handleGitStatus(getCurrentVault) {
     );
     const isGit = fs.existsSync(path.join(vaultPath, '.git'));
     if (!isGit) return ok({ initialized: false, message: 'Gitリポジトリではありません。「Git初期化」をクリックしてください。' });
-
-    // safe.directory をグローバル設定に登録（"dubious ownership" エラーを確実に回避）
-    await ensureSafeDirectory(vaultPath);
 
     try {
         const { stdout: statusOut } = await gitExec(['status', '--porcelain'], { cwd: vaultPath, encoding: 'utf-8', timeout: 15000 });
@@ -148,9 +139,6 @@ async function handleGitBackup(getCurrentVault, getGitSettings, commitMsg) {
     if (!vaultPath) return fail('Vaultが設定されていません', 'git-backup');
     if (!await isGitAvailable()) return fail('Gitがインストールされていません', 'git-backup');
     if (!fs.existsSync(path.join(vaultPath, '.git'))) return fail('Git初期化が必要です', 'git-backup');
-
-    // safe.directory をグローバル設定に登録（"dubious ownership" エラーを確実に回避）
-    await ensureSafeDirectory(vaultPath);
 
     // 古いロックファイルを除去（5秒以上前のもの）
     clearGitLocks(vaultPath);
