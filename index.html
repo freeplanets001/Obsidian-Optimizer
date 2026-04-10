@@ -3729,6 +3729,11 @@
                 <span>📂 Inbox: </span><span id="inbox-wizard-path-label" style="font-family:monospace">検索中...</span>
                 <button class="ghost-btn" id="btn-inbox-change-folder" style="margin-left:auto;font-size:.72rem;padding:1px 8px">変更</button>
             </div>
+            <div id="inbox-folder-input-row" style="display:none;margin-bottom:8px;gap:6px;flex-wrap:wrap;align-items:center">
+                <input id="inbox-folder-input" type="text" placeholder="フォルダ名を入力（例: 00 Inbox）" style="flex:1;min-width:180px;padding:5px 10px;border-radius:6px;border:1px solid rgba(124,108,248,.4);background:rgba(255,255,255,.06);color:inherit;font-size:.82rem" />
+                <button class="primary-btn" id="btn-inbox-folder-confirm" style="padding:4px 14px;font-size:.82rem">決定</button>
+                <button class="ghost-btn" id="btn-inbox-folder-cancel" style="padding:4px 10px;font-size:.82rem">キャンセル</button>
+            </div>
             <div id="inbox-wizard-progress" style="font-size:.82rem;opacity:.7;margin-bottom:16px;padding:8px 12px;background:rgba(255,255,255,.05);border-radius:8px">0 / 0件処理済み</div>
             <div style="margin-bottom:16px;padding:12px;background:rgba(255,255,255,.04);border-radius:10px">
                 <div id="inbox-note-title" style="font-size:.95rem;font-weight:600;margin-bottom:6px"></div>

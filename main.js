@@ -11407,7 +11407,7 @@ ipcMain.handle('get-inbox-notes', async () => {
     if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
     try {
         // config.inboxFolder 優先、なければ候補を順番に探す
-        const cfg = getConfig();
+        const cfg = config;
         const inboxCandidates = cfg.inboxFolder
             ? [cfg.inboxFolder]
             : ['00 Inbox', 'Inbox', '00_Inbox', 'inbox', '0 Inbox', '01 Inbox', '_Inbox', 'INBOX'];
@@ -11519,15 +11519,13 @@ ipcMain.handle('delete-inbox-note', async (_, { filePath }) => {
 
 // デイリーノートテンプレート取得・保存
 ipcMain.handle('get-daily-note-template', async () => {
-    const cfg = getConfig();
-    return { success: true, template: cfg.dailyNoteTemplate || '' };
+    return { success: true, template: config.dailyNoteTemplate || '' };
 });
 
 ipcMain.handle('save-daily-note-template', async (_, { template }) => {
     try {
-        const cfg = getConfig();
-        cfg.dailyNoteTemplate = template;
-        saveConfig(cfg);
+        config.dailyNoteTemplate = template;
+        saveConfig(config);
         return { success: true };
     } catch (e) {
         return { success: false, error: e.message };

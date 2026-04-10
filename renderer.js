@@ -12612,6 +12612,10 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
     const skipBtn = $('btn-inbox-skip');
     const folderSelect = $('inbox-wizard-folder-select');
     const doneEl = $('inbox-wizard-done');
+    const folderInputRow = $('inbox-folder-input-row');
+    const folderInput = $('inbox-folder-input');
+    const folderConfirmBtn = $('btn-inbox-folder-confirm');
+    const folderCancelBtn = $('btn-inbox-folder-cancel');
     let notes = [];
     let currentIndex = 0;
     let processed = 0;
@@ -12696,25 +12700,51 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
         } catch (e) { /* スキップ */ }
     }
 
-    // Inboxフォルダ変更ボタン
+    // Inboxフォルダ変更ボタン → インライン入力欄を表示
     if (changeFolderBtn) {
         changeFolderBtn.addEventListener('click', async () => {
+            if (!folderInputRow) return;
+            // フォルダ候補を読み込んでplaceholderに反映
             if (allVaultFolders.length === 0) {
-                const res = await window.api.getVaultFolders();
-                allVaultFolders = ((res && res.folders) ? res.folders : (Array.isArray(res) ? res : []));
+                try {
+                    const res = await window.api.getVaultFolders();
+                    allVaultFolders = ((res && res.folders) ? res.folders : (Array.isArray(res) ? res : []));
+                } catch (_) {}
             }
-            const selected = prompt('Inboxフォルダ名を入力してください（例: 00 Inbox）\n\n利用可能なフォルダ:\n' + allVaultFolders.slice(0, 20).join('\n'));
-            if (!selected) return;
-            currentIndex = 0;
-            processed = 0;
-            notes = [];
-            inboxError = false;
-            if (doneEl) doneEl.style.display = 'none';
-            [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = ''; });
-            await loadNotes(selected);
-            if (!inboxError) showCurrent();
+            if (folderInput && allVaultFolders.length > 0) {
+                folderInput.placeholder = '例: ' + (allVaultFolders[0] || '00 Inbox');
+            }
+            if (folderInput) folderInput.value = '';
+            folderInputRow.style.display = 'flex';
+            if (folderInput) folderInput.focus();
         });
     }
+
+    async function applyFolderChange() {
+        if (!folderInput) return;
+        const selected = folderInput.value.trim();
+        if (!selected) return;
+        if (folderInputRow) folderInputRow.style.display = 'none';
+        currentIndex = 0;
+        processed = 0;
+        notes = [];
+        inboxError = false;
+        if (doneEl) doneEl.style.display = 'none';
+        if (progressEl) progressEl.textContent = '読み込み中...';
+        [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = ''; });
+        await loadNotes(selected);
+        await loadFolders();
+        if (!inboxError) showCurrent();
+    }
+
+    if (folderConfirmBtn) folderConfirmBtn.addEventListener('click', applyFolderChange);
+    if (folderCancelBtn) folderCancelBtn.addEventListener('click', () => {
+        if (folderInputRow) folderInputRow.style.display = 'none';
+    });
+    if (folderInput) folderInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') applyFolderChange();
+        if (e.key === 'Escape' && folderInputRow) folderInputRow.style.display = 'none';
+    });
 
     function showCurrent() {
         if (!progressEl) return;
