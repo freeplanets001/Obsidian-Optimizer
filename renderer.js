@@ -5770,7 +5770,7 @@ async function aiTranslateNote(filePath, targetLang, targetEl) {
     try {
         const res = await window.api.aiTranslateNote({ filePath, targetLang });
         if (res.success) {
-            targetEl.innerHTML = '<div class="ai-result-box"><strong>🌐 翻訳完了:</strong> <a href="#" onclick="window.api.openPath(\'' + esc(res.translatedPath).replace(/'/g, "\\'") + '\');return false;" style="color:var(--accent)">' + esc(res.translatedPath.split('/').pop()) + '</a><br><pre style="white-space:pre-wrap;margin-top:8px;max-height:200px;overflow:auto;font-size:.8rem">' + esc(res.content.slice(0, 500)) + (res.content.length > 500 ? '\n...(省略)' : '') + '</pre></div>';
+            targetEl.innerHTML = '<div class="ai-result-box"><strong>🌐 翻訳完了:</strong> <a href="#" onclick="window.api.openPath(\'' + escPath(res.translatedPath) + '\');return false;" style="color:var(--accent)">' + esc(res.translatedPath.split('/').pop()) + '</a><br><pre style="white-space:pre-wrap;margin-top:8px;max-height:200px;overflow:auto;font-size:.8rem">' + esc(res.content.slice(0, 500)) + (res.content.length > 500 ? '\n...(省略)' : '') + '</pre></div>';
             addLog('🌐 翻訳完了: ' + res.translatedPath.split('/').pop(), 'success');
         } else {
             targetEl.innerHTML = '<div class="ai-result-box ai-error">❌ ' + esc(res.error) + '</div>';
@@ -5850,7 +5850,7 @@ async function aiSmartSearch() {
                         + '<span style="font-size:.72rem;padding:2px 8px;border-radius:10px;background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44">' + esc(r.relevance) + '</span>'
                         + '</div>'
                         + '<div style="font-size:.78rem;opacity:.7">' + esc(r.reason) + '</div>'
-                        + (r.path ? '<a href="#" onclick="window.api.openPath(\'' + esc(r.path).replace(/'/g, "\\'") + '\');return false;" style="font-size:.72rem;color:var(--accent);margin-top:4px;display:inline-block">📂 開く</a>' : '')
+                        + (r.path ? '<a href="#" onclick="window.api.openPath(\'' + escPath(r.path) + '\');return false;" style="font-size:.72rem;color:var(--accent);margin-top:4px;display:inline-block">📂 開く</a>' : '')
                         + '</div>';
                 });
                 resultsEl.innerHTML = html;
@@ -12613,6 +12613,7 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
     let notes = [];
     let currentIndex = 0;
     let processed = 0;
+    let inboxError = false;
 
     async function openWizard() {
         if (!modal) return;
@@ -12620,11 +12621,12 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
         currentIndex = 0;
         processed = 0;
         notes = [];
+        inboxError = false;
         if (doneEl) doneEl.style.display = 'none';
         [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = ''; });
         await loadNotes();
         await loadFolders();
-        showCurrent();
+        if (!inboxError) showCurrent();
     }
 
     async function loadNotes() {
@@ -12632,8 +12634,11 @@ if (window.api && window.api.onQuickCaptureFocus === undefined) {
             const res = await window.api.getInboxNotes();
             if (res && res.inboxMissing) {
                 notes = [];
-                if (titleEl) titleEl.textContent = '⚠️ Inboxフォルダが見つかりません';
+                inboxError = true;
+                if (progressEl) progressEl.textContent = '⚠️ Inboxフォルダが見つかりません';
+                if (titleEl) titleEl.textContent = '';
                 if (previewEl) previewEl.textContent = '「00 Inbox」「Inbox」などのフォルダをVault内に作成してください。';
+                [moveBtn, deleteBtn, skipBtn, folderSelect].forEach(el => { if (el) el.style.display = 'none'; });
                 return;
             }
             if (!res || !res.success) {

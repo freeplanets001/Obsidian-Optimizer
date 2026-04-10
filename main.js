@@ -11419,6 +11419,14 @@ ipcMain.handle('get-inbox-notes', async () => {
                 break;
             }
         }
+        // 固定候補で見つからない場合: "inbox"を含むフォルダを大文字小文字無視で検索
+        if (!inboxDir) {
+            const topDirs = fs.readdirSync(vaultPath, { withFileTypes: true })
+                .filter(e => e.isDirectory() && e.name.toLowerCase().includes('inbox'));
+            if (topDirs.length > 0) {
+                inboxDir = path.join(vaultPath, topDirs[0].name);
+            }
+        }
         if (!inboxDir) return { success: true, notes: [], inboxMissing: true };
         const entries = fs.readdirSync(inboxDir)
             .filter(f => f.endsWith('.md') && !f.startsWith('_MOC') && !f.startsWith('.'));
@@ -11449,7 +11457,7 @@ ipcMain.handle('delete-inbox-note', async (_, { filePath }) => {
     const vaultPath = getCurrentVault();
     if (!vaultPath) return { success: false, error: 'Vaultが設定されていません' };
     try {
-        if (!filePath.startsWith(vaultPath)) return { success: false, error: '不正なパスです' };
+        if (!isPathInsideVault(filePath)) return { success: false, error: '不正なパスです' };
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         return { success: true };
     } catch (e) {
